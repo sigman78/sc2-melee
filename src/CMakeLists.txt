@@ -24,6 +24,7 @@ add_library(uqm2_content STATIC
 	engine/content/ResourceMap.cpp
 	platform/File.cpp
 	sim/Collision.cpp
+	sim/Velocity.cpp
 )
 
 target_include_directories(uqm2_content PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

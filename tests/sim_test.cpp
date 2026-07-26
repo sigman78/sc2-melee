@@ -10,6 +10,7 @@
 #include "sim/EntityList.hpp"
 #include "sim/Random.hpp"
 #include "sim/Trig.hpp"
+#include "sim/Velocity.hpp"
 #include "sim/World.hpp"
 
 #include <cstdio>
@@ -520,11 +521,97 @@ testCollisionEdgeCases()
 	CHECK(!sweptIntersect(b0, none), "either way round");
 }
 
+// --------------------------------------------------------------------------
+// Velocity
+
+void
+testVelocityCarriesSubUnitDrift()
+{
+	// The reason velocity is fixed point with a carried error rather than a
+	// rounded integer: a drift slower than one world unit per frame still has
+	// to move. A truncating implementation would round it to zero and the
+	// object would hang in space forever.
+	Velocity v;
+	v.setComponents(1, 0);  // 1/32 of a world unit per frame
+	CHECK(v.current().x == 1, "a sub-unit component survives being set");
+
+	std::int32_t travelled = 0;
+	for (int f = 0; f < 32; ++f)
+		travelled += v.advance(1).x;
+	CHECK(travelled == 1,
+			"1/32 per frame should cover exactly one unit in 32 frames, got %ld",
+			static_cast<long>(travelled));
+
+	// ...and the same total whether taken in one step or many, since the
+	// error is carried rather than discarded.
+	Velocity bulk;
+	bulk.setComponents(1, 0);
+	CHECK(bulk.advance(32).x == 1, "one 32-frame step covers the same ground");
+}
+
+void
+testVelocityNegativeEncoding()
+{
+	// The sign lives in a packed byte, and reconstruction has to recover it
+	// exactly -- including the fractional part, which is where the doubled
+	// remainder in the high byte earns its keep.
+	for (std::int32_t v = -200; v <= 200; ++v)
+	{
+		Velocity vel;
+		vel.setComponents(v, -v);
+		const Vec2i got = vel.current();
+		CHECK(got.x == v && got.y == -v,
+				"components (%ld, %ld) should round-trip, got (%ld, %ld)",
+				static_cast<long>(v), static_cast<long>(-v),
+				static_cast<long>(got.x), static_cast<long>(got.y));
+	}
+
+	// A negative drift accumulates in the right direction.
+	Velocity down;
+	down.setComponents(0, -1);
+	std::int32_t travelled = 0;
+	for (int f = 0; f < 32; ++f)
+		travelled += down.advance(1).y;
+	CHECK(travelled == -1, "negative sub-unit drift should move -1, got %ld",
+			static_cast<long>(travelled));
+}
+
+void
+testVelocityAngles()
+{
+	// setVector keeps the *facing* as authoritative, so a zero magnitude
+	// still remembers which way the object points...
+	Velocity aimed;
+	aimed.setVector(0, 4);
+	CHECK(aimed.travelAngle() == facingToAngle(4),
+			"a zero-magnitude vector keeps its facing");
+
+	// ...whereas setComponents derives the angle, and a zero vector reports
+	// ARCTAN's "no direction" sentinel rather than "up".
+	Velocity stopped;
+	stopped.setComponents(0, 0);
+	CHECK(stopped.travelAngle() == kFullCircle,
+			"a stopped object has no travel angle, got %d",
+			stopped.travelAngle());
+	CHECK(stopped.isZero(), "and is zero");
+
+	// deltaComponents adds to what is there.
+	Velocity v;
+	v.setComponents(100, 0);
+	v.deltaComponents(-100, 50);
+	const Vec2i got = v.current();
+	CHECK(got.x == 0 && got.y == 50, "delta should sum, got (%ld, %ld)",
+			static_cast<long>(got.x), static_cast<long>(got.y));
+}
+
 }  // namespace
 
 int
 main()
 {
+	testVelocityCarriesSubUnitDrift();
+	testVelocityNegativeEncoding();
+	testVelocityAngles();
 	testCollisionNeedsNoGraphicsContext();
 	testCollisionBasics();
 	testCollisionIsPerPixelNotBoxes();
