@@ -9,6 +9,7 @@
 #include "sim/Collision.hpp"
 #include "sim/EntityList.hpp"
 #include "sim/Random.hpp"
+#include "sim/Thrust.hpp"
 #include "sim/Trig.hpp"
 #include "sim/Velocity.hpp"
 #include "sim/World.hpp"
@@ -604,11 +605,118 @@ testVelocityAngles()
 			static_cast<long>(got.x), static_cast<long>(got.y));
 }
 
+// --------------------------------------------------------------------------
+// Thrust
+
+void
+testThrustTakesItsFacingAsAnArgument()
+{
+	// The whole point of the primitive: thrusting somewhere other than where
+	// the ship points needs no save/overwrite/restore of a global. Supox's
+	// omni-thrust is "pick a facing delta, call thrust", and this is that
+	// call being possible at all.
+	constexpr ThrustProfile cruiser{24, 3};
+
+	Velocity forward;
+	Velocity backward;
+	const SpeedState a = thrust(forward, 0, cruiser, ThrustState{});
+	const SpeedState b = thrust(backward, 8, cruiser, ThrustState{});
+	CHECK(a == SpeedState::Normal && b == SpeedState::Normal,
+			"a single frame of thrust from rest is normal acceleration");
+
+	// Opposite facings give opposite velocities, to within the table's
+	// one-count floor asymmetry.
+	const Vec2i f = forward.current();
+	const Vec2i r = backward.current();
+	CHECK(f.y < 0, "facing 0 is up, so thrusting it goes -y (got %ld)",
+			static_cast<long>(f.y));
+	CHECK(r.y > 0, "facing 8 is down (got %ld)", static_cast<long>(r.y));
+	CHECK(f.y + r.y >= -1 && f.y + r.y <= 1,
+			"opposite thrusts should cancel to within a count, got %ld",
+			static_cast<long>(f.y + r.y));
+}
+
+void
+testThrustReachesAndHoldsMaxSpeed()
+{
+	constexpr ThrustProfile cruiser{24, 3};
+
+	Velocity v;
+	ThrustState st;
+	int frames = 0;
+	while (st.speed == SpeedState::Normal && frames < 100)
+	{
+		st.speed = thrust(v, 0, cruiser, st);
+		++frames;
+	}
+	CHECK(st.speed == SpeedState::AtMax,
+			"a cruiser accelerating in a straight line should reach max");
+	CHECK(frames > 1 && frames < 100,
+			"and should take several frames to do it, took %d", frames);
+
+	// Once there, further thrust along the same heading is a no-op and the
+	// state stays put -- this is the early-out the C takes.
+	const Vec2i atMax = v.current();
+	st.speed = thrust(v, 0, cruiser, st);
+	CHECK(st.speed == SpeedState::AtMax, "still at max");
+	CHECK(v.current() == atMax, "and the velocity does not creep upward");
+}
+
+void
+testInertialessThrustIsInstant()
+{
+	// The Skiff: thrust_increment == max_thrust, so it reaches full speed in
+	// one frame and can never be beyond max. The C tests the equality rather
+	// than carrying a flag, and so does this.
+	constexpr ThrustProfile skiff{40, 40};
+	CHECK(skiff.inertialess(), "equal increment and max means inertialess");
+
+	Velocity v;
+	const SpeedState s = thrust(v, 4, skiff, ThrustState{});
+	CHECK(s == SpeedState::AtMax, "a skiff is at max after one frame");
+
+	// And it turns on a pin: a new facing replaces the vector outright
+	// rather than being integrated into it.
+	const SpeedState s2 = thrust(v, 12, skiff, ThrustState{s, false});
+	CHECK(s2 == SpeedState::AtMax, "still at max after reversing");
+	CHECK(v.travelAngle() == facingToAngle(12),
+			"and travels the new way immediately");
+}
+
+void
+testGravityWellAllowsExceedingMax()
+{
+	constexpr ThrustProfile cruiser{24, 3};
+
+	// Get up to the ship's own maximum first.
+	Velocity v;
+	ThrustState st;
+	for (int i = 0; i < 60 && st.speed == SpeedState::Normal; ++i)
+		st.speed = thrust(v, 0, cruiser, st);
+	CHECK(st.speed == SpeedState::AtMax, "at max before the well");
+
+	// Inside a well, thrust keeps adding speed past the ship's maximum, up to
+	// the hard ceiling. That is what a gravity whip is.
+	st.inGravityWell = true;
+	const Vec2i before = v.current();
+	st.speed = thrust(v, 0, cruiser, st);
+	CHECK(st.speed == SpeedState::BeyondMax,
+			"a well should push the ship beyond its own maximum");
+	const Vec2i after = v.current();
+	CHECK(after.y < before.y,
+			"and it should actually be faster (%ld -> %ld)",
+			static_cast<long>(before.y), static_cast<long>(after.y));
+}
+
 }  // namespace
 
 int
 main()
 {
+	testThrustTakesItsFacingAsAnArgument();
+	testThrustReachesAndHoldsMaxSpeed();
+	testInertialessThrustIsInstant();
+	testGravityWellAllowsExceedingMax();
 	testVelocityCarriesSubUnitDrift();
 	testVelocityNegativeEncoding();
 	testVelocityAngles();
