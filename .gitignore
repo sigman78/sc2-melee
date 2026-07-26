@@ -1,0 +1,16 @@
+.DS_Store
+*.app
+
+# CMake (CMakePresets.json puts every preset under build/<preset>/)
+/build/
+CMakeUserPresets.json
+
+# Agent worktrees (see docs/unthread.md; created by tooling, never committed)
+# and JSPI spike build artifacts
+.claude/worktrees/
+spike/*/*.js
+spike/*/*.wasm
+spike/*/index.html
+
+# Static-hosting bundle assembled by tools/wasm-dist.sh
+dist/

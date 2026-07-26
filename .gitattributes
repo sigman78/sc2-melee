@@ -1,0 +1,5 @@
+# Scripts run by CI on Linux; a CRLF shebang is a "bad interpreter" error
+# there, so pin them regardless of anyone's core.autocrlf setting.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.yml   text eol=lf

@@ -1,0 +1,123 @@
+name: build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux and macOS install the dependencies, exercising the
+          # find_package half of find-or-fetch. Windows installs nothing,
+          # exercising the fetch half. Between them both paths stay honest.
+          - { os: ubuntu-latest, name: 'linux (gcc, system deps)' }
+          - { os: macos-latest, name: 'macos (clang, system deps)' }
+          - { os: windows-latest, name: 'windows (msvc, fetched deps)' }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # libsdl3-dev is not in the runner images yet, so SDL3 is built from
+      # source here and needs its own X11/Wayland build dependencies. The
+      # other libraries are installed so the find_package half of
+      # find-or-fetch still gets exercised.
+      - name: Install build tools and dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libpng-dev zlib1g-dev libogg-dev libvorbis-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
+
+      - name: Install build tools and dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja libpng libogg libvorbis
+
+      # Ninja needs the MSVC environment; the Visual Studio generator would
+      # not. Pinned to the v1.9.0 commit rather than the moving tag.
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@7defe9254715b088f12dddd9942945a3d75cdad5
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/dev/_deps
+          key: deps-${{ runner.os }}-${{ hashFiles('cmake/Dependencies.cmake') }}
+          restore-keys: deps-${{ runner.os }}-
+
+      - name: Configure
+        run: cmake --preset dev
+
+      - name: Build
+        run: cmake --build --preset dev
+
+      # coroutine_test pins the resume semantics of libs/coroutine.h, which
+      # every Phase 2 conversion is written in. Building it is not enough --
+      # Duff's device can compile everywhere and still resume wrongly.
+      - name: Test
+        run: ctest --preset dev --output-on-failure
+
+      # Exercises option parsing and startup without needing content.
+      # UQM_NO_MSGBOX matters: on Windows and macOS the end-of-run log box is
+      # a modal dialog and would hang the job forever.
+      - name: Smoke test
+        env:
+          UQM_NO_MSGBOX: '1'
+        shell: bash
+        run: |
+          bin=build/dev/uqm
+          [ -f "$bin.exe" ] && bin="$bin.exe"
+          "$bin" --version
+
+  burndown:
+    name: un-threading burn-down
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The gate for docs/unthread.md §7.6: the flip cannot happen while
+      # anything still blocks mid-function. The budget only ever moves down --
+      # lower it in the same commit that removes the sites.
+      - name: Count blocking sites
+        run: tools/unthread-burndown.sh --max 47
+
+  wasm:
+    name: wasm (emscripten)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Configure
+        run: cmake --preset wasm
+
+      # Links the whole game plus SDL3/zlib/libpng/ogg/vorbis for wasm. There
+      # is no smoke test here: running it needs a browser with
+      # SharedArrayBuffer, which is what docs/unthread.md §7.6 removes.
+      - name: Build
+        run: cmake --build --preset wasm
+
+      - name: Check the artifacts exist
+        run: |
+          ls -l build/wasm/uqm.html build/wasm/uqm.js build/wasm/uqm.wasm build/wasm/uqm.data
