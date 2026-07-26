@@ -96,6 +96,21 @@ jobs:
       - name: Count blocking sites
         run: tools/unthread-burndown.sh --max 47
 
+  content:
+    name: content alignment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A hard gate from the first commit (docs/game-rewrite-plan.md,
+      # "Verification" 2). Phrase binding is by ordinal, so 27 strings.h files
+      # have to stay in lockstep with the line order of 27 .txt files and
+      # nothing in the build checks it: insert one phrase in the middle of a
+      # .txt and every alien after it says the wrong line, with no crash and
+      # no warning. Needs no build -- it reads the tree.
+      - name: Check phrase alignment
+        run: python3 tools/check-phrases.py --verbose
+
   wasm:
     name: wasm (emscripten)
     runs-on: ubuntu-latest
