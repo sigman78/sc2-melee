@@ -2,31 +2,14 @@
 
 #include "PhraseFile.hpp"
 
+#include "engine/core/Text.hpp"
+
+#include <optional>
+
 namespace uqm::content {
 
 namespace {
 
-std::string_view
-trimRight(std::string_view s)
-{
-	while (!s.empty()
-			&& (s.back() == '\r' || s.back() == '\n' || s.back() == ' '
-					|| s.back() == '\t'))
-		s.remove_suffix(1);
-	return s;
-}
-
-std::string_view
-nextLine(std::string_view &text)
-{
-	const std::size_t nl = text.find('\n');
-	const std::string_view line = text.substr(0, nl);
-	text = (nl == std::string_view::npos) ? std::string_view{}
-										  : text.substr(nl + 1);
-	return line;
-}
-
-// "#(NAME)\tclip.ogg" -> name and clip. nullopt when the line is not a header.
 struct Header
 {
 	std::string_view name;
@@ -34,12 +17,13 @@ struct Header
 };
 
 // One strtok step: skip leading delimiters, then take everything up to the
-// next one. Returns nullopt for "no token left", which is what strtok's NULL
-// means and which the caller has to distinguish from "empty token".
+// next one. nullopt is strtok's NULL -- "no token at all" -- which the caller
+// has to tell apart from "empty token".
 std::optional<std::string_view>
-strtokStep(std::string_view &rest, std::string_view delims)
+strtokStep(std::string_view &rest, std::string_view delims) noexcept
 {
-	while (!rest.empty() && delims.find(rest.front()) != std::string_view::npos)
+	while (!rest.empty()
+			&& delims.find(rest.front()) != std::string_view::npos)
 		rest.remove_prefix(1);
 	if (rest.empty())
 		return std::nullopt;
@@ -58,8 +42,8 @@ strtokStep(std::string_view &rest, std::string_view delims)
 //   "#()"                -> no token at all; strtok skips both parens and
 //                           runs off the end, so `if (s)` fails and the line
 //                           is skipped *entirely* -- not appended as body
-//                           text either, because the `else if` is on the
-//                           other arm of the same `if (line[0] == '#')`.
+//                           text either, because the append is the `else if`
+//                           arm of the same `if (line[0] == '#')`.
 //                           base/gamestrings.txt relies on this; treating
 //                           these as empty-named phrases would shift every
 //                           ordinal after them.
@@ -67,7 +51,7 @@ strtokStep(std::string_view &rest, std::string_view delims)
 //                           phrase header with a silly name, not a comment.
 //                           There are no comments in this format.
 std::optional<Header>
-parseHeader(std::string_view line)
+parseHeader(std::string_view line) noexcept
 {
 	if (line.empty() || line.front() != '#')
 		return std::nullopt;
@@ -77,117 +61,145 @@ parseHeader(std::string_view line)
 	if (!name)
 		return std::nullopt;
 
-	Header h;
-	h.name = *name;
 	// The C's second strtok, with a different delimiter set.
-	h.clip = strtokStep(rest, " \t\r\n)").value_or(std::string_view{});
-	return h;
+	return Header{*name, strtokStep(rest, " \t\r\n)").value_or(std::string_view{})};
 }
 
 }  // namespace
 
-std::optional<std::size_t>
-PhraseFile::indexOf(std::string_view name) const
+const Phrase *
+PhraseFile::byName(std::string_view name) const noexcept
 {
-	for (std::size_t i = 0; i < phrases.size(); ++i)
-	{
-		if (phrases[i].name == name)
-			return i;
-	}
-	return std::nullopt;
+	for (const Phrase &p : phrases_)
+		if (p.name == name)
+			return &p;
+	return nullptr;
 }
 
 const Phrase *
-PhraseFile::byOrdinal(std::size_t ordinal) const
+PhraseFile::byOrdinal(std::size_t ordinal) const noexcept
 {
-	if (ordinal == 0 || ordinal > phrases.size())
+	if (ordinal == 0 || ordinal > phrases_.size())
 		return nullptr;
-	return &phrases[ordinal - 1];
+	return &phrases_[ordinal - 1];
 }
 
 PhraseFile
-parsePhrases(std::string_view text, std::vector<std::string> &problems)
+parsePhrases(std::string_view text, std::vector<ContentError> *problems)
 {
 	PhraseFile file;
-	std::size_t lineNo = 0;
-	std::string body;
-	bool open = false;
 
-	const auto flush = [&] () {
-		if (!open)
-			return;
-		// getstr.c:284-292 walks back over trailing newlines.
-		std::string_view trimmed = trimRight(body);
-		file.phrases.back().text = std::string(trimmed);
-		body.clear();
+	// The body is a view rather than a rebuilt string: remember where it
+	// starts and where its last non-blank line ends, which is also how
+	// getstr.c:284-292 trims.
+	//
+	// A view requires the body to be contiguous, and there is exactly one way
+	// it might not be: the C *drops* a "#()" line and appends what follows to
+	// the same phrase, so a slice would wrongly include the "#()" itself. In
+	// every file in the tree a "#()" is followed only by blank lines, which
+	// the trailing trim removes anyway, so the view is exact. `skipped`
+	// tracks the case that would break it, and it is reported rather than
+	// silently mis-sliced.
+	const char *bodyBegin = nullptr;
+	const char *bodyEnd = nullptr;
+	bool skippedInBody = false;
+
+	const auto closeBody = [&] {
+		if (!file.phrases_.empty() && bodyBegin != nullptr && bodyEnd != nullptr)
+		{
+			file.phrases_.back().text = std::string_view(
+					bodyBegin, static_cast<std::size_t>(bodyEnd - bodyBegin));
+		}
+		bodyBegin = nullptr;
+		bodyEnd = nullptr;
+		skippedInBody = false;
 	};
 
-	while (!text.empty())
-	{
-		++lineNo;
-		const std::string_view line = nextLine(text);
-
+	forEachLine(text, [&](std::string_view line, std::size_t lineNo) {
 		// The C branches on line[0] == '#' first and only then asks whether a
 		// name came out of it. A '#' line that yields no name is dropped on
-		// the floor -- it never reaches the append branch. Mirroring that
-		// structure, rather than just the successful case, is what keeps
-		// "#()" from becoming body text.
+		// the floor -- it never reaches the append branch.
 		if (!line.empty() && line.front() == '#')
 		{
 			const auto header = parseHeader(line);
 			if (!header)
-				continue;
+			{
+				// A "#()" the C drops. Harmless at the end of a body, fatal
+				// to a contiguous view if real text follows it.
+				if (bodyBegin != nullptr)
+					skippedInBody = true;
+				return;
+			}
 
-			flush();
-			Phrase p;
-			p.name = std::string(header->name);
-			p.clip = std::string(header->clip);
-			file.phrases.push_back(std::move(p));
-			open = true;
+			closeBody();
+			file.phrases_.push_back(Phrase{header->name, {}, header->clip, {}});
+			return;
 		}
-		else if (open)
+
+		if (file.phrases_.empty())
 		{
-			body.append(trimRight(line));
-			body.push_back('\n');
+			if (!trim(line).empty() && problems != nullptr)
+			{
+				// Text before the first #(NAME); the C drops it.
+				problems->emplace_back(ContentErrorCode::BadFieldCount,
+						static_cast<std::uint32_t>(lineNo));
+			}
+			return;
 		}
-		else if (!trimRight(line).empty())
+
+		if (bodyBegin == nullptr)
+			bodyBegin = line.data();
+		if (!trim(line).empty())
 		{
-			problems.emplace_back("line " + std::to_string(lineNo)
-					+ ": text before the first #(NAME); the C drops it");
+			if (skippedInBody && problems != nullptr)
+			{
+				// Text after a dropped "#()" in the same phrase. The C
+				// concatenates across it; a view cannot, so say so rather
+				// than hand back a body with a stray "#()" inside it.
+				problems->emplace_back(ContentErrorCode::WrongSize,
+						static_cast<std::uint32_t>(lineNo));
+			}
+			skippedInBody = false;
+			bodyEnd = line.data() + line.size();
 		}
-	}
-	flush();
+	});
+	closeBody();
 
 	return file;
 }
 
 bool
 attachTimestamps(PhraseFile &file, std::string_view ts,
-		std::vector<std::string> &problems)
+		std::vector<ContentError> *problems)
 {
-	std::vector<std::string> collected;
-	collected.reserve(file.phrases.size());
+	using enum ContentErrorCode;
+
+	const auto note = [problems](ContentErrorCode code, std::size_t at) {
+		if (problems != nullptr)
+			problems->emplace_back(code, static_cast<std::uint32_t>(at));
+	};
+
+	// Collected first, applied only on success: the C's failure mode is to
+	// discard every timestamp for the race, so a half-populated file would
+	// not be reproducing it.
+	std::vector<std::string_view> collected;
+	collected.reserve(file.size());
 
 	std::string_view rest = ts;
-	for (std::size_t i = 0; i < file.phrases.size(); ++i)
+	for (std::size_t i = 0; i < file.size(); ++i)
 	{
+		const std::string_view name = file[i].name;
+
 		if (rest.empty())
 		{
-			problems.emplace_back("timestamps run out at phrase "
-					+ std::to_string(i + 1) + " ("
-					+ file.phrases[i].name
-					+ "); the C disables every timestamp for this race");
+			note(TooShort, i + 1);
 			return false;
 		}
 
 		const std::string_view line = trimRight(nextLine(rest));
-		const std::string &name = file.phrases[i].name;
-
 		if (line.empty() || line.front() != '#')
 		{
-			problems.emplace_back("timestamp line " + std::to_string(i + 1)
-					+ " is not a #(NAME) line; the C disables every timestamp "
-					  "for this race");
+			note(BadFieldCount, i + 1);
 			return false;
 		}
 
@@ -195,26 +207,17 @@ attachTimestamps(PhraseFile &file, std::string_view ts,
 		const std::size_t at = line.find(name);
 		if (at == std::string_view::npos)
 		{
-			problems.emplace_back("timestamp line " + std::to_string(i + 1)
-					+ " does not mention " + name
-					+ "; the C disables every timestamp for this race");
+			note(NonNumericField, i + 1);
 			return false;
 		}
 
-		// The substring match the C never notices. It finds the name inside a
-		// longer one, takes everything after it as the timing data, and
-		// stores garbage without a warning.
-		if (const auto header = parseHeader(line))
+		// The substring match the C never notices: it finds the name inside a
+		// longer one, takes everything after it as timing data, and stores
+		// garbage without a warning.
+		if (const auto header = parseHeader(line);
+				header && header->name != name)
 		{
-			if (header->name != name)
-			{
-				problems.emplace_back("timestamp line "
-						+ std::to_string(i + 1) + " names "
-						+ std::string(header->name) + " but phrase "
-						+ std::to_string(i + 1) + " is " + name
-						+ "; strstr matches anyway, so the C stores garbage "
-						  "timings silently");
-			}
+			note(WrongSize, i + 1);
 		}
 
 		std::string_view data = line.substr(at + name.size());
@@ -222,11 +225,11 @@ attachTimestamps(PhraseFile &file, std::string_view ts,
 				&& (data.front() == ' ' || data.front() == '\t'
 						|| data.front() == ')'))
 			data.remove_prefix(1);
-		collected.emplace_back(data);
+		collected.push_back(data);
 	}
 
-	for (std::size_t i = 0; i < file.phrases.size(); ++i)
-		file.phrases[i].timestamps = collected[i];
+	for (std::size_t i = 0; i < file.phrases_.size(); ++i)
+		file.phrases_[i].timestamps = collected[i];
 	return true;
 }
 

@@ -22,6 +22,7 @@ add_library(uqm2_content STATIC
 	engine/content/PhraseFile.cpp
 	engine/content/PngImage.cpp
 	engine/content/ResourceMap.cpp
+	platform/File.cpp
 )
 
 target_include_directories(uqm2_content PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -31,7 +32,12 @@ target_include_directories(uqm2_content PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 # leak into the library's own headers.
 target_link_libraries(uqm2_content PRIVATE uqm_spng)
 
-target_compile_features(uqm2_content PUBLIC cxx_std_20)
+# C++23 for std::expected and std::byteswap, both of which remove code rather
+# than add it (docs/cpp-conventions.md rules 1 and 2): expected replaces the
+# optional-plus-out-parameter idiom at every parser boundary, and byteswap
+# replaces the hand-written shift chains with an intrinsic. Verified on GCC
+# 15; the CI matrix is the first exercise of MSVC and Apple clang.
+target_compile_features(uqm2_content PUBLIC cxx_std_23)
 
 if(MSVC)
 	target_compile_options(uqm2_content PRIVATE /W4 /utf-8)

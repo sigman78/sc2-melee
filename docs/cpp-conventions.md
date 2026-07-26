@@ -1,9 +1,8 @@
 # C++ conventions for `src/`
 
 Rules for the green-field tree, from review of the first content-library
-commits. They are written down because the code that prompted them is still
-in the tree and does not follow them — see "Where the tree stands today" at
-the end, which is the work list.
+commits. `src/` follows all of them; `sc2/` is C, keeps its own conventions
+and is not being restyled.
 
 The through-line: **this is a game.** It runs a fixed simulation step against a
 frame deadline and ships to WASM, where every allocation, every copy and every
@@ -33,10 +32,13 @@ allocated once per field per record before anyone has looked at the data.
   than allocating one per call.
 
 **The C++ standard is a tool for this, not a badge.** Raise it whenever a
-newer standard removes an allocation or a copy. C++23 is confirmed on the
-local GCC 15 (`__cpp_lib_expected` 202211, `__cpp_lib_format` 202304); the CI
-matrix — Apple clang above all — has to be checked before the tree depends on
-either.
+newer standard removes an allocation or a copy. `src/` is C++23, for three
+things that each delete code rather than add it: `std::expected` (rule 2),
+`std::byteswap` (an intrinsic in place of shift chains) and `std::format`
+(tool-side messages, in place of `ostringstream`). Verified on the local
+GCC 15 — `__cpp_lib_expected` 202211, `__cpp_lib_format` 202304,
+`__cpp_lib_byteswap` 202110. The CI matrix, Apple clang above all, is the
+first exercise of any of it.
 
 ## 2. Errors: `std::expected`, not `optional` plus an out-parameter
 
@@ -95,8 +97,18 @@ applies to what parsers *produce*, not only what they consume: a parsed name
 is a view into the file buffer, and the buffer outlives it.
 
 Where a view is stored rather than passed, its lifetime is part of the type's
-contract and is stated in a comment. `BinaryTable` already holds spans into a
-caller's buffer; that is the right shape and the wrong amount of documentation.
+contract and says so in a `LIFETIME:` comment on the type. Every parsed name,
+path and phrase body in `engine/content/` is a view into the file buffer the
+caller still holds.
+
+One caveat worth knowing, because it cost a test: **a view has to be
+contiguous, and a parse result is not always a slice.** The C drops a `#()`
+line from a phrase file and concatenates across it, which no single view can
+express. In every shipped file the dropped line is followed only by blank
+lines, so trailing-trim makes the view exact — and `parsePhrases` reports the
+case it cannot represent instead of silently handing back a body with a stray
+`#()` inside. When a view cannot model the semantics, say so loudly; do not
+quietly approximate.
 
 ## 6. Big resources move; they do not copy
 
@@ -130,7 +142,21 @@ void set (Vec2u at, Rgb c);
 Small, `constexpr`, trivially copyable, no virtuals, no allocation:
 `Vec2<T>` for points and offsets, `Extent2<T>` for sizes, and a range type for
 the `first`/`last` pairs the colour tables are full of. These live in
-`engine/` (or lower) so `sim/` can use them without reaching upward.
+`engine/core/` so `sim/` can use them without reaching upward.
+
+`Extent2` is deliberately not `Vec2`: adding two sizes is meaningless and
+`size.x` reads worse than `size.w`. The type separation is the point.
+
+**Name a type against the convention it breaks.** The range type is
+`ClosedRange`, not `Range`, because `[first, last]` is inclusive and every
+range in the standard library is half-open — a bare `Range{128, 255}` reads
+as half-open to any C++ programmer and is wrong by one everywhere. Closed is
+not a preference here, it is what the content is: `SetColorMap` loops
+`start <= end`, and a half-open version could not even represent the shipped
+content, since `planets/*.ct` ends at 255 and its exclusive end would be 256,
+which does not fit the `uint8_t` the format uses. It has no `begin()`/`end()`
+either, so it cannot be used in a range-for where the half-open assumption
+would be silent.
 
 ## 8. Use the language — lambdas and templates where they earn it
 
@@ -174,66 +200,26 @@ they are not calls.
 not being restyled; the first `src/` commits copied it out of habit. `src/` is
 new code and uses the rule above.
 
+Applied with a tokenizer, not a regex: a plain regex also rewrote English
+inside comments ("the plan (docs/…)" → "the plan(docs/…)") and text inside
+string literals. The two remaining ` (` in `src/` are a `>` comparison and a
+`>>` shift, which are correct as they stand.
+
 ---
 
-## Where the tree stands today
+## Where these live
 
-Written after the review, against `src/` as committed. Each is a defect
-against the rules above, not a style preference.
+```
+src/platform/File.hpp          rule 4 -- <filesystem> for paths, C stdio for bytes
+src/engine/core/Geometry.hpp   rule 7 -- Vec2, Extent2, ClosedRange
+src/engine/core/Text.hpp       rules 1, 8 -- forEachLine/forEachField/trim/parseInt,
+                                             one each instead of three
+src/engine/content/Bytes.hpp        rules 1, 8 -- readBE over std::byteswap
+src/engine/content/ContentError.hpp rules 2, 3 -- a code and three numbers, no prose
+src/app/browse/main.cpp             where the prose is, and the only place it is
+```
 
-**Allocation and copying (1, 5)**
+The split in rule 3 is visible in the file list: `ContentError` carries an
+enum and three integers, and every English sentence about content is formatted
+in `uqm2-browse` with `std::format` at the point it is printed.
 
-- `ColorTableEntry::palettes` is `std::vector<std::array<Rgb, 256>>`. Every
-  palette is 768 bytes and `base/uqm.ct` holds 136 of them, so parsing one
-  entry allocates and fills 104 KB that already exists, laid out identically,
-  in the source buffer. It should be a view.
-- `Cel::file`, `Phrase::{name,text,clip,timestamps}` and
-  `Resource::{type,path}` are all `std::string` copied out of a buffer the
-  caller already holds. 5,034 phrases × 4 strings is a lot of `malloc` to
-  answer "what is phrase 12 called".
-- `ResourceMap` is a `std::map<std::string, Resource>` — a node per key, 963
-  nodes, plus three strings each. A sorted flat array of views would be one
-  allocation and faster to search.
-- Every error path builds its message with `std::string` `operator+` chains.
-  Those allocate on failure and cost code size always.
-
-**Errors (2, 3)**
-
-- Every parser is `std::optional<T> (…, std::string &error)`. All should be
-  `std::expected<T, E>` with a small `E`, and the prose should move to
-  `uqm2-browse` and the tests.
-- `Canvas::set` silently drops out-of-bounds writes; that is an assert.
-- `readFile` returns an empty vector for "missing", "empty" and "unreadable"
-  alike, so callers cannot tell them apart and mostly do not try.
-
-**`<fstream>` (4)**
-
-- `readFile`/`readText`/`writeFile` in both `tests/content_test.cpp` and
-  `src/app/browse/main.cpp` use `ifstream`/`ofstream` with
-  `istreambuf_iterator`. Tool code, so lowest priority — but the same helper
-  will be wanted in the engine, and it should not be this one.
-
-**Ownership (6)**
-
-- `PngImage` holds up to megabytes in two vectors and is freely copyable.
-  Returning it by value moves, which is why nothing has gone wrong yet; one
-  `auto img = …` instead of `auto &img` is all it takes.
-
-**Compound types (7)**
-
-- `Cel::hotspotX/hotspotY`, `PngImage::width/height`, `Canvas::width/height`
-  and `Canvas::set(x, y, …)`, `Sheet::cellW/cellH`,
-  `ColorTableEntry::first/last`. None of these has a type yet.
-
-**Language use (8)**
-
-- `Bytes.hpp` hand-writes `readU8` and `readU32BE` as separate shift chains;
-  one `constexpr` `readBE<T>` covers both and the 16-bit case nobody has
-  needed yet.
-- `AniFile.cpp` has file-static `isSpace`, `fields` and `parseInt` used once
-  each; `PhraseFile.cpp` has `trimRight`, `nextLine`, `strtokStep`. Several
-  want to be lambdas, and the line-splitting duplicated between
-  `AniFile.cpp`, `PhraseFile.cpp` and `ResourceMap.cpp` wants to be one
-  `forEachLine` taking a callable.
-- Three separate "parse an integer / trim / split" implementations exist
-  across the four parsers.

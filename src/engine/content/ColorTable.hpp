@@ -4,66 +4,112 @@
 #define UQM2_ENGINE_CONTENT_COLORTABLE_HPP
 
 #include "Bytes.hpp"
+#include "ContentError.hpp"
+#include "engine/core/Geometry.hpp"
 
 #include <array>
 #include <cstdint>
-#include <optional>
-#include <string>
-#include <vector>
+#include <expected>
 
 namespace uqm::content {
 
 struct Rgb
 {
-	std::uint8_t r = 0, g = 0, b = 0;
+	std::uint8_t r = 0;
+	std::uint8_t g = 0;
+	std::uint8_t b = 0;
 
-	friend bool operator==(const Rgb &, const Rgb &) = default;
+	friend constexpr bool operator==(const Rgb &, const Rgb &) = default;
 };
 
 inline constexpr std::size_t kPaletteSize = 256;   // NUMBER_OF_PLUTVALS
+inline constexpr std::size_t kRgbSize = 3;         // PLUTVAL_BYTE_SIZE
+
+// A palette is a fixed-size value: 256 x 3 bytes, no allocation, trivially
+// copyable, and byte-for-byte the layout the file already has. What was wrong
+// before was the `std::vector` around it, not the array
+// (docs/cpp-conventions.md rule 1).
 using Palette = std::array<Rgb, kPaletteSize>;
+
+static_assert(sizeof(Rgb) == kRgbSize, "Rgb must be exactly three bytes");
+static_assert(sizeof(Palette) == kPaletteSize * kRgbSize,
+		"Palette must match the file layout so it can be copied wholesale");
+
+inline constexpr std::size_t kPaletteBytes = sizeof(Palette);
 
 // A .ct entry, in one of the two shapes docs/content-formats.md describes.
 //
-// The shape is NOT recoverable from the bytes. Both start with two bytes that
+// The shape is NOT recoverable from the bytes. Both open with two bytes that
 // look like a range and neither carries a tag, so the same entry parses one
 // way as a run of full palettes and another as a partial one -- Supox's entry
 // says "10..10", which is 768 bytes of palette under one reading and 3 bytes
-// under the other. The caller has to say which it expects, and it knows
-// because it knows which resource key it asked for.
-enum class ColorTableShape
+// under the other. The caller says which it expects, and it knows because it
+// knows which resource key it asked for.
+enum class ColorTableShape : std::uint8_t
 {
-	// [startSlot, endSlot] + (endSlot - startSlot + 1) full 256-entry
-	// palettes. What SetColorMap (cmap.c:266-335) consumes: each palette goes
-	// into a global colormap slot. 79 entries in the tree.
+	// [startSlot, endSlot] + one full 256-entry palette per slot. What
+	// SetColorMap (cmap.c:266-335) consumes. 79 entries in the tree.
 	Palettes,
 
 	// [firstIndex, lastIndex] + one RGB triple per palette *index* in that
-	// range. A partial palette, not a run of them. 123 entries in the tree,
-	// every one a planets/*.ct covering 128..255.
+	// range -- a partial palette, not a run of them. 123 entries, every one a
+	// planets/*.ct covering 128..255.
 	PartialPalette,
 };
 
-struct ColorTableEntry
+// LIFETIME: holds a view of the entry bytes, which are themselves a view into
+// the file buffer. The buffer outlives it.
+class ColorTableEntry
 {
-	// Meaning depends on the shape: colormap slots for Palettes, palette
-	// indices for PartialPalette.
-	std::uint8_t first = 0;
-	std::uint8_t last = 0;
+public:
+	constexpr ColorTableEntry() = default;
 
-	// Palettes shape: one entry per slot in [first, last].
-	std::vector<Palette> palettes;
+	// Colormap slots for Palettes; palette indices for PartialPalette.
+	[[nodiscard]] constexpr ClosedRangeU8 range() const noexcept { return range_; }
+	[[nodiscard]] constexpr ColorTableShape shape() const noexcept
+	{
+		return shape_;
+	}
 
-	// PartialPalette shape: colours for indices [first, last], in order.
-	std::vector<Rgb> colors;
+	// --- Palettes shape ---
+
+	[[nodiscard]] constexpr std::size_t paletteCount() const noexcept
+	{
+		return shape_ == ColorTableShape::Palettes ? range_.count() : 0u;
+	}
+
+	// By value: 768 bytes off the stack, no allocation, and the copy is a
+	// straight memcpy because the layouts are identical.
+	[[nodiscard]] Palette palette(std::size_t i) const noexcept;
+
+	// --- PartialPalette shape ---
+
+	[[nodiscard]] constexpr std::size_t colorCount() const noexcept
+	{
+		return shape_ == ColorTableShape::PartialPalette ? range_.count() : 0u;
+	}
+	[[nodiscard]] constexpr Rgb color(std::size_t i) const noexcept
+	{
+		assert(shape_ == ColorTableShape::PartialPalette && i < colorCount());
+		return Rgb{readU8(payload_, i * kRgbSize),
+			readU8(payload_, i * kRgbSize + 1),
+			readU8(payload_, i * kRgbSize + 2)};
+	}
+
+	friend std::expected<ColorTableEntry, ContentError> parseColorTableEntry(
+			Bytes, ColorTableShape);
+
+private:
+	ClosedRangeU8 range_;
+	Bytes payload_;
+	ColorTableShape shape_ = ColorTableShape::Palettes;
 };
 
-// Returns nullopt and sets `error` when `bytes` is not that shape. Passing
-// the wrong shape reliably fails rather than silently mis-reading: the length
-// check is exact, and the two shapes' lengths agree only for a degenerate
-// entry that does not occur.
-std::optional<ColorTableEntry> parseColorTableEntry(
-		Bytes bytes, ColorTableShape shape, std::string &error);
+// Passing the wrong shape fails rather than silently mis-reading: the length
+// check is exact, and the two shapes agree only for a degenerate entry that
+// does not occur.
+[[nodiscard]] std::expected<ColorTableEntry, ContentError> parseColorTableEntry(
+		Bytes bytes, ColorTableShape shape);
 
 }  // namespace uqm::content
 

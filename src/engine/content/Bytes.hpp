@@ -3,38 +3,70 @@
 #ifndef UQM2_ENGINE_CONTENT_BYTES_HPP
 #define UQM2_ENGINE_CONTENT_BYTES_HPP
 
+#include <bit>
+#include <cassert>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <span>
 
 namespace uqm::content {
 
 using Bytes = std::span<const std::byte>;
 
-// The content pack is big-endian throughout (docs/content-formats.md). These
-// read from a span rather than a struct overlay on purpose: nothing in the
-// pack is aligned, and several headers are followed immediately by unaligned
-// payload.
-
-inline std::uint8_t
-readU8(Bytes b, std::size_t at)
+// The content pack is big-endian throughout (docs/content-formats.md).
+//
+// One load plus std::byteswap, not a shift-and-or loop: byteswap is an
+// intrinsic and lowers to a single bswap/rev, and the endianness test folds
+// away at compile time. Parameterised over the integer type rather than over
+// a byte count, so there is exactly one body and no loop to unroll.
+//
+// Bounds are the caller's business. Reading past the end is a broken
+// invariant, not malformed content -- the caller was supposed to have asked
+// `fits()` first -- so it asserts rather than returning an error
+// (docs/cpp-conventions.md rule 3).
+template <class T>
+	requires std::unsigned_integral<T>
+[[nodiscard]] inline T
+readBE(Bytes b, std::size_t at) noexcept
 {
-	return static_cast<std::uint8_t>(b[at]);
+	assert(at + sizeof(T) <= b.size() && "readBE past the end of the buffer");
+	T v;
+	std::memcpy(&v, b.data() + at, sizeof(T));
+	if constexpr (sizeof(T) > 1 && std::endian::native == std::endian::little)
+		return std::byteswap(v);
+	else
+		return v;
 }
 
-inline std::uint32_t
-readU32BE(Bytes b, std::size_t at)
+// Named for the widths the formats actually use. A single byte needs no
+// swap and no memcpy, and staying constexpr lets the palette accessors in
+// ColorTable.hpp stay constexpr too.
+[[nodiscard]] constexpr std::uint8_t
+readU8(Bytes b, std::size_t at) noexcept
 {
-	return (static_cast<std::uint32_t>(readU8(b, at + 0)) << 24)
-			| (static_cast<std::uint32_t>(readU8(b, at + 1)) << 16)
-			| (static_cast<std::uint32_t>(readU8(b, at + 2)) << 8)
-			| static_cast<std::uint32_t>(readU8(b, at + 3));
+	assert(at < b.size() && "readU8 past the end of the buffer");
+	return std::to_integer<std::uint8_t>(b[at]);
 }
 
-// Bounds-checked subspan. Returns an empty span when the range does not fit,
-// which every caller here treats as malformed rather than as an empty result.
-inline bool
-fits(Bytes b, std::size_t at, std::size_t len)
+[[nodiscard]] inline std::uint16_t
+readU16BE(Bytes b, std::size_t at) noexcept
+{
+	return readBE<std::uint16_t>(b, at);
+}
+
+[[nodiscard]] inline std::uint32_t
+readU32BE(Bytes b, std::size_t at) noexcept
+{
+	return readBE<std::uint32_t>(b, at);
+}
+
+// Does a range of `len` bytes starting at `at` fit? Written to be immune to
+// the overflow that the obvious `at + len <= size` invites, since both
+// operands come from file data.
+[[nodiscard]] constexpr bool
+fits(Bytes b, std::size_t at, std::size_t len) noexcept
 {
 	return at <= b.size() && len <= b.size() - at;
 }

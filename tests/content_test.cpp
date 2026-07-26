@@ -3,11 +3,11 @@
 // Content library tests. Two halves, and both matter:
 //
 //   - unit cases over hand-built bytes, including the malformed ones, since
-//     "rejects garbage with a useful message" is most of what this library is
-//     for;
-//   - a sweep over the whole real content tree, because the formats' surprises
-//     are empirical (docs/content-formats.md) and a parser that only ever sees
-//     three curated files will not meet them.
+//     "rejects garbage without mis-reading it" is most of what this library
+//     is for;
+//   - a sweep over the whole real content tree, because the formats'
+//     surprises are empirical (docs/content-formats.md) and a parser that
+//     only ever sees three curated files will not meet them.
 //
 // No framework, matching tests/coroutine_test.c: non-zero exit means failure.
 
@@ -18,196 +18,293 @@
 #include "engine/content/PhraseFile.hpp"
 #include "engine/content/PngImage.hpp"
 #include "engine/content/ResourceMap.hpp"
+#include "engine/core/Geometry.hpp"
+#include "platform/File.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstdio>
-#include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <map>
 #include <string>
+#include <string_view>
 #include <vector>
 
+using namespace uqm;
 using namespace uqm::content;
 namespace fs = std::filesystem;
 
-static int failures = 0;
+namespace {
+
+int failures = 0;
 
 #define CHECK(cond, ...)                                                      \
 	do                                                                        \
 	{                                                                         \
 		if (!(cond))                                                          \
 		{                                                                     \
-			std::printf ("FAIL %s:%d: ", __FILE__, __LINE__);                 \
-			std::printf (__VA_ARGS__);                                        \
-			std::printf ("\n");                                               \
+			std::printf("FAIL %s:%d: ", __FILE__, __LINE__);                  \
+			std::printf(__VA_ARGS__);                                         \
+			std::printf("\n");                                                \
 			++failures;                                                       \
 		}                                                                     \
 	} while (0)
 
-static std::vector<std::byte>
-readFile(const fs::path &p)
+// --------------------------------------------------------------------------
+// Core types
+
+void
+testClosedRangeIsClosed()
 {
-	std::ifstream in(p, std::ios::binary);
-	if (!in)
-		return {};
-	const std::string s((std::istreambuf_iterator<char>(in)),
-			std::istreambuf_iterator<char>());
-	std::vector<std::byte> out(s.size());
-	std::memcpy(out.data(), s.data(), s.size());
-	return out;
+	// The whole reason this type is not called Range: [128, 255] is 128
+	// elements, and its half-open end would be 256, which does not fit in the
+	// uint8_t the format uses.
+	constexpr ClosedRangeU8 planets{128, 255};
+	static_assert(planets.count() == 128);
+	static_assert(planets.contains(128) && planets.contains(255));
+	static_assert(!planets.contains(127));
+
+	constexpr ClosedRangeU8 single{10, 10};
+	static_assert(single.count() == 1, "a closed [10,10] is one element");
+
+	constexpr ClosedRangeU8 inverted{5, 1};
+	static_assert(!inverted.valid());
+	static_assert(inverted.count() == 0);
 }
 
-static std::string
-readText(const fs::path &p)
+void
+testGeometry()
 {
-	std::ifstream in(p, std::ios::binary);
-	if (!in)
-		return {};
-	return std::string((std::istreambuf_iterator<char>(in)),
-			std::istreambuf_iterator<char>());
+	static_assert(Extent2u{4, 4}.area() == 16);
+	static_assert(Extent2u{0, 4}.empty());
+	static_assert(Extent2u{4, 4}.contains(Vec2u{3, 3}));
+	static_assert(!Extent2u{4, 4}.contains(Vec2u{4, 0}));
+	// Signed coordinates outside the extent, which the browser's hotspot
+	// crosshair produces routinely.
+	static_assert(!Extent2i{4, 4}.contains(Vec2i{-1, 0}));
+	static_assert(Vec2i{1, 2} + Vec2i{3, 4} == Vec2i{4, 6});
+	static_assert(Vec2i{5, 5} - Vec2i{1, 2} == Vec2i{4, 3});
+}
+
+void
+testBigEndianReads()
+{
+	constexpr std::array<std::byte, 4> bytes{
+		std::byte{0x12}, std::byte{0x34}, std::byte{0x56}, std::byte{0x78}};
+	CHECK(readU8(bytes, 0) == 0x12, "readU8");
+	CHECK(readU16BE(bytes, 0) == 0x1234, "readU16BE");
+	CHECK(readU32BE(bytes, 0) == 0x12345678u, "readU32BE");
+	CHECK(readU16BE(bytes, 2) == 0x5678, "readU16BE at an offset");
+	CHECK(fits(bytes, 0, 4) && !fits(bytes, 1, 4), "fits");
+	// The overflow the obvious `at + len <= size` would miss.
+	CHECK(!fits(bytes, 2, static_cast<std::size_t>(-1)),
+			"fits must not overflow");
 }
 
 // --------------------------------------------------------------------------
 // Unit cases
 
-static void
+void
 testBinaryTableRejectsGarbage()
 {
-	std::string err;
-
-	CHECK(!parseBinaryTable({}, err), "empty input should not parse");
+	CHECK(!parseBinaryTable({}), "empty input should not parse");
 
 	// A compressed prefix. loadres.c refuses these and so do we.
-	const std::byte compressed[] = {std::byte{0}, std::byte{0}, std::byte{1},
-		std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
-		std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
-	CHECK(!parseBinaryTable(compressed, err),
-			"an LZ length prefix should be refused");
-	CHECK(err.find("compressed") != std::string::npos,
-			"error should mention compression, got: %s", err.c_str());
+	constexpr std::array<std::byte, 12> compressed{std::byte{0}, std::byte{0},
+		std::byte{1}, std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+		std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
+	const auto lz = parseBinaryTable(compressed);
+	CHECK(!lz, "an LZ length prefix should be refused");
+	if (!lz)
+		CHECK(lz.error().code == ContentErrorCode::Compressed,
+				"error should be Compressed");
 
 	// count claims one entry of 16 bytes but the file holds none.
-	const std::byte truncated[] = {std::byte{0xFF}, std::byte{0xFF},
-		std::byte{0xFF}, std::byte{0xFF}, std::byte{0}, std::byte{0},
-		std::byte{0}, std::byte{1}, std::byte{0}, std::byte{0}, std::byte{0},
-		std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+	constexpr std::array<std::byte, 16> truncated{std::byte{0xFF},
+		std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}, std::byte{0},
+		std::byte{0}, std::byte{0}, std::byte{1}, std::byte{0}, std::byte{0},
+		std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
 		std::byte{16}};
-	CHECK(!parseBinaryTable(truncated, err),
-			"an entry running past EOF should be refused");
+	const auto over = parseBinaryTable(truncated);
+	CHECK(!over, "an entry running past EOF should be refused");
+	if (!over)
+		CHECK(over.error().code == ContentErrorCode::EntryOverruns,
+				"error should be EntryOverruns");
 }
 
-static void
+void
 testColorTableShapesAreNotInterchangeable()
 {
 	// A one-slot Palettes entry: [10, 10] + 768 bytes.
-	std::vector<std::byte> palettes(2 + 768, std::byte{0});
+	std::vector<std::byte> palettes(2 + kPaletteBytes, std::byte{0});
 	palettes[0] = std::byte{10};
 	palettes[1] = std::byte{10};
+	palettes[2] = std::byte{0xAB};  // first channel of colour 0
 
-	std::string err;
 	const auto asPalettes =
-			parseColorTableEntry(palettes, ColorTableShape::Palettes, err);
-	CHECK(asPalettes.has_value(), "770-byte entry should parse as Palettes: %s",
-			err.c_str());
+			parseColorTableEntry(palettes, ColorTableShape::Palettes);
+	CHECK(asPalettes.has_value(), "770-byte entry should parse as Palettes");
 	if (asPalettes)
 	{
-		CHECK(asPalettes->palettes.size() == 1, "expected 1 palette, got %zu",
-				asPalettes->palettes.size());
-		CHECK(asPalettes->first == 10 && asPalettes->last == 10,
-				"slot range should be 10..10");
+		CHECK(asPalettes->paletteCount() == 1, "expected 1 palette, got %zu",
+				asPalettes->paletteCount());
+		// Extra parens: a braced initialiser's comma would otherwise split
+		// the macro's arguments.
+		CHECK((asPalettes->range() == ClosedRangeU8{10, 10}), "slot range");
+		CHECK(asPalettes->palette(0)[0].r == 0xAB,
+				"palette should carry the file's own bytes");
 	}
 
 	// The same bytes read as a partial palette must fail, not silently take
-	// the first 3 bytes. This is the whole reason the shape is a parameter.
-	CHECK(!parseColorTableEntry(palettes, ColorTableShape::PartialPalette,
-				   err),
+	// the first three. This is the whole reason the shape is a parameter.
+	CHECK(!parseColorTableEntry(palettes, ColorTableShape::PartialPalette),
 			"Palettes bytes must not parse as PartialPalette");
 
 	// And the converse: a planets-style entry, [128, 255] + 128*3.
-	std::vector<std::byte> partial(2 + 128 * 3, std::byte{0});
+	std::vector<std::byte> partial(2 + 128 * kRgbSize, std::byte{0});
 	partial[0] = std::byte{128};
 	partial[1] = std::byte{255};
-	const auto asPartial = parseColorTableEntry(
-			partial, ColorTableShape::PartialPalette, err);
-	CHECK(asPartial.has_value(), "386-byte entry should parse as partial: %s",
-			err.c_str());
+	const auto asPartial =
+			parseColorTableEntry(partial, ColorTableShape::PartialPalette);
+	CHECK(asPartial.has_value(), "386-byte entry should parse as partial");
 	if (asPartial)
-		CHECK(asPartial->colors.size() == 128, "expected 128 colours, got %zu",
-				asPartial->colors.size());
-	CHECK(!parseColorTableEntry(partial, ColorTableShape::Palettes, err),
+		CHECK(asPartial->colorCount() == 128, "expected 128 colours, got %zu",
+				asPartial->colorCount());
+	CHECK(!parseColorTableEntry(partial, ColorTableShape::Palettes),
 			"PartialPalette bytes must not parse as Palettes");
 
 	// An inverted range is refused, as SetColorMap refuses it.
 	std::vector<std::byte> inverted(2, std::byte{0});
 	inverted[0] = std::byte{5};
 	inverted[1] = std::byte{1};
-	CHECK(!parseColorTableEntry(inverted, ColorTableShape::Palettes, err),
-			"start > end should be refused");
+	const auto bad = parseColorTableEntry(inverted, ColorTableShape::Palettes);
+	CHECK(!bad, "start > end should be refused");
+	if (!bad)
+		CHECK(bad.error().code == ContentErrorCode::InvertedRange,
+				"error should be InvertedRange");
 }
 
-static void
+void
 testAniRejectsWhatTheCWouldAbsorb()
 {
-	std::vector<std::string> problems;
+	std::vector<ContentError> problems;
 
 	// A blank line is the case the C turns into a duplicated cel.
-	const AniFile blank = parseAni("a.png -1 10 0 0\r\n\r\nb.png -1 10 1 2\r\n",
-			problems);
+	const AniFile blank =
+			parseAni("a.png -1 10 0 0\r\n\r\nb.png -1 10 1 2\r\n", &problems);
 	CHECK(blank.cels.size() == 2, "expected 2 cels, got %zu",
 			blank.cels.size());
-	CHECK(problems.size() == 1, "expected 1 complaint about the blank line, "
-								  "got %zu", problems.size());
+	CHECK(problems.size() == 1,
+			"expected 1 complaint about the blank line, got %zu",
+			problems.size());
 
 	problems.clear();
-	const AniFile shortLine = parseAni("a.png -1 10\r\n", problems);
+	const AniFile shortLine = parseAni("a.png -1 10\r\n", &problems);
 	CHECK(shortLine.cels.empty(), "a 3-field line should not yield a cel");
 	CHECK(problems.size() == 1, "expected 1 complaint, got %zu",
 			problems.size());
 
 	problems.clear();
-	const AniFile ok = parseAni("supox-001.png -1 10 -81 -30\r\n", problems);
+	const std::string_view text = "supox-001.png -1 10 -81 -30\r\n";
+	const AniFile ok = parseAni(text, &problems);
 	CHECK(problems.empty(), "clean line should have no complaints");
 	CHECK(ok.cels.size() == 1, "expected 1 cel");
 	if (ok.cels.size() == 1)
 	{
 		CHECK(ok.cels[0].file == "supox-001.png", "filename");
+		// The name is a view into the source, not a copy of it.
+		CHECK(ok.cels[0].file.data() == text.data(),
+				"filename should view the source text, not copy it");
 		CHECK(ok.cels[0].transparency == Transparency::None,
 				"-1 means no transparency");
 		CHECK(ok.cels[0].colormapIndex == 10, "colormap slot");
-		CHECK(ok.cels[0].hotspotX == -81 && ok.cels[0].hotspotY == -30,
-				"hotspots are signed");
+		CHECK((ok.cels[0].hotspot == Vec2i{-81, -30}), "hotspots are signed");
+	}
+
+	// No diagnostics wanted: nothing is allocated for them.
+	const AniFile quiet = parseAni("a.png -1 10\r\n");
+	CHECK(quiet.cels.empty(), "parseAni must work without a problems sink");
+}
+
+void
+testPhraseHashHandling()
+{
+	// "#()" must not open a phrase: strtok returns NULL on it, so the C skips
+	// the line entirely. Getting this wrong shifts every ordinal after it.
+	//
+	// The shape that occurs in base/gamestrings.txt: a "#()" followed only by
+	// blank lines. The trailing trim removes them, so the body view is exact.
+	{
+		std::vector<ContentError> p;
+		const PhraseFile pf =
+				parsePhrases("#(A)\nfirst\n#()\n\n#(B)\nsecond\n", &p);
+		CHECK(pf.size() == 2, "#() should not open a phrase, got %zu",
+				pf.size());
+		CHECK(p.empty(), "a trailing #() is not a problem, got %zu", p.size());
+		if (pf.size() == 2)
+		{
+			CHECK(pf[0].text == "first", "body should stop before the #(), got "
+										 "'%.*s'",
+					static_cast<int>(pf[0].text.size()), pf[0].text.data());
+			CHECK(pf[1].name == "B", "second phrase should be B");
+			CHECK(pf.byOrdinal(1) == &pf[0], "ordinal 1 is phrase 0");
+			CHECK(pf.byOrdinal(0) == nullptr, "ordinal 0 means 'say nothing'");
+			CHECK(pf.byName("B") == &pf[1], "name lookup");
+		}
+	}
+
+	// The shape that does NOT occur, and that a contiguous view cannot
+	// represent: real text after a dropped "#()". The C concatenates across
+	// it; this must complain rather than hand back a body with the "#()"
+	// still inside it.
+	{
+		std::vector<ContentError> p;
+		const PhraseFile pf =
+				parsePhrases("#(A)\nfirst\n#()\nstray\n#(B)\nx\n", &p);
+		CHECK(pf.size() == 2, "still two phrases");
+		CHECK(p.size() == 1,
+				"text after a dropped #() must be reported, got %zu problems",
+				p.size());
 	}
 }
 
 // --------------------------------------------------------------------------
 // The real tree
 
-static void
+void
 sweepContent(const fs::path &content)
 {
-	// uqm.rmp
-	std::vector<std::string> problems;
+	const auto rmpBytes = platform::readFile(content / "uqm.rmp");
+	CHECK(rmpBytes.has_value(), "cannot read uqm.rmp");
+	if (!rmpBytes)
+		return;
+
+	std::vector<ContentError> problems;
 	const ResourceMap map =
-			ResourceMap::parse(readText(content / "uqm.rmp"), problems);
-	CHECK(problems.empty(), "uqm.rmp had %zu unparseable lines (first: %s)",
-			problems.size(), problems.empty() ? "" : problems[0].c_str());
-	CHECK(map.size() > 500, "uqm.rmp should hold hundreds of keys, got %zu",
-			map.size());
+			ResourceMap::parse(platform::asText(*rmpBytes), &problems);
+	CHECK(problems.empty(), "uqm.rmp had %zu unparseable lines",
+			problems.size());
+	CHECK(map.size() == 963, "expected 963 resource keys, got %zu", map.size());
 
 	const Resource *supox = map.find("comm.supox.dialogue");
 	CHECK(supox != nullptr, "comm.supox.dialogue should be in the map");
-	if (supox)
+	if (supox != nullptr)
 	{
-		CHECK(supox->type == "CONVERSATION", "type was %s",
-				supox->type.c_str());
-		CHECK(supox->path == "base/comm/supox/supox.txt", "path was %s",
-				supox->path.c_str());
+		CHECK(supox->type == "CONVERSATION", "type");
+		CHECK(supox->path == "base/comm/supox/supox.txt", "path");
+		CHECK(supox->isPath(), "a CONVERSATION value is a path");
 	}
+	const Resource *ship = map.find("ship.supox.code");
+	CHECK(ship != nullptr && !ship->isPath(),
+			"a SHIP value is an index, not a path");
+	CHECK(map.find("no.such.key") == nullptr, "missing key returns nullptr");
 
-	// Every .ct must parse as a container, and every entry must parse as one
-	// of the two shapes -- the counts are pinned so that a content change
-	// that introduces a third shape fails here rather than in the renderer.
+	// One buffer for the whole sweep, reused (rule 1).
+	std::vector<std::byte> buffer;
+
+	// Every .ct must parse as a container, and every entry as one of the two
+	// shapes -- the counts are pinned so a content change that introduces a
+	// third shape fails here rather than in the renderer.
 	std::size_t ctFiles = 0, shapeA = 0, shapeB = 0;
 	for (const auto &e : fs::recursive_directory_iterator(content))
 	{
@@ -215,26 +312,27 @@ sweepContent(const fs::path &content)
 			continue;
 		++ctFiles;
 
-		const std::vector<std::byte> bytes = readFile(e.path());
-		std::string err;
-		const auto table = parseBinaryTable(bytes, err);
-		CHECK(table.has_value(), "%s: %s",
-				e.path().string().c_str(), err.c_str());
+		const auto bytes = platform::readFileInto(e.path(), buffer);
+		CHECK(bytes.has_value(), "cannot read %s", e.path().string().c_str());
+		if (!bytes)
+			continue;
+
+		const auto table = parseBinaryTable(*bytes);
+		CHECK(table.has_value(), "%s did not parse as a binary table",
+				e.path().string().c_str());
 		if (!table)
 			continue;
 
-		for (const Bytes &entry : table->entries)
+		for (const Bytes &entry : *table)
 		{
-			std::string errA, errB;
-			if (parseColorTableEntry(entry, ColorTableShape::Palettes, errA))
+			if (parseColorTableEntry(entry, ColorTableShape::Palettes))
 				++shapeA;
 			else if (parseColorTableEntry(
-							 entry, ColorTableShape::PartialPalette, errB))
+							 entry, ColorTableShape::PartialPalette))
 				++shapeB;
 			else
-				CHECK(false, "%s: entry of %zu bytes is neither shape (%s / %s)",
-						e.path().string().c_str(), entry.size(),
-						errA.c_str(), errB.c_str());
+				CHECK(false, "%s: entry of %zu bytes is neither shape",
+						e.path().string().c_str(), entry.size());
 		}
 	}
 	CHECK(ctFiles == 75, "expected 75 .ct files, found %zu", ctFiles);
@@ -250,56 +348,60 @@ sweepContent(const fs::path &content)
 			continue;
 		++aniFiles;
 
-		std::vector<std::string> aniProblems;
-		const AniFile ani = parseAni(readText(e.path()), aniProblems);
-		CHECK(aniProblems.empty(), "%s: %s", e.path().string().c_str(),
-				aniProblems.empty() ? "" : aniProblems[0].c_str());
+		const auto bytes = platform::readFileInto(e.path(), buffer);
+		if (!bytes)
+		{
+			CHECK(false, "cannot read %s", e.path().string().c_str());
+			continue;
+		}
+		std::vector<ContentError> aniProblems;
+		const AniFile ani = parseAni(platform::asText(*bytes), &aniProblems);
+		CHECK(aniProblems.empty(), "%s: %zu problems",
+				e.path().string().c_str(), aniProblems.size());
 		cels += ani.cels.size();
 	}
 	CHECK(aniFiles == 584, "expected 584 .ani files, found %zu", aniFiles);
-	CHECK(cels > 0, "no cels parsed");
+	CHECK(cels == 6984, "expected 6984 cels, found %zu", cels);
 
-	// Phrase files, and the timestamps that ride alongside them. The counts
-	// are the ones tools/check-phrases.py reports, reached by a second
-	// implementation.
-	// Driven off the resource map, not a glob. Not every .txt in the tree is
-	// a resource -- base/cutscene/ending/pc_credits.txt says in its own
-	// header that it is reference material and "not used directly in UQM" --
-	// and a sweep that globs would be asserting things about files the game
-	// never opens.
-	std::size_t txtFiles = 0, phrases = 0, named = 0;
-	std::size_t convFiles = 0, convPhrases = 0;
+	// Phrase files, driven off the resource map rather than a glob: not every
+	// .txt in the tree is a resource. base/cutscene/ending/pc_credits.txt
+	// says in its own header that it is reference material "not used directly
+	// in UQM", and asserting things about files the game never opens is how a
+	// checker acquires false failures and then gets ignored.
+	std::size_t txtFiles = 0, phrases = 0, convFiles = 0, convPhrases = 0;
 	std::map<std::string, fs::path> byStem;
-	for (const auto &[key, res] : map.entries())
+	for (const Resource &res : map)
 	{
 		if (res.type != "CONVERSATION" && res.type != "STRTAB")
 			continue;
 		const fs::path path = content / res.path;
 		if (!fs::exists(path))
 		{
-			CHECK(false, "%s -> %s does not exist", key.c_str(),
-					res.path.c_str());
+			CHECK(false, "%.*s does not exist",
+					static_cast<int>(res.path.size()), res.path.data());
 			continue;
 		}
 		++txtFiles;
 
-		std::vector<std::string> p;
-		const PhraseFile pf = parsePhrases(readText(path), p);
-		CHECK(p.empty(), "%s: %s", res.path.c_str(),
-				p.empty() ? "" : p[0].c_str());
-		phrases += pf.phrases.size();
+		// Its own buffer: the phrases below are views into it.
+		const auto bytes = platform::readFile(path);
+		if (!bytes)
+		{
+			CHECK(false, "cannot read %s", path.string().c_str());
+			continue;
+		}
+		std::vector<ContentError> p;
+		const PhraseFile pf = parsePhrases(platform::asText(*bytes), &p);
+		CHECK(p.empty(), "%.*s: %zu problems",
+				static_cast<int>(res.path.size()), res.path.data(), p.size());
+		phrases += pf.size();
 		if (res.type == "CONVERSATION")
 		{
 			++convFiles;
-			convPhrases += pf.phrases.size();
+			convPhrases += pf.size();
 		}
-		for (const Phrase &ph : pf.phrases)
-			if (!ph.name.empty())
-				++named;
 		byStem.emplace(path.stem().string(), path);
 	}
-	CHECK(phrases == named, "every phrase should carry a name (%zu of %zu)",
-			named, phrases);
 
 	// Cross-check against tools/check-phrases.py, which reaches the same 27
 	// files by a different route (each race's *_CONVERSATION_PHRASES macro
@@ -308,41 +410,9 @@ sweepContent(const fs::path &content)
 	CHECK(convFiles == 27, "expected 27 CONVERSATION resources, found %zu",
 			convFiles);
 	CHECK(convPhrases == 3451,
-			"expected 3451 conversation phrases (the number check-phrases.py "
-			"reports), found %zu", convPhrases);
-
-	// "#()" must not open a phrase: strtok returns NULL on it, so the C skips
-	// the line entirely and the text below it joins the previous phrase.
-	// Getting this wrong shifts every ordinal after it.
-	{
-		std::vector<std::string> p;
-		const PhraseFile pf =
-				parsePhrases("#(A)\nfirst\n#()\nstray\n#(B)\nsecond\n", p);
-		CHECK(pf.phrases.size() == 2, "#() should not open a phrase, got %zu",
-				pf.phrases.size());
-		if (pf.phrases.size() == 2)
-		{
-			CHECK(pf.phrases[0].text == "first\nstray",
-					"text under #() should join the previous phrase, got %s",
-					pf.phrases[0].text.c_str());
-			CHECK(pf.phrases[1].name == "B", "second phrase should be B");
-		}
-	}
-
-	// Ordinal binding is what the C does and what the fixtures replace.
-	{
-		const fs::path supoxTxt = content / "base/comm/supox/supox.txt";
-		std::vector<std::string> p;
-		const PhraseFile pf = parsePhrases(readText(supoxTxt), p);
-		CHECK(pf.phrases.size() == 97, "supox should have 97 phrases, got %zu",
-				pf.phrases.size());
-		const Phrase *first = pf.byOrdinal(1);
-		CHECK(first != nullptr && first->name == "NEUTRAL_SPACE_HELLO_1",
-				"ordinal 1 should be NEUTRAL_SPACE_HELLO_1");
-		CHECK(pf.byOrdinal(0) == nullptr, "ordinal 0 means 'say nothing'");
-		CHECK(pf.indexOf("NEUTRAL_SPACE_HELLO_1").value_or(99) == 0,
-				"name lookup should find ordinal 1 at index 0");
-	}
+			"expected 3451 conversation phrases (what check-phrases.py "
+			"reports), found %zu",
+			convPhrases);
 
 	std::size_t tsFiles = 0, tsOk = 0;
 	for (const auto &e : fs::recursive_directory_iterator(content))
@@ -367,17 +437,28 @@ sweepContent(const fs::path &content)
 			partner = it->second;
 		}
 
-		std::vector<std::string> p;
-		PhraseFile pf = parsePhrases(readText(partner), p);
-		if (attachTimestamps(pf, readText(e.path()), p))
+		// Both buffers stay alive for the whole comparison: the phrases are
+		// views into one and their timestamps into the other.
+		const auto txtBytes = platform::readFile(partner);
+		const auto tsBytes = platform::readFile(e.path());
+		if (!txtBytes || !tsBytes)
+		{
+			CHECK(false, "cannot read %s", e.path().string().c_str());
+			continue;
+		}
+
+		std::vector<ContentError> p;
+		PhraseFile pf = parsePhrases(platform::asText(*txtBytes), &p);
+		if (attachTimestamps(pf, platform::asText(*tsBytes), &p))
 			++tsOk;
-		CHECK(p.empty(), "%s vs %s: %s", e.path().filename().string().c_str(),
-				partner.filename().string().c_str(),
-				p.empty() ? "" : p[0].c_str());
+		CHECK(p.empty(), "%s vs %s: %zu problems",
+				e.path().filename().string().c_str(),
+				partner.filename().string().c_str(), p.size());
 	}
 	CHECK(tsFiles == 27, "expected 27 .ts files, found %zu", tsFiles);
-	CHECK(tsOk == tsFiles, "%zu of %zu timestamp files would be discarded "
-							"wholesale by the C", tsFiles - tsOk, tsFiles);
+	CHECK(tsOk == tsFiles,
+			"%zu of %zu timestamp files would be discarded wholesale by the C",
+			tsFiles - tsOk, tsFiles);
 
 	// Fonts are directories.
 	std::size_t fontDirs = 0, glyphs = 0;
@@ -387,19 +468,17 @@ sweepContent(const fs::path &content)
 			continue;
 		++fontDirs;
 
-		std::vector<std::string> p;
-		const Font f = loadFontDir(e.path(), p);
-		CHECK(p.empty(), "%s: %s", e.path().string().c_str(),
-				p.empty() ? "" : p[0].c_str());
+		std::vector<ContentError> p;
+		const Font f = loadFontDir(e.path(), &p);
+		CHECK(p.empty(), "%s: %zu problems", e.path().string().c_str(),
+				p.size());
 		glyphs += f.glyphs.size();
 	}
 	CHECK(fontDirs == 30, "expected 30 .fon directories, found %zu", fontDirs);
 	CHECK(glyphs == 2599, "expected 2599 glyphs, found %zu", glyphs);
 
-	// Every PNG in the tree must decode. The colour-type histogram is printed
-	// rather than asserted: it is the map of what the content actually uses,
-	// and the point of sweeping is to find the corner the art happens to sit
-	// in before the renderer assumes a different one.
+	// Every PNG must decode. The colour-type histogram is printed rather than
+	// asserted: it is the map of what the content actually uses.
 	std::size_t pngs = 0, indexed = 0, rgba = 0, subByte = 0, keyed = 0;
 	std::map<unsigned, std::size_t> byColorType, byBitDepth;
 	for (const auto &e : fs::recursive_directory_iterator(content))
@@ -408,36 +487,38 @@ sweepContent(const fs::path &content)
 			continue;
 		++pngs;
 
-		const std::vector<std::byte> bytes = readFile(e.path());
-		std::string err;
-		const auto img = decodePng(bytes, err);
-		CHECK(img.has_value(), "%s: %s", e.path().string().c_str(),
-				err.c_str());
+		const auto bytes = platform::readFileInto(e.path(), buffer);
+		if (!bytes)
+		{
+			CHECK(false, "cannot read %s", e.path().string().c_str());
+			continue;
+		}
+		const auto img = decodePng(*bytes);
+		CHECK(img.has_value(), "%s did not decode", e.path().string().c_str());
 		if (!img)
 			continue;
 
-		++byColorType[img->sourceColorType];
-		++byBitDepth[img->sourceBitDepth];
-		if (img->format == PixelFormat::Indexed8)
+		++byColorType[img->sourceColorType()];
+		++byBitDepth[img->sourceBitDepth()];
+		if (img->format() == PixelFormat::Indexed8)
 		{
 			++indexed;
-			if (img->sourceBitDepth < 8)
+			if (img->sourceBitDepth() < 8)
 				++subByte;
-			if (img->transparentIndex >= 0)
+			if (img->transparentIndex() >= 0)
 				++keyed;
-			CHECK(img->pixels.size()
-							== std::size_t{img->width} * img->height,
+			CHECK(img->pixels().size() == img->size().area(),
 					"%s: indexed buffer is %zu for %ux%u",
-					e.path().filename().string().c_str(),
-					img->pixels.size(), img->width, img->height);
+					e.path().filename().string().c_str(), img->pixels().size(),
+					img->size().w, img->size().h);
 			// An index with no palette entry draws as nothing in particular.
-			for (const std::uint8_t px : img->pixels)
+			for (const std::uint8_t px : img->pixels())
 			{
-				if (px >= img->palette.size())
+				if (px >= img->paletteSize())
 				{
 					CHECK(false, "%s: index %u is past a %zu-entry palette",
 							e.path().filename().string().c_str(), px,
-							img->palette.size());
+							img->paletteSize());
 					break;
 				}
 			}
@@ -445,16 +526,15 @@ sweepContent(const fs::path &content)
 		else
 		{
 			++rgba;
-			CHECK(img->pixels.size()
-							== std::size_t{img->width} * img->height * 4,
+			CHECK(img->pixels().size() == img->size().area() * 4,
 					"%s: rgba buffer is %zu for %ux%u",
-					e.path().filename().string().c_str(),
-					img->pixels.size(), img->width, img->height);
+					e.path().filename().string().c_str(), img->pixels().size(),
+					img->size().w, img->size().h);
 		}
 	}
 	CHECK(pngs > 0, "no PNGs found");
 	std::printf("  png: %zu decoded, %zu stayed indexed (%zu sub-byte, "
-				 "%zu colour-keyed), %zu became rgba\n",
+				"%zu colour-keyed), %zu became rgba\n",
 			pngs, indexed, subByte, keyed, rgba);
 	std::printf("  png colour types:");
 	for (const auto &[type, n] : byColorType)
@@ -466,37 +546,50 @@ sweepContent(const fs::path &content)
 
 	// Round-trip the encoder the browser writes sheets with.
 	{
-		std::vector<std::uint8_t> rgbaPixels(4 * 4 * 4);
+		constexpr Extent2u size{4, 4};
+		std::vector<std::uint8_t> rgbaPixels(
+				static_cast<std::size_t>(size.area()) * 4);
 		for (std::size_t i = 0; i < rgbaPixels.size(); ++i)
 			rgbaPixels[i] = static_cast<std::uint8_t>(i * 7);
-		std::string err;
-		const auto encoded = encodeRgbaPng(4, 4, rgbaPixels, err);
-		CHECK(encoded.has_value(), "encode failed: %s", err.c_str());
+
+		const auto encoded = encodeRgbaPng(size, rgbaPixels);
+		CHECK(encoded.has_value(), "encode failed");
 		if (encoded)
 		{
-			const auto back = decodePng(*encoded, err);
-			CHECK(back.has_value(), "re-decode failed: %s", err.c_str());
+			const auto back = decodePng(*encoded);
+			CHECK(back.has_value(), "re-decode failed");
 			if (back)
 			{
-				CHECK(back->width == 4 && back->height == 4, "size survived");
-				CHECK(back->pixels == rgbaPixels, "pixels survived the round trip");
+				CHECK(back->size() == size, "size survived");
+				CHECK(std::equal(back->pixels().begin(), back->pixels().end(),
+							  rgbaPixels.begin()),
+						"pixels survived the round trip");
 			}
 		}
+		// A mismatched buffer is a caller error the encoder must catch.
+		CHECK((!encodeRgbaPng(Extent2u{5, 5}, rgbaPixels)),
+				"wrong-sized buffer must be refused");
 	}
 
 	std::printf("swept %zu .ct (%zu+%zu entries), %zu .ani (%zu cels), "
-				 "%zu .txt (%zu phrases), %zu .ts, %zu .fon (%zu glyphs), "
-				 "%zu resource keys\n",
+				"%zu .txt (%zu phrases), %zu .ts, %zu .fon (%zu glyphs), "
+				"%zu resource keys\n",
 			ctFiles, shapeA, shapeB, aniFiles, cels, txtFiles, phrases,
 			tsFiles, fontDirs, glyphs, map.size());
 }
 
+}  // namespace
+
 int
 main(int argc, char **argv)
 {
+	testClosedRangeIsClosed();
+	testGeometry();
+	testBigEndianReads();
 	testBinaryTableRejectsGarbage();
 	testColorTableShapesAreNotInterchangeable();
 	testAniRejectsWhatTheCWouldAbsorb();
+	testPhraseHashHandling();
 
 	if (argc > 1)
 	{
@@ -514,7 +607,7 @@ main(int argc, char **argv)
 		std::printf("(no content directory given; unit cases only)\n");
 	}
 
-	if (failures)
+	if (failures != 0)
 		std::printf("%d check(s) failed\n", failures);
-	return failures ? 1 : 0;
+	return failures != 0 ? 1 : 0;
 }

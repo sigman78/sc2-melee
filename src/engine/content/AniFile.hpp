@@ -3,16 +3,19 @@
 #ifndef UQM2_ENGINE_CONTENT_ANIFILE_HPP
 #define UQM2_ENGINE_CONTENT_ANIFILE_HPP
 
-#include <string>
+#include "ContentError.hpp"
+#include "engine/core/Geometry.hpp"
+
+#include <cstdint>
 #include <string_view>
 #include <vector>
 
 namespace uqm::content {
 
-// How a cel's transparency is decided (gfxload.c:54-75). The C encodes all
-// four cases in one int, which is why a plain `int transparentColour` reads
-// as a colour index when two of its values are not one.
-enum class Transparency
+// How a cel's transparency is decided (gfxload.c:54-75). The C packs all four
+// cases into one int, which is why a plain `int transparentColour` reads as a
+// colour index when two of its values are not one.
+enum class Transparency : std::uint8_t
 {
 	None,          // -1: no transparency at all
 	PaletteIndex,  // >= 0: that index is transparent
@@ -22,13 +25,13 @@ enum class Transparency
 
 struct Cel
 {
-	std::string file;              // relative to the .ani's own directory
+	// LIFETIME: a view into the .ani text, which must outlive the AniFile.
+	std::string_view file;
+
 	Transparency transparency = Transparency::None;
-	int transparentIndex = -1;     // meaningful when transparency is
-								   // PaletteIndex or BlackIsClear
-	int colormapIndex = -1;        // a colormap slot -- see ColorTable.hpp
-	int hotspotX = 0;
-	int hotspotY = 0;
+	std::int32_t transparentIndex = -1;  // when PaletteIndex or BlackIsClear
+	std::int32_t colormapIndex = -1;     // a colormap slot; see ColorTable.hpp
+	Vec2i hotspot;
 };
 
 // A sprite index: CRLF text, one line per cel,
@@ -41,15 +44,17 @@ struct Cel
 // its cel count is a *line* count (gfxload.c:223-228) while the second pass
 // only advances on a successful image load, so a blank line would leave the
 // filename buffer holding the previous line and silently duplicate a cel.
-// This parser rejects a malformed line instead, and says which one.
+// This parser rejects the line instead, and says which one.
 struct AniFile
 {
 	std::vector<Cel> cels;
 };
 
-// `problems` collects per-line complaints. Unlike the C, a bad line is not
-// silently absorbed: it is reported and skipped.
-AniFile parseAni(std::string_view text, std::vector<std::string> &problems);
+// `problems` is optional and stays empty in the normal case, so a caller that
+// does not want diagnostics allocates nothing for them. ContentError::at is
+// the 1-based line number.
+[[nodiscard]] AniFile parseAni(
+		std::string_view text, std::vector<ContentError> *problems = nullptr);
 
 }  // namespace uqm::content
 

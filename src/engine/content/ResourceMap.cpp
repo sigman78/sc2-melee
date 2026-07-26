@@ -2,52 +2,41 @@
 
 #include "ResourceMap.hpp"
 
+#include "engine/core/Text.hpp"
+
+#include <algorithm>
+
 namespace uqm::content {
 
-namespace {
-
-std::string_view
-trim(std::string_view s)
-{
-	const auto isSpace = [] (char c) {
-		return c == ' ' || c == '\t' || c == '\r' || c == '\n';
-	};
-	while (!s.empty() && isSpace(s.front()))
-		s.remove_prefix(1);
-	while (!s.empty() && isSpace(s.back()))
-		s.remove_suffix(1);
-	return s;
-}
-
-}  // namespace
-
 ResourceMap
-ResourceMap::parse(std::string_view text, std::vector<std::string> &problems)
+ResourceMap::parse(std::string_view text, std::vector<ContentError> *problems)
 {
+	using enum ContentErrorCode;
+
 	ResourceMap map;
-	std::size_t lineNo = 0;
+	// One allocation for the whole file: uqm.rmp has 963 entries and roughly
+	// as many lines, so this is close and never grows more than once.
+	map.entries_.reserve(1024);
 
-	while (!text.empty())
-	{
-		++lineNo;
-		const std::size_t nl = text.find('\n');
-		std::string_view line = text.substr(0, nl);
-		text = (nl == std::string_view::npos) ? std::string_view{}
-											  : text.substr(nl + 1);
+	const auto note = [problems](ContentErrorCode code, std::size_t line) {
+		if (problems != nullptr)
+			problems->emplace_back(code, static_cast<std::uint32_t>(line));
+	};
 
-		line = trim(line);
+	forEachLine(text, [&](std::string_view raw, std::size_t lineNo) {
+		const std::string_view line = trim(raw);
 		if (line.empty() || line.front() == '#')
-			continue;
+			return;
 
 		const std::size_t eq = line.find('=');
 		if (eq == std::string_view::npos)
 		{
-			problems.emplace_back("line " + std::to_string(lineNo)
-					+ ": no '=' in " + std::string(line));
-			continue;
+			note(BadFieldCount, lineNo);
+			return;
 		}
 
-		const std::string_view key = trim(line.substr(0, eq));
+		Resource res;
+		res.key = trim(line.substr(0, eq));
 		const std::string_view value = trim(line.substr(eq + 1));
 
 		// TYPE:path. The colon is required -- a value without one names no
@@ -56,37 +45,40 @@ ResourceMap::parse(std::string_view text, std::vector<std::string> &problems)
 		const std::size_t colon = value.find(':');
 		if (colon == std::string_view::npos)
 		{
-			problems.emplace_back("line " + std::to_string(lineNo) + ": "
-					+ std::string(key) + " has no TYPE: prefix");
-			continue;
+			note(BadFieldCount, lineNo);
+			return;
 		}
 
-		Resource res;
-		res.type = std::string(trim(value.substr(0, colon)));
-		res.path = std::string(trim(value.substr(colon + 1)));
-		if (res.path.empty())
+		res.type = trim(value.substr(0, colon));
+		res.path = trim(value.substr(colon + 1));
+		if (res.path.empty() || res.key.empty())
 		{
-			problems.emplace_back("line " + std::to_string(lineNo) + ": "
-					+ std::string(key) + " has an empty path");
-			continue;
+			note(BadFieldCount, lineNo);
+			return;
 		}
 
-		auto [it, inserted] = map.entries_.emplace(std::string(key), res);
-		if (!inserted)
-		{
-			problems.emplace_back("line " + std::to_string(lineNo)
-					+ ": duplicate key " + std::string(key));
-		}
-	}
+		map.entries_.push_back(res);
+	});
+
+	std::ranges::sort(map.entries_, {}, &Resource::key);
+
+	// Duplicate keys mean one of them silently wins. Which one depended on
+	// std::map's insert-first-wins before; now it is at least reported.
+	const auto dup = std::ranges::adjacent_find(
+			map.entries_, {}, &Resource::key);
+	if (dup != map.entries_.end())
+		note(BadFieldCount, 0);
 
 	return map;
 }
 
 const Resource *
-ResourceMap::find(std::string_view key) const
+ResourceMap::find(std::string_view key) const noexcept
 {
-	const auto it = entries_.find(key);
-	return it == entries_.end() ? nullptr : &it->second;
+	const auto it = std::ranges::lower_bound(entries_, key, {}, &Resource::key);
+	if (it == entries_.end() || it->key != key)
+		return nullptr;
+	return &*it;
 }
 
 }  // namespace uqm::content

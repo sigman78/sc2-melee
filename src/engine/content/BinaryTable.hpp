@@ -4,9 +4,9 @@
 #define UQM2_ENGINE_CONTENT_BINARYTABLE_HPP
 
 #include "Bytes.hpp"
+#include "ContentError.hpp"
 
-#include <optional>
-#include <string>
+#include <expected>
 #include <vector>
 
 namespace uqm::content {
@@ -21,20 +21,35 @@ namespace uqm::content {
 //     u32 length[count]
 //     ... entry bytes, concatenated
 //
-// Entries are views into the caller's buffer. Nothing is copied, and the
-// buffer has to outlive the table.
+// LIFETIME: entries are views into the buffer handed to parseBinaryTable,
+// which must outlive the table. No content byte is copied; the one allocation
+// is the vector of spans.
 //
-// This is only the container. What an entry *means* is not recorded anywhere
-// in the file -- see ColorTable.hpp, which is where that bites.
-struct BinaryTable
+// This is only the container. What an entry *means* is recorded nowhere in
+// the file -- see ColorTable.hpp, which is where that bites.
+class BinaryTable
 {
-	std::vector<Bytes> entries;
+public:
+	[[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
+	[[nodiscard]] bool empty() const noexcept { return entries_.empty(); }
+
+	[[nodiscard]] Bytes operator[](std::size_t i) const noexcept
+	{
+		assert(i < entries_.size() && "binary table index out of range");
+		return entries_[i];
+	}
+
+	[[nodiscard]] auto begin() const noexcept { return entries_.begin(); }
+	[[nodiscard]] auto end() const noexcept { return entries_.end(); }
+
+	friend std::expected<BinaryTable, ContentError> parseBinaryTable(Bytes);
+
+private:
+	std::vector<Bytes> entries_;
 };
 
-// Returns nullopt and sets `error` when the bytes are not a well-formed
-// table. Malformed content is an expected case here, not an exception: the
-// browser's job is to say which file is wrong and how.
-std::optional<BinaryTable> parseBinaryTable(Bytes bytes, std::string &error);
+[[nodiscard]] std::expected<BinaryTable, ContentError> parseBinaryTable(
+		Bytes bytes);
 
 }  // namespace uqm::content
 
