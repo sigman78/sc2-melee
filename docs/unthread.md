@@ -679,6 +679,34 @@ Worth remembering as a class: a mechanism keyed on one global is fine until two
 users of it are live at once, and "these functions call each other" is easy to
 miss when the calls look like ordinary tail calls.
 
+### Reaching these conversations at all
+
+Most of the converted comm code sits behind story state no save file has, so it
+had unit-test and compile coverage but nothing had ever *run* it. `UQM_DEBUG_COMM`
+fixes that: set it to a race name and that conversation runs once, as soon as
+you are in flight.
+
+```
+UQM_DEBUG_COMM=zoqfotpik ./uqm        # then load any save
+```
+
+`zoqfotpik` is the one that matters most — its `Intro` calls `AquaintZoqFot` on
+the line after a talk segue, which is the nesting case that registered no
+responses at all until `RESPONSE_BEGIN` was made to consume the resume point.
+**If the response list appears, that path is genuinely exercised**; if the aliens
+talk and the conversation closes by itself, the callee registered nothing and
+the bug is back. Confirmed working. `melnorme` is the next most valuable — it is
+the only site outside the unit test that exercises `RESPONSE_DELAY` and a paired
+segue together.
+
+Two things about the hook that cost time and are easy to repeat. It must not arm
+from `Starcon2Main`, and it must not arm while the main menu is up: the main loop
+pumps `debugHook` on its *first* iteration, which on a load is before the save is
+in place, so the conversation runs against an SIS that does not exist and the
+game dies on load. It arms from `UpdateInputState` and only once
+`LOBYTE (GLOBAL (CurrentActivity))` is `IN_HYPERSPACE` or `IN_INTERPLANETARY`
+with no `CHECK_LOAD` pending.
+
 ## 8. Risks
 
 | Risk | Mitigation |
