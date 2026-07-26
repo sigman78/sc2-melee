@@ -45,6 +45,22 @@ endif()
 add_test(NAME content COMMAND content_test
 	"${CMAKE_CURRENT_SOURCE_DIR}/../sc2/content")
 
+# sim/. The RNG's golden vectors are static_asserts, so compiling this is
+# most of the test -- it fails the build, not the run, if TFB_Random's uint32
+# wrap is ever "corrected" into Park-Miller.
+add_executable(sim_test sim_test.cpp)
+target_link_libraries(sim_test PRIVATE uqm2_content)
+if(MSVC)
+	target_compile_options(sim_test PRIVATE /W4 /utf-8)
+else()
+	target_compile_options(sim_test PRIVATE -W -Wall -Wextra)
+endif()
+if(UQM_WERROR)
+	target_compile_options(sim_test PRIVATE ${_uqm_werror})
+endif()
+
+add_test(NAME sim COMMAND sim_test)
+
 # The browser, end to end. Its inventory pass is also the resource-graph
 # dangling check the plan asks for (docs/game-rewrite-plan.md, "Verification"
 # 2): it fails if any resource key names a file that is not there.
