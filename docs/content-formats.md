@@ -20,8 +20,25 @@ comm.supox.colortable = BINTAB:base/comm/supox/supox.ct
 ```
 
 Keys are dotted, paths are relative to the content root. The type tag selects
-the loader, registered in `sresins.c:36-38` and friends: `STRTAB`, `BINTAB`,
-`CONVERSATION`, `GFXRES`, `FONTRES`, `MUSICRES`, `SNDRES`.
+the loader, registered in `sresins.c:36-38` and friends. 963 resources in the
+shipped map:
+
+| Type | Count | Value |
+| --- | --- | --- |
+| `GFXRES` | 582 | path to an `.ani` |
+| `BINTAB` | 149 | path to a `.ct` |
+| `MUSICRES` | 64 | path to a `.mod`/`.ogg` |
+| `STRTAB` | 51 | path to a `.txt` |
+| `FONTRES` | 32 | path to a `.fon` **directory** |
+| `SNDRES` | 30 | path to a `.snd` |
+| `SHIP` | 28 | **not a path** — see below |
+| `CONVERSATION` | 27 | path to a race `.txt` |
+
+**`SHIP` values are not paths.** `ship.supox.code = SHIP:16` names index 16 in
+a table compiled into the binary; `dummy.c:157` routes the type to
+`GetCodeResData`, because a ship's code is code. A tool that assumes every
+value is a path reports all 28 as dangling — which is exactly how this
+exception surfaced, in the browser's inventory on its first run.
 
 Names in the map are the only link between code and content. `resinst.h` per
 race turns a C identifier into a key (`#define SUPOX_COLOR_MAP
@@ -140,6 +157,33 @@ Transparency has three cases (`gfxload.c:54-75`), keyed on
 of a `.ct` writes into. Supox's cels say `10`, and `supox.ct`'s single entry
 declares `start=10 end=10`. That correspondence is the whole binding, and
 nothing checks it.
+
+### The PNG's own palette is not the one the game draws with
+
+An indexed cel carries a `PLTE`, and it is *nearly* right — which makes it the
+most dangerous kind of wrong. Comparing `supox.ct` slot 10 against
+`supox-000.png`'s `PLTE`, **245 of 256 entries differ**, every one of them by
+one or two counts: `170` against `168`, `85` against `84`, `199` against
+`196`.
+
+Both are expansions of the same 6-bit VGA palette, by different rules:
+
+```
+PLTE   channel = v << 2                 // plain shift; loses the top 2 bits
+.ct    channel = (v << 2) | (v >> 4)    // bit replication; reaches 255
+```
+
+Checked across all 26 comm races that have both: 19,621 of 19,968 channels fit
+that relation exactly. (The 347 that do not are all `safeones.ct`, whose first
+entry is black where the PNG's is not — a slot-selection difference, since
+that table holds two entries, not a counterexample to the rule.)
+
+**The `.ct` is authoritative.** `v << 2` can never produce 255, so a renderer
+that reaches for the convenient `PLTE` sitting right there in the file gets an
+image that is systematically slightly dark and never reaches full white — with
+no error, no warning, and nothing to compare against unless you happen to run
+the old build side by side. `uqm2-browse ani` takes the `.ct` when given one
+and says which it used.
 
 ---
 

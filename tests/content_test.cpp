@@ -16,6 +16,7 @@
 #include "engine/content/ColorTable.hpp"
 #include "engine/content/FontDir.hpp"
 #include "engine/content/PhraseFile.hpp"
+#include "engine/content/PngImage.hpp"
 #include "engine/content/ResourceMap.hpp"
 
 #include <cstdio>
@@ -394,6 +395,94 @@ sweepContent (const fs::path &content)
 	}
 	CHECK (fontDirs == 30, "expected 30 .fon directories, found %zu", fontDirs);
 	CHECK (glyphs == 2599, "expected 2599 glyphs, found %zu", glyphs);
+
+	// Every PNG in the tree must decode. The colour-type histogram is printed
+	// rather than asserted: it is the map of what the content actually uses,
+	// and the point of sweeping is to find the corner the art happens to sit
+	// in before the renderer assumes a different one.
+	std::size_t pngs = 0, indexed = 0, rgba = 0, subByte = 0, keyed = 0;
+	std::map<unsigned, std::size_t> byColorType, byBitDepth;
+	for (const auto &e : fs::recursive_directory_iterator (content))
+	{
+		if (!e.is_regular_file () || e.path ().extension () != ".png")
+			continue;
+		++pngs;
+
+		const std::vector<std::byte> bytes = readFile (e.path ());
+		std::string err;
+		const auto img = decodePng (bytes, err);
+		CHECK (img.has_value (), "%s: %s", e.path ().string ().c_str (),
+				err.c_str ());
+		if (!img)
+			continue;
+
+		++byColorType[img->sourceColorType];
+		++byBitDepth[img->sourceBitDepth];
+		if (img->format == PixelFormat::Indexed8)
+		{
+			++indexed;
+			if (img->sourceBitDepth < 8)
+				++subByte;
+			if (img->transparentIndex >= 0)
+				++keyed;
+			CHECK (img->pixels.size ()
+							== std::size_t{img->width} * img->height,
+					"%s: indexed buffer is %zu for %ux%u",
+					e.path ().filename ().string ().c_str (),
+					img->pixels.size (), img->width, img->height);
+			// An index with no palette entry draws as nothing in particular.
+			for (const std::uint8_t px : img->pixels)
+			{
+				if (px >= img->palette.size ())
+				{
+					CHECK (false, "%s: index %u is past a %zu-entry palette",
+							e.path ().filename ().string ().c_str (), px,
+							img->palette.size ());
+					break;
+				}
+			}
+		}
+		else
+		{
+			++rgba;
+			CHECK (img->pixels.size ()
+							== std::size_t{img->width} * img->height * 4,
+					"%s: rgba buffer is %zu for %ux%u",
+					e.path ().filename ().string ().c_str (),
+					img->pixels.size (), img->width, img->height);
+		}
+	}
+	CHECK (pngs > 0, "no PNGs found");
+	std::printf ("  png: %zu decoded, %zu stayed indexed (%zu sub-byte, "
+				 "%zu colour-keyed), %zu became rgba\n",
+			pngs, indexed, subByte, keyed, rgba);
+	std::printf ("  png colour types:");
+	for (const auto &[type, n] : byColorType)
+		std::printf (" %u=%zu", type, n);
+	std::printf ("   bit depths:");
+	for (const auto &[depth, n] : byBitDepth)
+		std::printf (" %u=%zu", depth, n);
+	std::printf ("\n");
+
+	// Round-trip the encoder the browser writes sheets with.
+	{
+		std::vector<std::uint8_t> rgbaPixels (4 * 4 * 4);
+		for (std::size_t i = 0; i < rgbaPixels.size (); ++i)
+			rgbaPixels[i] = static_cast<std::uint8_t> (i * 7);
+		std::string err;
+		const auto encoded = encodeRgbaPng (4, 4, rgbaPixels, err);
+		CHECK (encoded.has_value (), "encode failed: %s", err.c_str ());
+		if (encoded)
+		{
+			const auto back = decodePng (*encoded, err);
+			CHECK (back.has_value (), "re-decode failed: %s", err.c_str ());
+			if (back)
+			{
+				CHECK (back->width == 4 && back->height == 4, "size survived");
+				CHECK (back->pixels == rgbaPixels, "pixels survived the round trip");
+			}
+		}
+	}
 
 	std::printf ("swept %zu .ct (%zu+%zu entries), %zu .ani (%zu cels), "
 				 "%zu .txt (%zu phrases), %zu .ts, %zu .fon (%zu glyphs), "
