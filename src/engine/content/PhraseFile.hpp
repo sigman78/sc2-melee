@@ -36,15 +36,15 @@ struct PhraseFile
 	std::vector<Phrase> phrases;
 
 	// nullopt when no phrase carries that name.
-	[[nodiscard]] std::optional<std::size_t> indexOf (
+	[[nodiscard]] std::optional<std::size_t> indexOf(
 			std::string_view name) const;
 
 	// 1-based, matching the enum: ordinal 1 is phrases[0]. Returns nullptr
 	// for 0, which the C reserves as "say nothing".
-	[[nodiscard]] const Phrase *byOrdinal (std::size_t ordinal) const;
+	[[nodiscard]] const Phrase *byOrdinal(std::size_t ordinal) const;
 };
 
-PhraseFile parsePhrases (std::string_view text,
+PhraseFile parsePhrases(std::string_view text,
 		std::vector<std::string> &problems);
 
 // Attach timestamps from a .ts, replaying getstr.c:306-349 exactly: one line
@@ -56,7 +56,7 @@ PhraseFile parsePhrases (std::string_view text,
 // `problems` also records the silent case: strstr is a substring test, so a
 // line naming FOO_EXTRA satisfies phrase FOO, and the C neither notices nor
 // complains, it just stores the wrong text.
-bool attachTimestamps (PhraseFile &file, std::string_view ts,
+bool attachTimestamps(PhraseFile &file, std::string_view ts,
 		std::vector<std::string> &problems);
 
 }  // namespace uqm::content

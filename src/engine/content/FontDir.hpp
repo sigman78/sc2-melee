@@ -31,7 +31,7 @@ struct Font
 	std::vector<Glyph> glyphs;  // sorted by code point
 };
 
-Font loadFontDir (const std::filesystem::path &dir,
+Font loadFontDir(const std::filesystem::path &dir,
 		std::vector<std::string> &problems);
 
 }  // namespace uqm::content

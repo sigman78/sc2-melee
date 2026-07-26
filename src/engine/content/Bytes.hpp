@@ -17,26 +17,26 @@ using Bytes = std::span<const std::byte>;
 // payload.
 
 inline std::uint8_t
-readU8 (Bytes b, std::size_t at)
+readU8(Bytes b, std::size_t at)
 {
-	return static_cast<std::uint8_t> (b[at]);
+	return static_cast<std::uint8_t>(b[at]);
 }
 
 inline std::uint32_t
-readU32BE (Bytes b, std::size_t at)
+readU32BE(Bytes b, std::size_t at)
 {
-	return (static_cast<std::uint32_t> (readU8 (b, at + 0)) << 24)
-			| (static_cast<std::uint32_t> (readU8 (b, at + 1)) << 16)
-			| (static_cast<std::uint32_t> (readU8 (b, at + 2)) << 8)
-			| static_cast<std::uint32_t> (readU8 (b, at + 3));
+	return (static_cast<std::uint32_t>(readU8(b, at + 0)) << 24)
+			| (static_cast<std::uint32_t>(readU8(b, at + 1)) << 16)
+			| (static_cast<std::uint32_t>(readU8(b, at + 2)) << 8)
+			| static_cast<std::uint32_t>(readU8(b, at + 3));
 }
 
 // Bounds-checked subspan. Returns an empty span when the range does not fit,
 // which every caller here treats as malformed rather than as an empty result.
 inline bool
-fits (Bytes b, std::size_t at, std::size_t len)
+fits(Bytes b, std::size_t at, std::size_t len)
 {
-	return at <= b.size () && len <= b.size () - at;
+	return at <= b.size() && len <= b.size() - at;
 }
 
 }  // namespace uqm::content

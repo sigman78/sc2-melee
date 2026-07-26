@@ -17,7 +17,7 @@ struct Rgb
 {
 	std::uint8_t r = 0, g = 0, b = 0;
 
-	friend bool operator== (const Rgb &, const Rgb &) = default;
+	friend bool operator==(const Rgb &, const Rgb &) = default;
 };
 
 inline constexpr std::size_t kPaletteSize = 256;   // NUMBER_OF_PLUTVALS
@@ -62,7 +62,7 @@ struct ColorTableEntry
 // the wrong shape reliably fails rather than silently mis-reading: the length
 // check is exact, and the two shapes' lengths agree only for a degenerate
 // entry that does not occur.
-std::optional<ColorTableEntry> parseColorTableEntry (
+std::optional<ColorTableEntry> parseColorTableEntry(
 		Bytes bytes, ColorTableShape shape, std::string &error);
 
 }  // namespace uqm::content

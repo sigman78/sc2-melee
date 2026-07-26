@@ -47,7 +47,7 @@ struct PngImage
 	unsigned sourceColorType = 0;
 	unsigned sourceBitDepth = 0;
 
-	[[nodiscard]] std::size_t bytesPerPixel () const
+	[[nodiscard]] std::size_t bytesPerPixel() const
 	{
 		return format == PixelFormat::Indexed8 ? 1u : 4u;
 	}
@@ -60,11 +60,11 @@ struct PngImage
 // mapping of libpng's transform calls onto spng's format flags. Reproduced
 // rather than reinvented: getting "when does indexed art stop being indexed"
 // wrong would silently change how every sprite is coloured.
-std::optional<PngImage> decodePng (Bytes bytes, std::string &error);
+std::optional<PngImage> decodePng(Bytes bytes, std::string &error);
 
 // Encodes 8-bit RGBA. Used by the browser to write contact sheets; the game
 // never writes PNGs.
-std::optional<std::vector<std::byte>> encodeRgbaPng (std::uint32_t width,
+std::optional<std::vector<std::byte>> encodeRgbaPng(std::uint32_t width,
 		std::uint32_t height, const std::vector<std::uint8_t> &rgba,
 		std::string &error);
 

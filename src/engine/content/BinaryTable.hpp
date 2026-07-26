@@ -34,7 +34,7 @@ struct BinaryTable
 // Returns nullopt and sets `error` when the bytes are not a well-formed
 // table. Malformed content is an expected case here, not an exception: the
 // browser's job is to say which file is wrong and how.
-std::optional<BinaryTable> parseBinaryTable (Bytes bytes, std::string &error);
+std::optional<BinaryTable> parseBinaryTable(Bytes bytes, std::string &error);
 
 }  // namespace uqm::content
 

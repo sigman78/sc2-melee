@@ -49,7 +49,7 @@ struct AniFile
 
 // `problems` collects per-line complaints. Unlike the C, a bad line is not
 // silently absorbed: it is reported and skipped.
-AniFile parseAni (std::string_view text, std::vector<std::string> &problems);
+AniFile parseAni(std::string_view text, std::vector<std::string> &problems);
 
 }  // namespace uqm::content
 

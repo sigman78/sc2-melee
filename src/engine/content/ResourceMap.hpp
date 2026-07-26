@@ -32,14 +32,14 @@ public:
 	// Parses the text of a .rmp. Unparseable lines are collected in
 	// `problems` rather than dropped, so a browser can show them; a map with
 	// problems is still usable for the keys that did parse.
-	static ResourceMap parse (std::string_view text,
+	static ResourceMap parse(std::string_view text,
 			std::vector<std::string> &problems);
 
-	[[nodiscard]] const Resource *find (std::string_view key) const;
-	[[nodiscard]] std::size_t size () const { return entries_.size (); }
+	[[nodiscard]] const Resource *find(std::string_view key) const;
+	[[nodiscard]] std::size_t size() const { return entries_.size(); }
 
 	[[nodiscard]] const std::map<std::string, Resource, std::less<>> &
-	entries () const
+	entries() const
 	{
 		return entries_;
 	}
