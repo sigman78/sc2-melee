@@ -14,6 +14,8 @@
 #include "engine/content/AniFile.hpp"
 #include "engine/content/BinaryTable.hpp"
 #include "engine/content/ColorTable.hpp"
+#include "engine/content/FontDir.hpp"
+#include "engine/content/PhraseFile.hpp"
 #include "engine/content/ResourceMap.hpp"
 
 #include <cstdio>
@@ -256,9 +258,148 @@ sweepContent (const fs::path &content)
 	CHECK (aniFiles == 584, "expected 584 .ani files, found %zu", aniFiles);
 	CHECK (cels > 0, "no cels parsed");
 
+	// Phrase files, and the timestamps that ride alongside them. The counts
+	// are the ones tools/check-phrases.py reports, reached by a second
+	// implementation.
+	// Driven off the resource map, not a glob. Not every .txt in the tree is
+	// a resource -- base/cutscene/ending/pc_credits.txt says in its own
+	// header that it is reference material and "not used directly in UQM" --
+	// and a sweep that globs would be asserting things about files the game
+	// never opens.
+	std::size_t txtFiles = 0, phrases = 0, named = 0;
+	std::size_t convFiles = 0, convPhrases = 0;
+	std::map<std::string, fs::path> byStem;
+	for (const auto &[key, res] : map.entries ())
+	{
+		if (res.type != "CONVERSATION" && res.type != "STRTAB")
+			continue;
+		const fs::path path = content / res.path;
+		if (!fs::exists (path))
+		{
+			CHECK (false, "%s -> %s does not exist", key.c_str (),
+					res.path.c_str ());
+			continue;
+		}
+		++txtFiles;
+
+		std::vector<std::string> p;
+		const PhraseFile pf = parsePhrases (readText (path), p);
+		CHECK (p.empty (), "%s: %s", res.path.c_str (),
+				p.empty () ? "" : p[0].c_str ());
+		phrases += pf.phrases.size ();
+		if (res.type == "CONVERSATION")
+		{
+			++convFiles;
+			convPhrases += pf.phrases.size ();
+		}
+		for (const Phrase &ph : pf.phrases)
+			if (!ph.name.empty ())
+				++named;
+		byStem.emplace (path.stem ().string (), path);
+	}
+	CHECK (phrases == named, "every phrase should carry a name (%zu of %zu)",
+			named, phrases);
+
+	// Cross-check against tools/check-phrases.py, which reaches the same 27
+	// files by a different route (each race's *_CONVERSATION_PHRASES macro
+	// through its resinst.h) and counts with a different parser. Two
+	// implementations agreeing on 3,451 is worth more than either alone.
+	CHECK (convFiles == 27, "expected 27 CONVERSATION resources, found %zu",
+			convFiles);
+	CHECK (convPhrases == 3451,
+			"expected 3451 conversation phrases (the number check-phrases.py "
+			"reports), found %zu", convPhrases);
+
+	// "#()" must not open a phrase: strtok returns NULL on it, so the C skips
+	// the line entirely and the text below it joins the previous phrase.
+	// Getting this wrong shifts every ordinal after it.
+	{
+		std::vector<std::string> p;
+		const PhraseFile pf =
+				parsePhrases ("#(A)\nfirst\n#()\nstray\n#(B)\nsecond\n", p);
+		CHECK (pf.phrases.size () == 2, "#() should not open a phrase, got %zu",
+				pf.phrases.size ());
+		if (pf.phrases.size () == 2)
+		{
+			CHECK (pf.phrases[0].text == "first\nstray",
+					"text under #() should join the previous phrase, got %s",
+					pf.phrases[0].text.c_str ());
+			CHECK (pf.phrases[1].name == "B", "second phrase should be B");
+		}
+	}
+
+	// Ordinal binding is what the C does and what the fixtures replace.
+	{
+		const fs::path supoxTxt = content / "base/comm/supox/supox.txt";
+		std::vector<std::string> p;
+		const PhraseFile pf = parsePhrases (readText (supoxTxt), p);
+		CHECK (pf.phrases.size () == 97, "supox should have 97 phrases, got %zu",
+				pf.phrases.size ());
+		const Phrase *first = pf.byOrdinal (1);
+		CHECK (first != nullptr && first->name == "NEUTRAL_SPACE_HELLO_1",
+				"ordinal 1 should be NEUTRAL_SPACE_HELLO_1");
+		CHECK (pf.byOrdinal (0) == nullptr, "ordinal 0 means 'say nothing'");
+		CHECK (pf.indexOf ("NEUTRAL_SPACE_HELLO_1").value_or (99) == 0,
+				"name lookup should find ordinal 1 at index 0");
+	}
+
+	std::size_t tsFiles = 0, tsOk = 0;
+	for (const auto &e : fs::recursive_directory_iterator (content))
+	{
+		if (!e.is_regular_file () || e.path ().extension () != ".ts")
+			continue;
+		++tsFiles;
+
+		// A .ts pairs with the .txt beside it when there is one, else the
+		// base file of the same name.
+		fs::path partner = e.path ();
+		partner.replace_extension (".txt");
+		if (!fs::exists (partner))
+		{
+			const auto it = byStem.find (e.path ().stem ().string ());
+			if (it == byStem.end ())
+			{
+				CHECK (false, "%s: no .txt to pair with",
+						e.path ().string ().c_str ());
+				continue;
+			}
+			partner = it->second;
+		}
+
+		std::vector<std::string> p;
+		PhraseFile pf = parsePhrases (readText (partner), p);
+		if (attachTimestamps (pf, readText (e.path ()), p))
+			++tsOk;
+		CHECK (p.empty (), "%s vs %s: %s", e.path ().filename ().string ().c_str (),
+				partner.filename ().string ().c_str (),
+				p.empty () ? "" : p[0].c_str ());
+	}
+	CHECK (tsFiles == 27, "expected 27 .ts files, found %zu", tsFiles);
+	CHECK (tsOk == tsFiles, "%zu of %zu timestamp files would be discarded "
+							"wholesale by the C", tsFiles - tsOk, tsFiles);
+
+	// Fonts are directories.
+	std::size_t fontDirs = 0, glyphs = 0;
+	for (const auto &e : fs::recursive_directory_iterator (content))
+	{
+		if (!e.is_directory () || e.path ().extension () != ".fon")
+			continue;
+		++fontDirs;
+
+		std::vector<std::string> p;
+		const Font f = loadFontDir (e.path (), p);
+		CHECK (p.empty (), "%s: %s", e.path ().string ().c_str (),
+				p.empty () ? "" : p[0].c_str ());
+		glyphs += f.glyphs.size ();
+	}
+	CHECK (fontDirs == 30, "expected 30 .fon directories, found %zu", fontDirs);
+	CHECK (glyphs == 2599, "expected 2599 glyphs, found %zu", glyphs);
+
 	std::printf ("swept %zu .ct (%zu+%zu entries), %zu .ani (%zu cels), "
+				 "%zu .txt (%zu phrases), %zu .ts, %zu .fon (%zu glyphs), "
 				 "%zu resource keys\n",
-			ctFiles, shapeA, shapeB, aniFiles, cels, map.size ());
+			ctFiles, shapeA, shapeB, aniFiles, cels, txtFiles, phrases,
+			tsFiles, fontDirs, glyphs, map.size ());
 }
 
 int

@@ -18,6 +18,8 @@ add_library(uqm2_content STATIC
 	engine/content/AniFile.cpp
 	engine/content/BinaryTable.cpp
 	engine/content/ColorTable.cpp
+	engine/content/FontDir.cpp
+	engine/content/PhraseFile.cpp
 	engine/content/ResourceMap.cpp
 )
 
