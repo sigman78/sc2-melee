@@ -6,6 +6,7 @@
 // needs a running object: stream independence and reseed semantics.
 
 #include "engine/core/Pacing.hpp"
+#include "sim/Collision.hpp"
 #include "sim/EntityList.hpp"
 #include "sim/Random.hpp"
 #include "sim/Trig.hpp"
@@ -387,11 +388,147 @@ testArctanSentinel()
 			"normalizing it is the caller's decision, and gives 0");
 }
 
+// --------------------------------------------------------------------------
+// Collision
+
+// A solid w x h mask with its hotspot at the centre.
+CollisionMask
+solid(std::uint32_t w, std::uint32_t h)
+{
+	const std::vector<std::uint8_t> bits(static_cast<std::size_t>(w) * h, 1);
+	return CollisionMask(Extent2u{w, h},
+			Vec2i{static_cast<std::int32_t>(w / 2),
+				static_cast<std::int32_t>(h / 2)},
+			bits);
+}
+
+// A ring: opaque border, hollow middle. Two of these can overlap by bounding
+// box while missing entirely, which is the whole point of per-pixel.
+CollisionMask
+ring(std::uint32_t w, std::uint32_t h)
+{
+	std::vector<std::uint8_t> bits(static_cast<std::size_t>(w) * h, 0);
+	for (std::uint32_t y = 0; y < h; ++y)
+		for (std::uint32_t x = 0; x < w; ++x)
+			if (x == 0 || y == 0 || x == w - 1 || y == h - 1)
+				bits[static_cast<std::size_t>(y) * w + x] = 1;
+	return CollisionMask(Extent2u{w, h},
+			Vec2i{static_cast<std::int32_t>(w / 2),
+				static_cast<std::int32_t>(h / 2)},
+			bits);
+}
+
+void
+testCollisionNeedsNoGraphicsContext()
+{
+	// intersec.c:245 returns "no collision" whenever there is no active
+	// graphics context, which is why a naive headless build hangs in
+	// weapon.c's rejection loop instead of producing wrong numbers. Nothing
+	// here has ever seen a renderer.
+	const CollisionMask a = solid(4, 4);
+	const CollisionMask b = solid(4, 4);
+	const Body b0{&a, Vec2i{0, 0}, Vec2i{0, 0}};
+	const Body b1{&b, Vec2i{0, 0}, Vec2i{0, 0}};
+	CHECK(static_cast<bool>(sweptIntersect(b0, b1)),
+			"two overlapping bodies must collide with no context anywhere");
+}
+
+void
+testCollisionBasics()
+{
+	const CollisionMask a = solid(4, 4);
+	const CollisionMask b = solid(4, 4);
+
+	// Stationary and coincident: a hit at the first time step.
+	{
+		const Body b0{&a, Vec2i{10, 10}, Vec2i{10, 10}};
+		const Body b1{&b, Vec2i{10, 10}, Vec2i{10, 10}};
+		const Impact hit = sweptIntersect(b0, b1);
+		CHECK(static_cast<bool>(hit), "coincident bodies collide");
+		CHECK(hit.time == 1, "and do so immediately, got %u", hit.time);
+	}
+
+	// Stationary and far apart: no hit.
+	{
+		const Body b0{&a, Vec2i{0, 0}, Vec2i{0, 0}};
+		const Body b1{&b, Vec2i{100, 100}, Vec2i{100, 100}};
+		CHECK(!sweptIntersect(b0, b1), "distant stationary bodies miss");
+	}
+
+	// Closing head-on over one frame: a hit somewhere in the middle, not at
+	// the ends. This is the case a non-swept test would miss entirely if they
+	// passed through each other.
+	{
+		const Body b0{&a, Vec2i{0, 0}, Vec2i{40, 0}};
+		const Body b1{&b, Vec2i{40, 0}, Vec2i{0, 0}};
+		const Impact hit = sweptIntersect(b0, b1);
+		CHECK(static_cast<bool>(hit), "closing bodies must collide mid-frame");
+		CHECK(hit.time > 1 && hit.time < kMaxTimeValue,
+				"impact should be inside the frame, got %u", hit.time);
+		// They meet near the middle, so the reported positions should be
+		// close together -- that is what the caller places an explosion at.
+		const std::int32_t gap = hit.at0.x - hit.at1.x;
+		CHECK(gap > -8 && gap < 8, "impact positions should nearly coincide, "
+									"gap %ld", static_cast<long>(gap));
+	}
+
+	// A body that would pass through if only the endpoints were tested: it
+	// starts left of the target and ends right of it, never overlapping at
+	// either end.
+	{
+		const CollisionMask bullet = solid(1, 1);
+		const Body shot{&bullet, Vec2i{-20, 0}, Vec2i{20, 0}};
+		const Body target{&b, Vec2i{0, 0}, Vec2i{0, 0}};
+		CHECK(static_cast<bool>(sweptIntersect(shot, target)),
+				"a shot that crosses the target must hit, not tunnel");
+	}
+}
+
+void
+testCollisionIsPerPixelNotBoxes()
+{
+	// Two rings, one small enough to sit inside the other's hollow centre.
+	// Their boxes overlap; no opaque pixel does.
+	const CollisionMask outer = ring(9, 9);
+	const std::vector<std::uint8_t> dot{1};
+	const CollisionMask pixel(Extent2u{1, 1}, Vec2i{0, 0}, dot);
+
+	const Body hole{&outer, Vec2i{0, 0}, Vec2i{0, 0}};
+	const Body inside{&pixel, Vec2i{0, 0}, Vec2i{0, 0}};
+	CHECK(!sweptIntersect(hole, inside),
+			"a pixel in the ring's hollow centre must not collide");
+
+	// Move it onto the rim and it does.
+	const Body onRim{&pixel, Vec2i{-4, 0}, Vec2i{-4, 0}};
+	CHECK(static_cast<bool>(sweptIntersect(hole, onRim)),
+			"the same pixel on the rim must collide");
+}
+
+void
+testCollisionEdgeCases()
+{
+	const CollisionMask a = solid(4, 4);
+	const CollisionMask b = solid(4, 4);
+	const Body b0{&a, Vec2i{0, 0}, Vec2i{0, 0}};
+	const Body b1{&b, Vec2i{0, 0}, Vec2i{0, 0}};
+
+	CHECK(!sweptIntersect(b0, b1, 0), "maxTime 0 is no collision");
+
+	// A null mask is a caller bug, but it must not be a read through null.
+	const Body none{nullptr, Vec2i{0, 0}, Vec2i{0, 0}};
+	CHECK(!sweptIntersect(none, b1), "a missing mask cannot collide");
+	CHECK(!sweptIntersect(b0, none), "either way round");
+}
+
 }  // namespace
 
 int
 main()
 {
+	testCollisionNeedsNoGraphicsContext();
+	testCollisionBasics();
+	testCollisionIsPerPixelNotBoxes();
+	testCollisionEdgeCases();
 	testTrigRoundTrips();
 	testArctanSentinel();
 	testWorldWrapping();
