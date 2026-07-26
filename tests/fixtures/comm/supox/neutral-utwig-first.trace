@@ -1,0 +1,34 @@
+# uqm comm transcript v1
+# start	new
+# script	1,0,0,0
+# speechContent	on
+conv	supox	site=0
+phrase	NEUTRAL_SPACE_HELLO_1
+state	SUPOX_VISITS	0 -> 1
+offer	0	i_am0	= I am Captain Zelnick from Earth. We come in peace.
+offer	1	anyone_around_here
+offer	2	bye_neutral
+pick	1	anyone_around_here
+phrase	UTWIG_NEARBY
+state	SUPOX_WAR_NEWS	0 -> 1
+offer	0	whats_wrong_with_utwig
+offer	1	i_am0	= I am Captain Zelnick from Earth. We come in peace.
+offer	2	bye_neutral
+pick	0	whats_wrong_with_utwig
+phrase	BROKE_ULTRON
+state	SUPOX_WAR_NEWS	1 -> 2
+offer	0	whats_ultron
+offer	1	i_am0	= I am Captain Zelnick from Earth. We come in peace.
+offer	2	bye_neutral
+pick	0	whats_ultron
+phrase	TAKE_ULTRON
+state	SUPOX_WAR_NEWS	2 -> 0
+state	ULTRON_CONDITION	0 -> 1
+offer	0	what_do_i_do_now
+offer	1	thanks_now_we_eat_you
+pick	0	what_do_i_do_now
+state	BATTLE_SEGUE	0 -> 0
+phrase	FIX_IT
+state	GLOBAL_FLAGS_AND_DATA	0 -> 0
+state	BATTLE_SEGUE	0 -> 0
+exit	done

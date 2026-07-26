@@ -1,0 +1,16 @@
+# uqm comm transcript v1
+# start	new
+# script	2
+# speechContent	on
+conv	supox	site=0
+phrase	NEUTRAL_SPACE_HELLO_1
+state	SUPOX_VISITS	0 -> 1
+offer	0	i_am0	= I am Captain Zelnick from Earth. We come in peace.
+offer	1	anyone_around_here
+offer	2	bye_neutral
+pick	2	bye_neutral
+state	BATTLE_SEGUE	0 -> 0
+phrase	GOODBYE_NEUTRAL
+state	GLOBAL_FLAGS_AND_DATA	0 -> 0
+state	BATTLE_SEGUE	0 -> 0
+exit	done
