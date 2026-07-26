@@ -16,8 +16,10 @@ project(uqm
 	VERSION ${_uqm_MAJOR}.${_uqm_MINOR}.${_uqm_PATCH}
 	DESCRIPTION "The Ur-Quan Masters"
 	HOMEPAGE_URL "https://sc2.sourceforge.net/"
-	LANGUAGES C
+	LANGUAGES C CXX
 )
+	# CXX for the green-field tree under src/ (docs/game-rewrite-plan.md).
+	# sc2/ stays C and stays in CI for the whole project.
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
@@ -189,6 +191,7 @@ if(UQM_WERROR)
 endif()
 
 add_subdirectory(sc2/src)
+add_subdirectory(src)
 
 # --- Tests -------------------------------------------------------------------
 # Host-runnable only; a cross build has nothing to run them on.
