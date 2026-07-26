@@ -8,6 +8,7 @@
 #include "engine/core/Pacing.hpp"
 #include "sim/EntityList.hpp"
 #include "sim/Random.hpp"
+#include "sim/Trig.hpp"
 #include "sim/World.hpp"
 
 #include <cstdio>
@@ -310,11 +311,89 @@ testWorldWrapping()
 	static_assert(worldToDisplay(displayToWorld(kSpaceWidth)) == kSpaceWidth);
 }
 
+// --------------------------------------------------------------------------
+// Trig
+
+void
+testTrigRoundTrips()
+{
+	// The table's golden values are static_asserts in Trig.hpp; what is worth
+	// checking at runtime is that the pieces agree with each other over the
+	// whole circle.
+
+	// Every angle's (cos, sin) must arctan back to itself. This is the
+	// property the AI leans on -- aim at a target, then read the aim back --
+	// and it is where a table transcribed one entry out would show up.
+	for (int a = 0; a < kFullCircle; ++a)
+	{
+		const std::int32_t x = cosine(a, 1000);
+		const std::int32_t y = sine(a, 1000);
+		const int back = arctan(static_cast<int>(x), static_cast<int>(y));
+		CHECK(back == a, "angle %d -> (%ld, %ld) -> %d", a,
+				static_cast<long>(x), static_cast<long>(y), back);
+	}
+
+	// Magnitude is preserved to within rounding: cos^2 + sin^2 == m^2.
+	for (int a = 0; a < kFullCircle; ++a)
+	{
+		const std::int64_t x = cosine(a, 10000);
+		const std::int64_t y = sine(a, 10000);
+		const std::int64_t r2 = x * x + y * y;
+		// 10000^2 == 1e8; allow half a percent for the 14-bit table.
+		CHECK(r2 > 99000000 && r2 < 101000000,
+				"angle %d has magnitude^2 %lld, expected ~1e8", a,
+				static_cast<long long>(r2));
+	}
+
+	// Opposite angles nearly negate -- and the "nearly" is the point.
+	//
+	// SINE is `(table[a] * m) >> 14`, and an arithmetic right shift *floors*
+	// rather than truncating toward zero, so a negative product rounds away
+	// from zero where the matching positive one rounds towards it. sine(1) is
+	// -4077 while sine(33) is +4076. The function is therefore not symmetric
+	// under a half turn, by one count, wherever the product is not a multiple
+	// of 16384.
+	//
+	// That asymmetry is in the shipped game, so it is asserted rather than
+	// smoothed: a rewrite that rounded symmetrically would drift from the C
+	// by a unit per frame in exactly half the directions.
+	int asymmetric = 0;
+	for (int a = 0; a < kFullCircle; ++a)
+	{
+		const std::int32_t here = sine(a, 4096);
+		const std::int32_t opposite = sine(a + kHalfCircle, 4096);
+		const std::int32_t sum = here + opposite;
+		CHECK(sum == 0 || sum == -1,
+				"sine(%d) and sine(%d) should sum to 0 or -1, got %ld", a,
+				a + kHalfCircle, static_cast<long>(sum));
+		if (sum != 0)
+			++asymmetric;
+	}
+	CHECK(asymmetric > 0,
+			"the floor-shift asymmetry must survive; if this ever reaches 0 "
+			"someone has made the rounding symmetric");
+}
+
+void
+testArctanSentinel()
+{
+	// The zero vector returns an *unnormalized* 64. A caller that forwards it
+	// to a table lookup without checking would be reading a direction it was
+	// never given, so the sentinel has to survive rather than fold to 0.
+	CHECK(arctan(0, 0) == kFullCircle,
+			"the zero vector must return the unnormalized sentinel");
+	CHECK(arctan(0, 0) != 0, "and must not look like 'up'");
+	CHECK(normalizeAngle(arctan(0, 0)) == 0,
+			"normalizing it is the caller's decision, and gives 0");
+}
+
 }  // namespace
 
 int
 main()
 {
+	testTrigRoundTrips();
+	testArctanSentinel();
 	testWorldWrapping();
 	testStreamsAreIndependent();
 	testReseedReturnsThePrevious();
