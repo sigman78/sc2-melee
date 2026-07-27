@@ -264,6 +264,13 @@ struct Element
 	// What this element hit, valid only inside a collision hook.
 	EntityId collidedWith;
 
+	// The ship this came from, and pParent in the C (element.h:192). A ship
+	// owns itself. This is what IGNORE_SIMILAR is tested against: the C skips
+	// a pair when both carry the flag *and share an owner*, which is what
+	// stops a flame burning the Avenger that breathed it. Owner, not player --
+	// two ships of the same species on one side still shoot each other.
+	EntityId owner;
+
 	// Only meaningful when kind == Ship; `ship.data` is null otherwise.
 	ShipState ship;
 

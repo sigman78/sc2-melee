@@ -958,31 +958,60 @@ testCollisionPairsAreVisitedOnce()
 	c.mask = &mask;
 	c.kind = ElementKind::Ship;
 	c.playerNr = 1;
+	// At least one side must have mass, or the pair is skipped entirely
+	// (collide.h:39). Two massless things have no momentum to exchange.
+	c.mass = 6;
 	const EntityId ic = b.spawnBack(std::move(c));
 
 	b.step();
 	CHECK(b.get(ia)->collidedWith == ic, "a should record hitting c");
 	CHECK(b.get(ic)->collidedWith == ia, "and c should record hitting a");
 
-	// Two projectiles from the same owner with IgnoreSimilar must not hit
-	// each other -- ilwrath.c:203, a flame stream not eating itself.
+	// Two things from the same *ship* that both carry IgnoreSimilar must not
+	// hit each other (collide.h:37-38). Owner, not player and not kind: a
+	// flame must not burn the Avenger that breathed it, and those are
+	// different kinds.
 	Battle b2(1);
+	const EntityId shipId{1, 1};
+
 	Element f1;
 	f1.current = Vec2i{500, 500};
 	f1.mask = &mask;
 	f1.kind = ElementKind::Weapon;
 	f1.playerNr = 0;
+	f1.mass = 4;
+	f1.owner = shipId;
 	f1.flags = ElementFlags::IgnoreSimilar;
 	const EntityId if1 = b2.spawnBack(std::move(f1));
 
 	Element f2 = *b2.get(if1);
 	f2.flags = ElementFlags::IgnoreSimilar;
+	// A *ship*, not another flame -- the kinds differ, which is precisely the
+	// case the old same-kind test let through.
+	f2.kind = ElementKind::Ship;
+	f2.mass = 7;
 	const EntityId if2 = b2.spawnBack(std::move(f2));
 
 	b2.step();
 	CHECK(!b2.get(if1)->collidedWith.valid(),
-			"same-owner flames must not collide");
+			"a flame must not hit the ship that fired it");
 	CHECK(!b2.get(if2)->collidedWith.valid(), "either way round");
+
+	// ...but a different ship's flame, same player or not, does hit.
+	Battle b3(1);
+	Element g1 = *b2.get(if1);
+	g1.owner = EntityId{7, 1};
+	g1.collidedWith = kNoEntity;
+	const EntityId ig1 = b3.spawnBack(std::move(g1));
+
+	Element g2 = *b2.get(if2);
+	g2.owner = EntityId{9, 1};
+	g2.collidedWith = kNoEntity;
+	const EntityId ig2 = b3.spawnBack(std::move(g2));
+
+	b3.step();
+	CHECK(b3.get(ig1)->collidedWith == ig2,
+			"different owners collide even with IgnoreSimilar on both");
 }
 
 // --------------------------------------------------------------------------

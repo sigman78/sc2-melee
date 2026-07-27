@@ -84,6 +84,13 @@ struct Spawn
 	// source (IGNORE_SIMILAR).
 	bool ignoreSimilar = false;
 
+	// True where the shot rides the ship's own velocity rather than leaving it
+	// behind. The Ilwrath flame does (ilwrath.c:219-222): its muzzle velocity
+	// is added to the ship's, and its start position is backed off by one
+	// frame of that, so the stream trails the Avenger instead of hanging in
+	// space behind it. Per-ship, not universal -- the Cruiser's nuke does not.
+	bool inheritsVelocity = false;
+
 	friend bool operator==(const Spawn &, const Spawn &) = default;
 };
 

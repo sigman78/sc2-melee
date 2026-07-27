@@ -69,6 +69,11 @@ spawnAvengerPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 	// ilwrath.c:203 -- IGNORE_SIMILAR. A stream of flame must not collide
 	// with itself.
 	s.ignoreSimilar = true;
+
+	// ilwrath.c:219-222 -- the flame rides the Avenger's own velocity rather
+	// than leaving it behind, so the stream trails the ship instead of hanging
+	// in the space it just left.
+	s.inheritsVelocity = true;
 	return 1;
 }
 

@@ -65,6 +65,7 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 		s.crew = d.maxCrew;
 		s.energy = d.maxEnergy;
 		s.input = ShipInput::None;
+		e->owner = id;  // a ship is its own pParent
 		applyFacingMask(*e, d);
 		return;
 	}
@@ -175,6 +176,20 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			if (sp.ignoreSimilar)
 				w.flags |= ElementFlags::IgnoreSimilar;
 			w.velocity.setVector(sp.speed, sp.facing);
+			w.owner = id;  // pParent: what IGNORE_SIMILAR is tested against
+
+			if (sp.inheritsVelocity)
+			{
+				// The ship's velocity is added on top of the muzzle velocity,
+				// and the start position is backed off by one frame of it
+				// (ilwrath.c:219-222). Without the offset the first frame of
+				// flame appears ahead of where the ship actually was.
+				const Vec2i v = e->velocity.current();
+				w.velocity.deltaComponents(v.x, v.y);
+				w.current = wrap(Vec2i{w.current.x - velocityToWorld(v.x),
+						w.current.y - velocityToWorld(v.y)});
+				w.next = w.current;
+			}
 
 			// Tail insertion: a weapon should act *after* the ship that fired
 			// it this frame. The step loop's catch-up pass picks it up, so it

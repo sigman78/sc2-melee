@@ -119,12 +119,21 @@ Battle::testPair(EntityId aId, EntityId bId)
 	if (!a->collidable() || !b->collidable())
 		return false;
 
-	// IGNORE_SIMILAR: same owner, same kind. A flame stream must not eat
-	// itself, but a flame must still hit an asteroid.
-	const bool similar = a->playerNr == b->playerNr && a->kind == b->kind;
-	if (similar
-			&& (any(a->flags & ElementFlags::IgnoreSimilar)
-					|| any(b->flags & ElementFlags::IgnoreSimilar)))
+	// CollisionPossible (collide.h:34-39), which is stricter than it looks.
+	//
+	// The pair is skipped when *both* carry IGNORE_SIMILAR and they share an
+	// owner. Both halves matter: `both` and not `either`, and `owner` and not
+	// `player` or `kind`. Testing kind instead is what let an Ilwrath flame
+	// burn the Avenger that breathed it -- a ship and a weapon are different
+	// kinds, so the pair never matched and the hull took its own fire.
+	const bool bothIgnore = any(a->flags & ElementFlags::IgnoreSimilar)
+			&& any(b->flags & ElementFlags::IgnoreSimilar);
+	if (bothIgnore && a->owner.valid() && a->owner == b->owner)
+		return false;
+
+	// And at least one side must have mass. Two massless things pass through
+	// each other -- there is no momentum to exchange and nothing to resolve.
+	if (a->mass == 0 && b->mass == 0)
 		return false;
 
 	// Masks are measured in display pixels and positions are in world units,
