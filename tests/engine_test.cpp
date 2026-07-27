@@ -4,6 +4,7 @@
 // nonetheless pure logic and has no business needing a window to be checked --
 // the input accumulator, the pacing accumulator, and the melee camera.
 
+#include "engine/audio/Ring.hpp"
 #include "engine/core/Pacing.hpp"
 #include "engine/input/Input.hpp"
 #include "game/Camera.hpp"
@@ -448,11 +449,103 @@ testCameraMeasuresAcrossTheSeam()
 			static_cast<long>(apart));
 }
 
+// --------------------------------------------------------------------------
+// The audio ring
+
+void
+testRingRoundTripsInOrder()
+{
+	uqm::audio::SpscRing<std::int16_t, 8> ring;
+	CHECK(ring.empty(), "a fresh ring is empty");
+	CHECK(ring.space() == 8, "and has its whole capacity, got %zu",
+			ring.space());
+
+	const std::array<std::int16_t, 4> in{10, 20, 30, 40};
+	CHECK(ring.push(in), "four into eight should fit");
+	CHECK(ring.size() == 4, "and be readable, got %zu", ring.size());
+
+	std::array<std::int16_t, 4> out{};
+	CHECK(ring.pop(out) == 4, "all four should come back");
+	CHECK(out == in, "in the order they went in");
+	CHECK(ring.empty(), "leaving it empty");
+}
+
+void
+testRingRefusesOverfillRatherThanTearing()
+{
+	// A half-written buffer of audio is a click. Refusing outright is the
+	// quieter failure, and it is the one the caller can actually handle.
+	uqm::audio::SpscRing<std::int16_t, 4> ring;
+	const std::array<std::int16_t, 3> three{1, 2, 3};
+	const std::array<std::int16_t, 2> two{4, 5};
+
+	CHECK(ring.push(three), "three into four fits");
+	CHECK(!ring.push(two), "two more does not, and must be refused whole");
+	CHECK(ring.size() == 3, "with nothing written, got %zu", ring.size());
+
+	std::array<std::int16_t, 3> out{};
+	CHECK(ring.pop(out) == 3, "the original three are intact");
+	CHECK(out == three, "and unmodified");
+}
+
+void
+testRingWrapsWithoutReordering()
+{
+	// The interesting case: indices grow past the capacity and mask around, so
+	// a read that straddles the end of the storage must still come back in
+	// order. Drive it many times round so every alignment is exercised.
+	uqm::audio::SpscRing<std::int16_t, 8> ring;
+
+	std::int16_t next = 0;
+	std::int16_t expect = 0;
+	for (int round = 0; round < 50; ++round)
+	{
+		const std::array<std::int16_t, 3> in{next, static_cast<std::int16_t>(
+													  next + 1),
+				static_cast<std::int16_t>(next + 2)};
+		next = static_cast<std::int16_t>(next + 3);
+		CHECK(ring.push(in), "round %d should fit after draining", round);
+
+		std::array<std::int16_t, 3> out{};
+		CHECK(ring.pop(out) == 3, "round %d should read back three", round);
+		for (const std::int16_t v : out)
+		{
+			CHECK(v == expect, "round %d got %d, expected %d", round,
+					static_cast<int>(v), static_cast<int>(expect));
+			expect = static_cast<std::int16_t>(expect + 1);
+		}
+	}
+}
+
+void
+testRingShortReadOnUnderrun()
+{
+	// The device asks for a full buffer and there is not one. It gets what
+	// there is and the caller pads with silence -- blocking a device thread to
+	// wait for the simulation is the thing this whole type exists to avoid.
+	uqm::audio::SpscRing<std::int16_t, 8> ring;
+	const std::array<std::int16_t, 2> in{7, 8};
+	CHECK(ring.push(in), "two in");
+
+	std::array<std::int16_t, 6> out{};
+	out.fill(-1);
+	CHECK(ring.pop(out) == 2, "only two should come out");
+	CHECK(out[0] == 7 && out[1] == 8, "and they should be the right two");
+	CHECK(out[2] == -1, "the rest of the caller's buffer is untouched");
+
+	CHECK(ring.pop(out) == 0, "a second read finds nothing");
+	CHECK(ring.empty(), "and the ring stays empty rather than underflowing");
+}
+
 }  // namespace
 
 int
 main()
 {
+	testRingRoundTripsInOrder();
+	testRingRefusesOverfillRatherThanTearing();
+	testRingWrapsWithoutReordering();
+	testRingShortReadOnUnderrun();
 	testCameraCentresBetweenTheShips();
 	testCameraZoomsOutAsShipsSeparate();
 	testCameraKeepsBothShipsOnScreen();
@@ -474,6 +567,6 @@ main()
 		std::fprintf(stderr, "%d check(s) failed\n", g_failures);
 		return 1;
 	}
-	std::printf("engine: input, pacing and camera checks passed\n");
+	std::printf("engine: input, pacing, camera and audio-ring checks passed\n");
 	return 0;
 }

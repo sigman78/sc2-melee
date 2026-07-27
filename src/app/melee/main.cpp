@@ -3,11 +3,15 @@
 // The M1 vertical slice: Human Cruiser against Ilwrath Avenger, two players at
 // one keyboard, on a real window.
 //
-// Nothing is drawn from content yet -- ships and shots are coloured rectangles
-// sized from their collision masks. That is deliberate for this step. The
-// point of the slice is to prove the *shape* of the loop, and a rectangle in
-// the right place at the right time proves it as well as a sprite does while
-// failing much more loudly when it is wrong.
+// Ships, projectiles, asteroids and the planet all draw from content. Anything
+// without art yet -- blasts, mainly -- falls back to a coloured rectangle,
+// which is deliberately ugly so it reads as missing rather than as a choice.
+//
+// Everything is positioned by its cel's *hotspot*, not its centre. Each facing
+// has its own: the Cruiser's sixteen are at (7,19), (12,19), (16,15) and so
+// on, because the ship is not symmetric and each rendering sits differently in
+// its box. Centring instead makes the hull wander as it turns, and puts the
+// sprite off the collision mask, which is anchored to that same hotspot.
 //
 // The loop is the plan's `main` + `iterate()`: one function that advances
 // everything by whatever time has passed, called from a driver that differs
@@ -18,7 +22,7 @@
 #include "engine/core/Pacing.hpp"
 #include "engine/input/Input.hpp"
 #include "game/Camera.hpp"
-#include "game/ShipSprites.hpp"
+#include "game/SpriteSet.hpp"
 #include "platform/Platform.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Damage.hpp"
@@ -121,14 +125,25 @@ struct Game
 
 	// Sprite sets, and the masks that come with them. Both outlive the
 	// battle, which is what Element::mask assumes.
-	game::ShipSprites cruiser;
-	game::ShipSprites avenger;
+	game::SpriteSet cruiser;
+	game::SpriteSet avenger;
+	game::SpriteSet nuke;     // the Cruiser's missile ("saturn")
+	game::SpriteSet flame;    // the Avenger's fire
+	game::SpriteSet rock;
+	game::SpriteSet world;    // the gravity well
 
 	// Fallbacks for anything without art yet -- shots, rocks, the planet.
 	sim::CollisionMask shipMask = block(12, 12);
 	sim::CollisionMask shotMask = block(3, 3);
 	sim::CollisionMask rockMask = block(8, 8);
 	sim::CollisionMask planetMask = block(28, 28);
+
+	// Per-battle copies of the ship descriptors, so their weapons can be given
+	// the collision mask cut from the projectile art. The shared ones in sim/
+	// are static and content-free by design; wiring a mask into them would
+	// make sim/ depend on what has been loaded.
+	sim::ShipData cruiserData;
+	sim::ShipData avengerData;
 
 	std::array<sim::EntityId, 2> ships{};
 	bool running = true;
@@ -140,30 +155,68 @@ struct Game
 	std::int64_t endedAtFrame = 0;
 };
 
-// Which sprite set an element draws from. Only ships have art so far.
-const game::ShipSprites *
+// Which sprite set an element draws from. Ownership decides the weapon art,
+// because a missile belongs to whoever fired it.
+const game::SpriteSet *
 spritesFor(const Game &g, const sim::Element &e) noexcept
 {
-	if (e.kind != sim::ElementKind::Ship)
-		return nullptr;
-	const game::ShipSprites *set = e.playerNr == 0 ? &g.cruiser : &g.avenger;
-	return set->valid() ? set : nullptr;
+	const game::SpriteSet *set = nullptr;
+	switch (e.kind)
+	{
+		case sim::ElementKind::Ship:
+			set = e.playerNr == 0 ? &g.cruiser : &g.avenger;
+			break;
+		case sim::ElementKind::Weapon:
+			set = e.playerNr == 0 ? &g.nuke : &g.flame;
+			break;
+		case sim::ElementKind::Asteroid:
+			set = &g.rock;
+			break;
+		case sim::ElementKind::Planet:
+			set = &g.world;
+			break;
+		default:
+			return nullptr;
+	}
+	return set != nullptr && set->valid() ? set : nullptr;
 }
 
 void
 setUp(Game &g, const std::filesystem::path &content)
 {
 	const std::filesystem::path ct = content / "base/uqm.ct";
-	g.cruiser = game::loadShipSprites(
-			g.window, content / "base/ships/human/cruiser-big.ani", ct);
-	g.avenger = game::loadShipSprites(
-			g.window, content / "base/ships/ilwrath/avenger-big.ani", ct);
+	const auto load = [&](const char *rel) {
+		return game::loadSprites(g.window, content / rel, ct);
+	};
+
+	g.cruiser = load("base/ships/human/cruiser-big.ani");
+	g.avenger = load("base/ships/ilwrath/avenger-big.ani");
+	// ship.earthling.graphics.saturn.large -- the Cruiser's nuke is a ringed
+	// sphere, hence the name.
+	g.nuke = load("base/ships/human/saturn-big.ani");
+	g.flame = load("base/ships/ilwrath/fire-big.ani");
+	g.rock = load("base/battle/asteroid-big.ani");
+	// The C picks a planet type at random per battle (load_gravity_well,
+	// cons_res.c:52-82). One fixed type until melee setup exists.
+	g.world = load("base/planets/acid-big.ani");
+
+	g.cruiserData = sim::earthlingCruiser();
+	g.avengerData = sim::ilwrathAvenger();
+	if (const sim::CollisionMask *m = g.nuke.maskFor(0); m != nullptr)
+		g.cruiserData.weaponMask = m;
+	if (const sim::CollisionMask *m = g.flame.maskFor(0); m != nullptr)
+		g.avengerData.weaponMask = m;
 
 	// The planet first, then the asteroids -- init.c's order, and the RNG
 	// stream depends on it.
-	(void)sim::spawnPlanet(g.battle, &g.planetMask);
+	const sim::CollisionMask *planetMask =
+			g.world.maskFor(0) != nullptr ? g.world.maskFor(0) : &g.planetMask;
+	const sim::CollisionMask *rockMask =
+			g.rock.maskFor(0) != nullptr ? g.rock.maskFor(0) : &g.rockMask;
+
+	(void)sim::spawnPlanet(g.battle, planetMask);
 	for (int i = 0; i < sim::kNumAsteroids; ++i)
-		(void)sim::spawnAsteroid(g.battle, &g.rockMask);
+		(void)sim::spawnAsteroid(g.battle, rockMask);
 
 	const auto addShip = [&g](const sim::ShipData &data, Vec2i at, int facing,
 							  int player) {
@@ -179,7 +232,7 @@ setUp(Game &g, const std::filesystem::path &content)
 		// The real silhouette when the art loaded, a block when it did not.
 		// Per-pixel collision against a 12x12 square is not per-pixel
 		// collision, so this changes how the ships actually touch.
-		const game::ShipSprites *set = player == 0 ? &g.cruiser : &g.avenger;
+		const game::SpriteSet *set = player == 0 ? &g.cruiser : &g.avenger;
 		const sim::CollisionMask *m = set->maskFor(facing);
 		e.mask = m != nullptr ? m : &g.shipMask;
 		e.ship.data = &data;
@@ -194,10 +247,10 @@ setUp(Game &g, const std::filesystem::path &content)
 	// the arena apart is the 4:1 clamp exactly, which pins them to the screen
 	// edges and looks like a bug even though it is the camera working.
 	constexpr std::int32_t kStartGap = 512;
-	g.ships[0] = addShip(sim::earthlingCruiser(),
+	g.ships[0] = addShip(g.cruiserData,
 			Vec2i{sim::kLogSpaceWidth / 2 - kStartGap, sim::kLogSpaceHeight / 2},
 			4, 0);
-	g.ships[1] = addShip(sim::ilwrathAvenger(),
+	g.ships[1] = addShip(g.avengerData,
 			Vec2i{sim::kLogSpaceWidth / 2 + kStartGap, sim::kLogSpaceHeight / 2},
 			12, 1);
 }
@@ -238,12 +291,32 @@ draw(Game &g)
 		const Extent2u dest{static_cast<std::uint32_t>(w),
 				static_cast<std::uint32_t>(h)};
 
-		if (const game::ShipSprites *set = spritesFor(g, *e); set != nullptr)
+		if (const game::SpriteSet *set = spritesFor(g, *e); set != nullptr)
 		{
 			const std::size_t i = static_cast<std::size_t>(e->facing)
 					% set->frames.size();
-			g.window.draw(set->frames[i], Vec2i{at.x - w / 2, at.y - h / 2},
-					dest);
+
+			// Draw from the cel's *hotspot*, not its centre.
+			//
+			// The hotspot is where the game considers the object to be, and
+			// every cel has its own -- the Cruiser's sixteen facings are at
+			// (7,19), (12,19), (16,15) and so on, because the ship is not
+			// symmetric and each rendering sits differently in its box.
+			// Centring instead makes the hull shift around as it turns, and
+			// puts the sprite off the collision mask that is anchored to the
+			// same hotspot.
+			const Vec2i hs = set->masks[i].hotspot();
+			const Extent2u src = set->masks[i].size();
+			const std::int32_t ox = src.w != 0
+					? static_cast<std::int32_t>(hs.x) * w
+							/ static_cast<std::int32_t>(src.w)
+					: w / 2;
+			const std::int32_t oy = src.h != 0
+					? static_cast<std::int32_t>(hs.y) * h
+							/ static_cast<std::int32_t>(src.h)
+					: h / 2;
+
+			g.window.draw(set->frames[i], Vec2i{at.x - ox, at.y - oy}, dest);
 			continue;
 		}
 

@@ -1,7 +1,7 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 
-#ifndef UQM2_GAME_SHIPSPRITES_HPP
-#define UQM2_GAME_SHIPSPRITES_HPP
+#ifndef UQM2_GAME_SPRITESET_HPP
+#define UQM2_GAME_SPRITESET_HPP
 
 #include "platform/Platform.hpp"
 #include "sim/Collision.hpp"
@@ -12,7 +12,8 @@
 
 namespace uqm::game {
 
-// A ship's sixteen facings, uploaded and with collision masks to match.
+// A set of cels -- a ship's sixteen facings, a projectile's frames, a rock --
+// uploaded, with collision masks to match.
 //
 // The C ships three pre-rendered sizes per object -- cruiser-big, -med, -sml
 // -- and picks one from the camera's reduction, which is the sprite-LOD half
@@ -28,7 +29,7 @@ namespace uqm::game {
 // through each other at 4:1. That is a presentation detail reaching into the
 // simulation, which the plan forbids -- so the silhouette is fixed at the 1:1
 // one. This is a deliberate divergence and it changes collisions at range.
-struct ShipSprites
+struct SpriteSet
 {
 	std::vector<platform::Texture> frames;
 	std::vector<sim::CollisionMask> masks;
@@ -56,10 +57,10 @@ struct ShipSprites
 // nothing useful to say here that is not already said louder elsewhere.
 // `colortable` is the global palette table (colortable.main, base/uqm.ct);
 // cels name a slot in it rather than in any .ct beside them.
-[[nodiscard]] ShipSprites loadShipSprites(platform::Platform &window,
+[[nodiscard]] SpriteSet loadSprites(platform::Platform &window,
 		const std::filesystem::path &ani,
 		const std::filesystem::path &colortable);
 
 }  // namespace uqm::game
 
-#endif  // UQM2_GAME_SHIPSPRITES_HPP
+#endif  // UQM2_GAME_SPRITESET_HPP

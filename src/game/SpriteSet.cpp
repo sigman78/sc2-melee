@@ -1,6 +1,6 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 
-#include "ShipSprites.hpp"
+#include "SpriteSet.hpp"
 
 #include "engine/content/AniFile.hpp"
 #include "engine/content/BinaryTable.hpp"
@@ -52,11 +52,11 @@ loadColormaps(const fs::path &ct)
 
 }  // namespace
 
-ShipSprites
-loadShipSprites(platform::Platform &window, const fs::path &ani,
+SpriteSet
+loadSprites(platform::Platform &window, const fs::path &ani,
 		const fs::path &colortable)
 {
-	ShipSprites out;
+	SpriteSet out;
 
 	const auto text = platform::readFile(ani);
 	if (!text)
@@ -87,11 +87,11 @@ loadShipSprites(platform::Platform &window, const fs::path &ani,
 	{
 		const auto bytes = platform::readFile(dir / std::string(cel.file));
 		if (!bytes)
-			return ShipSprites{};
+			return SpriteSet{};
 
 		const auto img = content::decodePng(*bytes);
 		if (!img)
-			return ShipSprites{};
+			return SpriteSet{};
 
 		const auto slot = slots.find(cel.colormapIndex);
 		const content::Palette *palette =
@@ -100,7 +100,7 @@ loadShipSprites(platform::Platform &window, const fs::path &ani,
 
 		platform::Texture tex = window.upload(img->size(), rgba);
 		if (!tex.valid())
-			return ShipSprites{};
+			return SpriteSet{};
 
 		// The hotspot is the .ani's, not the image centre. It is where the
 		// game considers the object to *be* -- the C positions everything by
