@@ -172,6 +172,12 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 					: &d.weaponMasks[static_cast<std::size_t>(sp.facing)
 							% d.weaponMasks.size()];
 			w.onCollision = weaponCollision;
+			w.preProcess = sp.preProcess != nullptr ? sp.preProcess
+													: d.weaponPreProcess;
+			// The shot reads its own guidance parameters from the descriptor
+			// that fired it, so it carries the pointer. It is not a ship and
+			// has no ShipState otherwise.
+			w.ship.data = &d;
 			w.flags = ElementFlags::FiniteLife;
 			if (sp.ignoreSimilar)
 				w.flags |= ElementFlags::IgnoreSimilar;
@@ -207,6 +213,91 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 		--s.specialCounter;
 }
 
+int
+trackShip(Battle &b, EntityId tracker, int &facing) noexcept
+{
+	const auto self = b.get(tracker);
+	if (self == nullptr)
+		return 0;
+
+	// The C reads `next` once the tracker has been preprocessed and `current`
+	// before it (weapon.c:356-368), which is the same distinction gravity.c
+	// makes -- and for the same reason: half the list has already moved.
+	const bool useNext = any(self->flags & ElementFlags::PreProcessed);
+	const Vec2i from = useNext ? self->next : self->current;
+
+	int bestDelta = 0;
+	bool found = false;
+
+	for (EntityId id = b.elements().front(); id.valid();
+			id = b.elements().next(id))
+	{
+		const auto t = b.get(id);
+		if (t == nullptr || !any(t->flags & ElementFlags::PlayerShip))
+			continue;
+		if (t->playerNr == self->playerNr)
+			continue;
+		// Dead ships are not targets (weapon.c:352-353).
+		if (t->lifeSpan == 0 || t->ship.crew == 0)
+			continue;
+
+		const Vec2i to = useNext ? t->next : t->current;
+		const Vec2i d = wrapDelta(Vec2i{to.x - from.x, to.y - from.y});
+		const int want = angleToFacing(arctan(d.x, d.y));
+		const int delta = normalizeFacing(want - facing);
+		if (!found || delta < bestDelta)
+		{
+			bestDelta = delta;
+			found = true;
+		}
+	}
+
+	if (!found || bestDelta == 0)
+		return 0;
+
+	// One step, the short way round. A guided missile turns at a rate; it does
+	// not snap onto its target.
+	facing = normalizeFacing(
+			facing + (bestDelta <= kNumFacings / 2 ? 1 : -1));
+	return 1;
+}
+
+void
+nukePreProcess(Battle &b, EntityId id) noexcept
+{
+	auto e = b.get(id);
+	if (e == nullptr || e->ship.data == nullptr)
+		return;
+
+	const ShipData &d = *e->ship.data;
+
+	// Steer, but only every TRACK_WAIT frames (human.c:133-146).
+	int facing = e->facing;
+	if (e->turnWait > 0)
+	{
+		--e->turnWait;
+	}
+	else
+	{
+		(void)trackShip(b, id, facing);
+		e = b.get(id);
+		if (e == nullptr)
+			return;
+		e->facing = facing;
+		e->turnWait = d.weaponTrackWait;
+	}
+
+	// And accelerate as it goes (human.c:148-157): speed climbs with how much
+	// of its life it has spent, capped. A nuke that has been chasing you for a
+	// while is much harder to outrun than one just launched, which is most of
+	// what makes the Cruiser feel like the Cruiser.
+	std::int32_t speed = d.weaponSpeed
+			+ (d.weaponLife - e->lifeSpan) * d.weaponThrustScale;
+	if (speed > d.weaponMaxSpeed)
+		speed = d.weaponMaxSpeed;
+	e->velocity.setVector(speed, e->facing);
+}
+
 // --------------------------------------------------------------------------
 // The two M1 ships.
 
@@ -236,6 +327,14 @@ earthlingCruiser() noexcept
 		d.weaponHitPoints = 1;
 		d.muzzleOffset = 42;   // HUMAN_OFFSET
 		d.blastOffset = 8;     // NUKE_OFFSET
+
+		// The nuke is guided and accelerates: TRACK_WAIT 3,
+		// MAX_MISSILE_SPEED = DISPLAY_TO_WORLD(20) == 80, THRUST_SCALE =
+		// DISPLAY_TO_WORLD(1) == 4 (human.c:43-50).
+		d.weaponTrackWait = 3;
+		d.weaponMaxSpeed = 80;
+		d.weaponThrustScale = 4;
+		d.weaponPreProcess = nukePreProcess;
 		return d;
 	}();
 	return data;

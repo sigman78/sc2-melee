@@ -4,6 +4,7 @@
 #define UQM2_SIM_SPAWN_HPP
 
 #include "engine/core/Geometry.hpp"
+#include "sim/Element.hpp"
 #include "sim/Velocity.hpp"
 
 #include <array>
@@ -90,6 +91,12 @@ struct Spawn
 	// frame of that, so the stream trails the Avenger instead of hanging in
 	// space behind it. Per-ship, not universal -- the Cruiser's nuke does not.
 	bool inheritsVelocity = false;
+
+	// Per-frame behaviour, if the shot has any. A function pointer keeps the
+	// descriptor a pure value -- still trivially copyable, still safe to
+	// produce a hundred times for an AI lookahead and throw away -- while
+	// letting a guided missile be guided. Null for a shot that just flies.
+	ElementHook preProcess = nullptr;
 
 	friend bool operator==(const Spawn &, const Spawn &) = default;
 };

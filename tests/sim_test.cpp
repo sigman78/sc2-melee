@@ -951,6 +951,12 @@ testCollisionPairsAreVisitedOnce()
 	a.mask = &mask;
 	a.kind = ElementKind::Weapon;
 	a.playerNr = 0;
+	// Transient, like a real weapon -- and load-bearing here: an at-rest
+	// overlap between two *solid* bodies is the "BAD NEWS" case the step
+	// skips, so only a transient can register this stationary hit at all.
+	// Two frames of life, because the first is spent before the test runs.
+	a.flags = ElementFlags::FiniteLife;
+	a.lifeSpan = 2;
 	const EntityId ia = b.spawnBack(std::move(a));
 
 	Element c;
@@ -1002,6 +1008,10 @@ testCollisionPairsAreVisitedOnce()
 	Element g1 = *b2.get(if1);
 	g1.owner = EntityId{7, 1};
 	g1.collidedWith = kNoEntity;
+	// Transient for the same reason as above: the target is solid, so the
+	// flame must be finite-life for a stationary overlap to be a hit.
+	g1.flags = ElementFlags::IgnoreSimilar | ElementFlags::FiniteLife;
+	g1.lifeSpan = 2;
 	const EntityId ig1 = b3.spawnBack(std::move(g1));
 
 	Element g2 = *b2.get(if2);
@@ -1616,6 +1626,11 @@ testMissileDamagesAndSpendsItself()
 			"the missile should cost 4 crew, got %ld",
 			static_cast<long>(b.get(target)->ship.crew));
 
+	// One more frame: the walk preprocessed the missile before its hit, so
+	// its zeroed life is only seen -- and the wreck reaped -- on the next
+	// death check, exactly as in the C.
+	b.step();
+
 	int weapons = 0;
 	int blasts = 0;
 	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
@@ -1664,8 +1679,14 @@ testFlyingIntoAPlanetCostsOnePoint()
 		return;
 
 	const std::int32_t before = b.get(ship)->ship.crew;
-	b.get(ship)->current = Vec2i{4000, 4004};
+
+	// Fly into it rather than teleporting into overlap. A pair already
+	// overlapping at rest is the "BAD NEWS" case the step deliberately skips
+	// (process.c:397-416) -- an embedded ship takes no new damage -- so the
+	// contact has to happen mid-motion, the way it does in play.
+	b.get(ship)->current = Vec2i{4000, 4064};
 	b.get(ship)->next = b.get(ship)->current;
+	b.get(ship)->velocity.setComponents(0, -worldToVelocity(40));
 	b.step();
 	CHECK(b.get(ship) != nullptr, "and should survive one planet graze");
 	if (b.get(ship) == nullptr)
@@ -1680,6 +1701,140 @@ testFlyingIntoAPlanetCostsOnePoint()
 			static_cast<long>(before));
 }
 
+void
+testOverlappingShipsSeparateInsteadOfSticking()
+{
+	// Two ships interpenetrating -- the tail of a collision just resolved --
+	// are not a new collision. The C skips such a pair outright ("BAD NEWS",
+	// process.c:397-416, 509-515) and lets the previous impulse carry them
+	// apart. Processing it instead is how ships weld together: the rewind to
+	// impact time 1 freezes both where they stand, the scrape-promotion in
+	// applyImpulse reflects their separating velocities back inward, and the
+	// frozen pair does it all again next frame, forever.
+	static const CollisionMask m = solid(8, 8);
+	Battle b(1);
+
+	Element a;
+	a.kind = ElementKind::Ship;
+	a.playerNr = 0;
+	a.mass = 6;
+	a.mask = &m;
+	a.current = a.next = Vec2i{4000, 4000};
+	a.velocity.setComponents(-worldToVelocity(20), 0);
+	const EntityId ia = b.spawnBack(std::move(a));
+
+	// Overlapping -- 16 world units is 4 display pixels, half a mask -- and
+	// moving apart, exactly the state an impact response leaves behind.
+	Element c;
+	c.kind = ElementKind::Ship;
+	c.playerNr = 1;
+	c.mass = 6;
+	c.mask = &m;
+	c.current = c.next = Vec2i{4016, 4000};
+	c.velocity.setComponents(worldToVelocity(20), 0);
+	const EntityId ic = b.spawnBack(std::move(c));
+
+	b.step();
+	CHECK(b.collisions().empty(), "an at-rest overlap is not a collision");
+	CHECK(b.get(ia)->current.x == 3980,
+			"the left ship keeps its full motion, got %ld",
+			static_cast<long>(b.get(ia)->current.x));
+	CHECK(b.get(ic)->current.x == 4036,
+			"and the right ship its own, got %ld",
+			static_cast<long>(b.get(ic)->current.x));
+
+	// And they stay separated: no re-collision as they clear each other.
+	for (int i = 0; i < 10; ++i)
+	{
+		b.step();
+		CHECK(b.collisions().empty(),
+				"separating ships must not collide again (frame %d)", i);
+	}
+	CHECK(b.get(ic)->current.x - b.get(ia)->current.x > 32 * kScaledOne,
+			"ten frames later they are well clear of each other");
+}
+
+void
+testShipShotMidFlightKeepsItsMotion()
+{
+	// A ship hit by a weapon is not stopped by it. In the C only an element
+	// whose own collision_func raised COLLISION is moved to the impact point
+	// (process.c:586-596), and a ship's does so only when the other party is
+	// solid (ship.c:356-358). Halting the target at the impact point reads on
+	// screen as the ship hanging in a stream of fire.
+	static const CollisionMask m = solid(8, 8);
+	Battle b(1);
+
+	Element ship;
+	ship.kind = ElementKind::Ship;
+	ship.flags = ElementFlags::PlayerShip;
+	ship.playerNr = 0;
+	ship.mass = 6;
+	ship.mask = &m;
+	ship.current = ship.next = Vec2i{4000, 4000};
+	const EntityId is = b.spawnBack(std::move(ship));
+
+	// A stationary shot in the ship's path. Zero damage, so the run is about
+	// motion, not crew.
+	Element shot;
+	shot.kind = ElementKind::Weapon;
+	shot.flags = ElementFlags::FiniteLife;
+	shot.lifeSpan = 20;
+	shot.playerNr = 1;
+	shot.mass = 1;
+	shot.mask = &m;
+	shot.current = shot.next = Vec2i{4200, 4000};
+	shot.onCollision = weaponCollision;
+	const EntityId iw = b.spawnBack(std::move(shot));
+
+	b.step();  // spawn frame: 50 display pixels apart, nothing touches
+
+	b.get(is)->velocity.setComponents(worldToVelocity(80), 0);
+	bool hit = false;
+	for (int i = 0; i < 6 && !hit; ++i)
+	{
+		const std::int32_t beforeX = b.get(is)->current.x;
+		b.step();
+		if (!b.collisions().empty())
+		{
+			hit = true;
+			CHECK(b.get(is)->current.x == beforeX + 80,
+					"the ship keeps its full motion through a weapon hit, "
+					"got %ld from %ld",
+					static_cast<long>(b.get(is)->current.x),
+					static_cast<long>(beforeX));
+		}
+	}
+	CHECK(hit, "the ship should have crossed the shot");
+
+	const Vec2i v = b.get(is)->velocity.current();
+	CHECK(velocityToWorld(v.x) == 80,
+			"and its velocity untouched -- weapons carry no impulse, got %ld",
+			static_cast<long>(velocityToWorld(v.x)));
+	// The shot is spent but not yet reaped: the walk preprocessed it *before*
+	// the hit (process.c:371-373), so its zeroed life is not seen until the
+	// next frame's death check.
+	CHECK(b.get(iw) != nullptr, "the shot should still be in the list");
+	if (b.get(iw) != nullptr)
+		CHECK(b.get(iw)->lifeSpan == 0, "and it is spent");
+}
+
+void
+testDefyPhysicsExpires()
+{
+	// DEFY_PHYSICS lasts from a collision to the next frame without one
+	// (process.c:824-829). Held forever it would permanently disable the
+	// post-collision control stagger and steer later stationary contacts into
+	// the zero-velocity branch meant for genuinely stuck pairs.
+	Battle b(1);
+	Element e;
+	e.flags = ElementFlags::DefyPhysics;
+	const EntityId id = b.spawnBack(std::move(e));
+	b.step();
+	CHECK(!any(b.get(id)->flags & ElementFlags::DefyPhysics),
+			"a frame without a collision sheds DefyPhysics");
+}
+
 }  // namespace
 
 int
@@ -1689,6 +1844,9 @@ main()
 	testPlanetsTakeNoDamage();
 	testMissileDamagesAndSpendsItself();
 	testFlyingIntoAPlanetCostsOnePoint();
+	testOverlappingShipsSeparateInsteadOfSticking();
+	testShipShotMidFlightKeepsItsMotion();
+	testDefyPhysicsExpires();
 	testGravityMassThreshold();
 	testGravityPullsTowardTheSource();
 	testGravityHasAHardEdge();

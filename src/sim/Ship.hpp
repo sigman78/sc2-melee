@@ -57,6 +57,15 @@ struct ShipData
 	// squashed into the wrong box.
 	std::span<const CollisionMask> weaponMasks;
 
+	// Guided-weapon parameters (human.c:36-44). Zero for a weapon that just
+	// flies straight, which is most of them.
+	std::int32_t weaponTrackWait = 0;
+	std::int32_t weaponMaxSpeed = 0;
+	std::int32_t weaponThrustScale = 0;
+
+	// What the shot does each frame, if anything.
+	ElementHook weaponPreProcess = nullptr;
+
 	// One mask per facing, in facing order. A ship's silhouette changes as it
 	// turns -- that is the whole reason there are sixteen cels -- so the mask
 	// has to follow the facing or collision is tested against whichever
@@ -85,7 +94,18 @@ void shipPreProcess(Battle &b, EntityId id) noexcept;
 void shipPostProcess(Battle &b, EntityId id) noexcept;
 
 // The two M1 ships, from human.c and ilwrath.c.
-[[nodiscard]] const ShipData &earthlingCruiser() noexcept;
+[[nodiscard]] // TrackShip (weapon.c:319-380): steers `facing` one step toward the nearest
+// living enemy ship, and reports whether it moved. Used by any guided weapon.
+//
+// "Enemy" is by player, not by owner: a missile chases the other side's ship,
+// not merely one that is not its own.
+[[nodiscard]] int trackShip(Battle &b, EntityId tracker, int &facing) noexcept;
+
+// The Cruiser's nuke, which is guided and accelerates as it flies
+// (human.c:128-158).
+void nukePreProcess(Battle &b, EntityId id) noexcept;
+
+const ShipData &earthlingCruiser() noexcept;
 [[nodiscard]] const ShipData &ilwrathAvenger() noexcept;
 
 }  // namespace uqm::sim
