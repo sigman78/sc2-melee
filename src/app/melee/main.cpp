@@ -159,7 +159,23 @@ struct Game
 	// its blast finish playing out, which is what the C does too.
 	int winner = -1;
 	std::int64_t endedAtFrame = 0;
+
+	// F1. Off by default; costs nothing when off.
+	bool debugOverlay = false;
+
+	// Contact points linger, because a collision lasts one frame and one frame
+	// at 24 Hz is not long enough to see. Each entry is an event plus the
+	// frame it happened on.
+	struct Mark
+	{
+		sim::CollisionEvent event;
+		std::int64_t frame = 0;
+	};
+	std::vector<Mark> marks;
 };
+
+// How long a contact point stays on screen, in simulation frames.
+constexpr std::int64_t kMarkLife = 24;
 
 // Which sprite set an element draws from. Ownership decides the weapon art,
 // because a missile belongs to whoever fired it.
@@ -343,6 +359,8 @@ setUp(Game &g, const std::filesystem::path &content)
 		(void)sim::spawnAsteroid(g.battle, rockMask);
 }
 
+void drawOverlay(Game &g);
+
 void
 draw(Game &g)
 {
@@ -413,7 +431,89 @@ draw(Game &g)
 				c.b);
 	}
 
+	if (g.debugOverlay)
+		drawOverlay(g);
+
 	g.window.present();
+}
+
+// The collision overlay: what touched, where, and what the response did.
+//
+// Reads Battle::collisions() rather than anything of its own, so what is drawn
+// is exactly what the simulation resolved -- an overlay that recomputed the
+// contact point could agree with itself while disagreeing with the physics,
+// which would be worse than no overlay.
+void
+drawOverlay(Game &g)
+{
+	// Mask bounds, so it is visible when a silhouette is not what you expect.
+	for (sim::EntityId id = g.battle.elements().front(); id.valid();
+			id = g.battle.elements().next(id))
+	{
+		const auto e = g.battle.get(id);
+		if (e == nullptr || e->mask == nullptr)
+			continue;
+
+		const Vec2i at = g.camera.toScreen(e->current);
+		const Extent2u m = e->mask->size();
+		const std::int32_t w = g.camera.scale(
+				sim::displayToWorld(static_cast<std::int32_t>(m.w)));
+		const std::int32_t h = g.camera.scale(
+				sim::displayToWorld(static_cast<std::int32_t>(m.h)));
+		const Vec2i hs = e->mask->hotspot();
+		const std::int32_t ox = m.w != 0
+				? static_cast<std::int32_t>(hs.x) * w
+						/ static_cast<std::int32_t>(m.w)
+				: w / 2;
+		const std::int32_t oy = m.h != 0
+				? static_cast<std::int32_t>(hs.y) * h
+						/ static_cast<std::int32_t>(m.h)
+				: h / 2;
+
+		const Vec2i tl{at.x - ox, at.y - oy};
+		const Vec2i br{tl.x + w, tl.y + h};
+		g.window.drawLine(tl, Vec2i{br.x, tl.y}, 0x30, 0x60, 0x30);
+		g.window.drawLine(Vec2i{br.x, tl.y}, br, 0x30, 0x60, 0x30);
+		g.window.drawLine(br, Vec2i{tl.x, br.y}, 0x30, 0x60, 0x30);
+		g.window.drawLine(Vec2i{tl.x, br.y}, tl, 0x30, 0x60, 0x30);
+
+		// The hotspot itself, which is where the game thinks the thing *is*.
+		g.window.drawLine(Vec2i{at.x - 2, at.y}, Vec2i{at.x + 2, at.y}, 0x40,
+				0xFF, 0x40);
+		g.window.drawLine(Vec2i{at.x, at.y - 2}, Vec2i{at.x, at.y + 2}, 0x40,
+				0xFF, 0x40);
+	}
+
+	// Contact points and response vectors. Velocities are scaled up because a
+	// frame of travel is a handful of world units and an unscaled arrow would
+	// be a dot.
+	constexpr std::int32_t kVectorGain = 8;
+	for (const Game::Mark &mark : g.marks)
+	{
+		const std::int64_t age =
+				static_cast<std::int64_t>(g.battle.frame()) - mark.frame;
+		if (age > kMarkLife)
+			continue;
+
+		const Vec2i at = g.camera.toScreen(mark.event.at);
+		g.window.drawLine(Vec2i{at.x - 4, at.y - 4}, Vec2i{at.x + 4, at.y + 4},
+				0xFF, 0x30, 0x30);
+		g.window.drawLine(Vec2i{at.x - 4, at.y + 4}, Vec2i{at.x + 4, at.y - 4},
+				0xFF, 0x30, 0x30);
+
+		// Before in dim, after in bright: the difference *is* the response.
+		const auto arrow = [&](Vec2i v, std::uint8_t r, std::uint8_t gg,
+								   std::uint8_t b) {
+			g.window.drawLine(at,
+					Vec2i{at.x + g.camera.scale(v.x * kVectorGain),
+						at.y + g.camera.scale(v.y * kVectorGain)},
+					r, gg, b);
+		};
+		arrow(mark.event.beforeA, 0x60, 0x60, 0x90);
+		arrow(mark.event.beforeB, 0x60, 0x60, 0x90);
+		arrow(mark.event.afterA, 0x60, 0xC0, 0xFF);
+		arrow(mark.event.afterB, 0xFF, 0xC0, 0x60);
+	}
 }
 
 // One pass of the outer loop: drain input, run whatever simulation time is
@@ -439,11 +539,26 @@ iterate(Game &g)
 			const input::Buttons b = g.players[p].consume();
 			if (b.test(Button::Escape))
 				g.running = false;
+			if (b.test(Button::Debug))
+				g.debugOverlay = !g.debugOverlay;
 			if (auto ship = g.battle.get(g.ships[p]); ship != nullptr)
 				ship->ship.input = toShipInput(b);
 		}
 		g.battle.step();
+
+		// Collected every frame regardless of the overlay, because the events
+		// are the simulation's and only the drawing is optional.
+		for (const sim::CollisionEvent &c : g.battle.collisions())
+			g.marks.push_back(
+					Game::Mark{c, static_cast<std::int64_t>(g.battle.frame())});
 	}
+
+	// Drop what has aged out. Done here rather than while drawing so the list
+	// does not grow without bound when the overlay is off.
+	const std::int64_t now = static_cast<std::int64_t>(g.battle.frame());
+	std::erase_if(g.marks, [now](const Game::Mark &m) {
+		return now - m.frame > kMarkLife;
+	});
 
 	// A ship is gone when its element is: doDamage sets life_span to 0 and the
 	// step loop reaps it. Deciding this from the element rather than from a

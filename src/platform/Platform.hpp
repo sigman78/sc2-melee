@@ -114,6 +114,11 @@ public:
 	// at upload: this is pixel art and smoothing it looks wrong.
 	void draw(const Texture &t, Vec2i topLeft, Extent2u dest) noexcept;
 
+	// A one-pixel line. Only the debug overlay uses this -- the game draws
+	// sprites -- but drawing a vector is how you see a vector.
+	void drawLine(Vec2i from, Vec2i to, std::uint8_t r, std::uint8_t g,
+			std::uint8_t b) noexcept;
+
 	void present() noexcept;
 
 private:

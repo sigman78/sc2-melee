@@ -8,6 +8,7 @@
 #include "sim/Random.hpp"
 
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace uqm::sim {
@@ -23,6 +24,30 @@ namespace uqm::sim {
 // Deterministic and self-contained: no wall clock, no I/O, no globals. The
 // RNG is a member, so a battle replays from its seed and presentation cannot
 // perturb it by drawing from the same stream (commanim.c currently does).
+// What happened when two things touched.
+//
+// Recorded rather than merely acted on, because more than one consumer needs
+// it and none of them belong in the collision code: the debug overlay draws
+// contact points and response vectors, and the sound layer needs to know an
+// impact happened and how hard. Observational only -- nothing here feeds back
+// into the step, so recording it cannot change the simulation.
+struct CollisionEvent
+{
+	EntityId a;
+	EntityId b;
+
+	// Where they met, in world units.
+	Vec2i at;
+
+	// Velocities either side of the response, in world units per frame, so a
+	// consumer can draw or measure the change without knowing the fixed-point
+	// encoding.
+	Vec2i beforeA;
+	Vec2i beforeB;
+	Vec2i afterA;
+	Vec2i afterB;
+};
+
 class Battle
 {
 public:
@@ -56,6 +81,13 @@ public:
 
 	[[nodiscard]] std::uint64_t frame() const noexcept { return frame_; }
 
+	// Collisions resolved during the most recent step. Cleared at the start of
+	// each one, so this is always the current frame's.
+	[[nodiscard]] std::span<const CollisionEvent> collisions() const noexcept
+	{
+		return collisions_;
+	}
+
 private:
 	void preProcessPass();
 	void postProcessPass();
@@ -68,8 +100,9 @@ private:
 	Rng rng_;
 	std::uint64_t frame_ = 0;
 
-	// Reused across steps so a steady-state frame allocates nothing.
+	// Both reused across steps so a steady-state frame allocates nothing.
 	std::vector<EntityId> scratch_;
+	std::vector<CollisionEvent> collisions_;
 };
 
 }  // namespace uqm::sim

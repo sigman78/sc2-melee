@@ -20,7 +20,7 @@ fatal(const char *what) noexcept
 	std::abort();
 }
 
-constexpr std::array<Binding, 12> kDefaultBindings{{
+constexpr std::array<Binding, 13> kDefaultBindings{{
 		// Player 0: arrow keys, right-hand modifiers.
 		{SDL_SCANCODE_LEFT, 0, input::Button::Left},
 		{SDL_SCANCODE_RIGHT, 0, input::Button::Right},
@@ -28,6 +28,7 @@ constexpr std::array<Binding, 12> kDefaultBindings{{
 		{SDL_SCANCODE_RCTRL, 0, input::Button::Weapon},
 		{SDL_SCANCODE_RSHIFT, 0, input::Button::Special},
 		{SDL_SCANCODE_ESCAPE, 0, input::Button::Escape},
+		{SDL_SCANCODE_F1, 0, input::Button::Debug},
 
 		// Player 1: WASD, left-hand modifiers.
 		{SDL_SCANCODE_A, 1, input::Button::Left},
@@ -240,6 +241,16 @@ Platform::draw(const Texture &t, Vec2i topLeft, Extent2u dest) noexcept
 			static_cast<float>(topLeft.y), static_cast<float>(dest.w),
 			static_cast<float>(dest.h)};
 	SDL_RenderTexture(renderer_, t.handle_, nullptr, &to);
+}
+
+void
+Platform::drawLine(Vec2i from, Vec2i to, std::uint8_t r, std::uint8_t g,
+		std::uint8_t b) noexcept
+{
+	SDL_SetRenderDrawColor(renderer_, r, g, b, SDL_ALPHA_OPAQUE);
+	SDL_RenderLine(renderer_, static_cast<float>(from.x),
+			static_cast<float>(from.y), static_cast<float>(to.x),
+			static_cast<float>(to.y));
 }
 
 void

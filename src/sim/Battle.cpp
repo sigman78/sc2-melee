@@ -164,6 +164,18 @@ Battle::testPair(EntityId aId, EntityId bId)
 	const Vec2i bNext = rewind(b->current, b->next);
 	a->next = aNext;
 	b->next = bNext;
+
+	// In world units per frame, so consumers never see the packed fixed point.
+	const auto worldVelocity = [](const Element &e) {
+		const Vec2i v = e.velocity.current();
+		return Vec2i{velocityToWorld(v.x), velocityToWorld(v.y)};
+	};
+	CollisionEvent event;
+	event.a = aId;
+	event.b = bId;
+	event.at = aNext;
+	event.beforeA = worldVelocity(*a);
+	event.beforeB = worldVelocity(*b);
 	a->collidedWith = bId;
 	b->collidedWith = aId;
 	a->flags |= ElementFlags::Collided;
@@ -173,6 +185,10 @@ Battle::testPair(EntityId aId, EntityId bId)
 	// whoever owns them, from the collidedWith they were just given.
 	if (a->kind != ElementKind::Weapon && b->kind != ElementKind::Weapon)
 		applyImpulse(*a, *b);
+
+	event.afterA = worldVelocity(*a);
+	event.afterB = worldVelocity(*b);
+	collisions_.push_back(event);
 
 	// Then each side's collision hook, which is where damage happens. Both
 	// run, and each reads its own `collidedWith` -- the C calls collision_func
@@ -312,6 +328,7 @@ Battle::postProcessPass()
 void
 Battle::step()
 {
+	collisions_.clear();
 	preProcessPass();
 	postProcessPass();
 	++frame_;

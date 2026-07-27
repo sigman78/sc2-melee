@@ -39,9 +39,13 @@ enum class Button : std::uint8_t
 	Special,
 	// BATTLE_ESCAPE: leaving the fight, not a ship action (battle.c:212-214).
 	Escape,
+
+	// Not a ship action either: toggles the collision overlay. Bound for
+	// player 0 only, since it is a property of the view, not of a player.
+	Debug,
 };
 
-inline constexpr std::size_t kButtonCount = 6;
+inline constexpr std::size_t kButtonCount = 7;
 
 // A set of buttons. A bitset in a single word -- there are six of them, and
 // this is copied per player per frame.
