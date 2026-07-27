@@ -658,14 +658,14 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		// The beam is decorative -- only the damage above is real -- deterministic
 		// geometry, not the renderer's (design-notes V3). LASER_LIFE is 1
-		// (weapon.c:52); current/next are its two ends, so IgnoreVelocity is set.
+		// (weapon.c:52); BeamGeometry carries the ends-not-motion contract.
 		const Vec2i beamTo = t->next;
 		Element beam;
 		beam.kind = ElementKind::Laser;
 		beam.playerNr = ship->playerNr;
 		beam.owner = id;
 		beam.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid
-				| ElementFlags::IgnoreVelocity;
+				| ElementFlags::IgnoreVelocity | ElementFlags::BeamGeometry;
 		beam.lifeSpan = 1;
 		beam.current = from;
 		beam.next = beamTo;

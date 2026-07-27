@@ -137,6 +137,11 @@ enum class ElementFlags : std::uint32_t
 	// (human.c:202), but does not stop collisions. Set only at full black
 	// (element.h:201-204), so targetable through the whole fade either way.
 	Cloaked = 1u << 11,
+
+	// `current` and `next` are the two ENDS of a beam, not motion -- the C's
+	// LINE_PRIM elements (weapon.c:44-85). The step neither seeds next from
+	// current at spawn nor commits current = next.
+	BeamGeometry = 1u << 12,
 };
 
 [[nodiscard]] constexpr ElementFlags

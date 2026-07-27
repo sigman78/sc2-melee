@@ -133,10 +133,9 @@ Battle::preProcessOne(EntityId id) noexcept
 
 		if (any(flags & ElementFlags::Appearing))
 		{
-			// SetUpElement (process.c:117-126). A laser is exempt: `current`/`next`
-			// are the beam's two ENDS, not a position and destination -- seeding next
-			// from current would collapse it to a point.
-			if (e->kind != ElementKind::Laser)
+			// SetUpElement (process.c:117-126). BeamGeometry is exempt:
+			// seeding next from current would collapse the beam to a point.
+			if (!any(flags & ElementFlags::BeamGeometry))
 				e->next = e->current;
 			if (any(flags & ElementFlags::PlayerShip))
 				flags &= ~ElementFlags::Appearing;  // the local, not the element
@@ -530,9 +529,9 @@ Battle::postProcessPass()
 			if (e != nullptr)
 			{
 				// The wrap lives here, at the commit (process.c:899-916) -- see
-				// design-notes D4. A laser is exempt: its two points are the beam,
-				// not motion.
-				if (e->kind != ElementKind::Laser)
+				// design-notes D4. BeamGeometry is exempt: its two points are
+				// the beam, not motion.
+				if (!any(e->flags & ElementFlags::BeamGeometry))
 				{
 					e->next = wrap(e->next);
 					e->current = e->next;

@@ -64,11 +64,12 @@ slots.
 
 **If a behavior needs an in-place patch — a kind-check, a special case inside
 a shared function — that is a signal the concern belongs one scope up.**
-Standing example: the `Laser` checks sprinkled through the step loop (skip
-the Appearing seed, skip the commit) are one concern — "this element's two
-points are geometry, not motion" — wearing three disguises; it wants to be a
-per-kind trait. When a patch like this appears, promote it or file it; do
-not add a fourth copy.
+Worked example: the `Laser` checks that were sprinkled through the step loop
+(skip the Appearing seed, skip the commit) were one concern — "this
+element's two points are geometry, not motion" — wearing disguises; they are
+now the `BeamGeometry` trait flag, set at spawn, and the step loop knows no
+element kinds at all. When a patch like this appears, promote it or file
+it; do not add another copy.
 
 ## Faithfulness policy
 
