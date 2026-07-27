@@ -9,6 +9,7 @@
 #include "game/Melee.hpp"
 #include "sim/Damage.hpp"
 #include "sim/Field.hpp"
+#include "sim/ShipSystems.hpp"
 
 #include <array>
 #include <chrono>

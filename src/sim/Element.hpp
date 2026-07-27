@@ -178,8 +178,8 @@ using ElementHook = void (*)(Battle &, EntityId) noexcept;
 struct Element
 {
 	// Stable addresses: hooks hold a pointer to their own element across
-	// spawns (Ship.cpp's weapon loop), which the old arena guaranteed and
-	// entt's default swap-and-pop storage does not.
+	// spawns (ShipSystems.cpp's weapon loop), which the old arena guaranteed
+	// and entt's default swap-and-pop storage does not.
 	static constexpr auto in_place_delete = true;
 
 	// Where it is now, and where the step is taking it.

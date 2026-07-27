@@ -5,6 +5,7 @@
 #include "engine/core/Types.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Ship.hpp"
+#include "sim/ShipSystems.hpp"
 #include "sim/Trig.hpp"
 #include "sim/World.hpp"
 

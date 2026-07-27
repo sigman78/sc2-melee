@@ -32,8 +32,11 @@ add_library(uqm2_content STATIC
 	sim/Field.cpp
 	sim/Gravity.cpp
 	sim/Impulse.cpp
-	sim/Ship.cpp
+	sim/ShipSystems.cpp
+	sim/ships/Human.cpp
+	sim/ships/Ilwrath.cpp
 	sim/Spawn.cpp
+	sim/Targeting.cpp
 	sim/Thrust.cpp
 	sim/Velocity.cpp
 	# game/'s headless half: pure data (the ship catalog), no SDL. Resources

@@ -189,7 +189,7 @@ struct WeaponGuidance
 // guidance parameters copied from the spec at fire time, plus the shot's
 // own tracking clock -- which lived in a repurposed Element::turnWait
 // until review-005 Y1. Attached by the fire block to any weapon whose
-// spec declares guidance; nukePreProcess is its system function.
+// spec declares guidance; guidedShotPreProcess is its system function.
 struct Guided
 {
 	i32 trackWait = 0;
@@ -210,7 +210,8 @@ inline constexpr i32 kCloakFullLevel = kCloakVisibleColours + 1;
 //     1..5         STAMPFILL fills: white, cyan-white, dark cyan, blue,
 //                  dark blue (ilwrath.c:349-374 in, 255-273 out)
 //     kCloakFullLevel (6)   BLACK -- fully cloaked
-// Not a fade: walked one step per frame, reversed to uncloak (Ship.cpp).
+// Not a fade: walked one step per frame, reversed to uncloak
+// (ships/Ilwrath.cpp).
 struct Cloak
 {
 	i32 level = 0;
@@ -232,37 +233,6 @@ struct Exploding
 // review-002's stored-vs-derived rule by construction.
 [[nodiscard]] bool isCloaked(const Battle &b, EntityId id) noexcept;
 
-// The two halves of a ship's frame (ship.c:149-280, 282-347): turning and
-// thrusting in the pre pass, firing in the post pass so a spawned weapon is
-// caught up by the step loop this frame -- see design-notes D1.
-void shipPreProcess(Battle &b, EntityId id) noexcept;
-void shipPostProcess(Battle &b, EntityId id) noexcept;
-
-// TrackShip (weapon.c:319-412): steers `facing` toward the nearest living
-// enemy ship (by player, not owner). Returns -1 for no target, else the
-// facing delta -- load-bearing: cloak auto-aim tests `>= 0`, nuke ignores it.
-[[nodiscard]] int trackShip(Battle &b, EntityId tracker, Facing &facing,
-		EntityId *outTarget = nullptr) noexcept;
-
-// The Cruiser's nuke, which is guided and accelerates as it flies
-// (human.c:128-158).
-void nukePreProcess(Battle &b, EntityId id) noexcept;
-
-// The Cruiser's point-defence laser (human.c:161-260): burns down every enemy
-// shot in range, paying once for the volley.
-void cruiserSpecial(Battle &b, EntityId id) noexcept;
-
-// The Avenger's ship hook: the whole cloak state machine, activation
-// included (ilwrath_preprocess, ilwrath.c:232-394). Runs in the pre phase
-// because the C's does -- see ShipSpec::preProcess.
-void ilwrathPreProcess(Battle &b, EntityId id) noexcept;
-
-// The Avenger's flame: the animation is the projectile -- its frame (and
-// collision silhouette) grows every frame it lives (ilwrath.c:126-139), and
-// lingers one frame on impact instead of vanishing (ilwrath.c:141-148).
-void flamePreProcess(Battle &b, EntityId id) noexcept;
-void flameCollision(Battle &b, EntityId id) noexcept;
-
 // How long the exhaust fade runs, in frames -- the length of the C's colour
 // table (tactrans.c:757-770).
 inline constexpr i32 kIonTrailLife = 12;
@@ -283,16 +253,6 @@ inline constexpr i32 kHullVanishAge = 15;
 // NUM_EXPLOSION_FRAMES * 3 (element.h:71, tactrans.c:714).
 inline constexpr i32 kExplosionFrames = 12;
 inline constexpr i32 kExplosionLife = kExplosionFrames * 3;
-
-// One point of exhaust, dropped behind a thrusting ship (tactrans.c:792-840).
-void spawnIonTrail(Battle &b, EntityId ship) noexcept;
-
-// Turns a dead ship into its own explosion rather than removing it
-// (StartShipExplosion, tactrans.c:703-728).
-void startShipExplosion(Battle &b, EntityId id) noexcept;
-
-const ShipSpec &earthlingCruiser() noexcept;
-[[nodiscard]] const ShipSpec &ilwrathAvenger() noexcept;
 
 }  // namespace uqm::sim
 

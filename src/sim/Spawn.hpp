@@ -84,17 +84,6 @@ using SpawnFn = usize (*)(const ShipView &, std::span<Spawn>) noexcept;
 // slightly differently in the C.
 [[nodiscard]] Vec2i muzzlePosition(const ShipView &ship) noexcept;
 
-// --------------------------------------------------------------------------
-// The two M1 weapons, as pure functions.
-
-// Earthling Cruiser: one forward missile.
-[[nodiscard]] usize spawnCruiserPrimary(
-		const ShipView &ship, std::span<Spawn> out) noexcept;
-
-// Ilwrath Avenger: one forward flame.
-[[nodiscard]] usize spawnAvengerPrimary(
-		const ShipView &ship, std::span<Spawn> out) noexcept;
-
 }  // namespace uqm::sim
 
 #endif  // UQM2_SIM_SPAWN_HPP

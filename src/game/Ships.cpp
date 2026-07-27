@@ -2,6 +2,9 @@
 
 #include "game/Ships.hpp"
 
+#include "sim/ships/Human.hpp"
+#include "sim/ships/Ilwrath.hpp"
+
 #include <array>
 
 namespace uqm::game {
