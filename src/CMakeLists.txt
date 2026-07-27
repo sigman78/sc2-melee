@@ -24,6 +24,7 @@ add_library(uqm2_content STATIC
 	engine/content/ResourceMap.cpp
 	platform/File.cpp
 	sim/Collision.cpp
+	sim/Spawn.cpp
 	sim/Thrust.cpp
 	sim/Velocity.cpp
 )

@@ -9,6 +9,7 @@
 #include "sim/Collision.hpp"
 #include "sim/EntityList.hpp"
 #include "sim/Random.hpp"
+#include "sim/Spawn.hpp"
 #include "sim/Thrust.hpp"
 #include "sim/Trig.hpp"
 #include "sim/Velocity.hpp"
@@ -708,11 +709,121 @@ testGravityWellAllowsExceedingMax()
 			static_cast<long>(before.y), static_cast<long>(after.y));
 }
 
+// --------------------------------------------------------------------------
+// Spawn descriptors
+
+ShipView
+cruiserView()
+{
+	ShipView v;
+	v.position = Vec2i{1000, 1000};
+	v.facing = 3;
+	v.playerNr = 0;
+	v.weaponSpeed = 24;       // MISSILE_SPEED == MAX_THRUST (human.c:31, 44)
+	v.weaponLife = 60;        // MISSILE_LIFE
+	v.weaponDamage = 4;       // MISSILE_DAMAGE
+	v.weaponHitPoints = 1;    // MISSILE_HITS
+	v.muzzleOffset = 42;      // HUMAN_OFFSET
+	v.blastOffset = 8;        // NUKE_OFFSET
+	return v;
+}
+
+void
+testSpawningIsRepeatable()
+{
+	// The property the AI's lookahead needs and the C does not have. In the
+	// C, asking "what would I spawn?" runs init_weapon_func for real, and
+	// umgah.c:330-341 writes through the shared RaceDescPtr while it does --
+	// an HFree plus an HMalloc, every lookahead frame, plus a mutated sprite.
+	//
+	// Here the question is free to ask. Asking it a hundred times must give
+	// the same answer and change nothing.
+	const ShipView ship = cruiserView();
+
+	SpawnBuffer first{};
+	const std::size_t n = spawnCruiserPrimary(ship, first);
+	CHECK(n == 1, "the cruiser fires one missile, got %zu", n);
+
+	for (int i = 0; i < 100; ++i)
+	{
+		SpawnBuffer again{};
+		const std::size_t m = spawnCruiserPrimary(ship, again);
+		CHECK(m == n, "spawn count must not drift, got %zu on call %d", m, i);
+		CHECK(again[0] == first[0],
+				"spawn descriptor must be identical on call %d", i);
+	}
+
+	// And the ship it was asked about is untouched -- which the signature
+	// already guarantees, but asserting it says why the signature is that
+	// shape.
+	const ShipView after = cruiserView();
+	CHECK(ship.position == after.position && ship.facing == after.facing,
+			"asking what would spawn must not change the ship");
+}
+
+void
+testSpawnCarriesTheShipsParameters()
+{
+	const ShipView ship = cruiserView();
+	SpawnBuffer buf{};
+	const std::size_t n = spawnCruiserPrimary(ship, buf);
+	CHECK(n == 1, "one spawn");
+
+	const Spawn &s = buf[0];
+	CHECK(s.facing == ship.facing, "the missile inherits the facing");
+	CHECK(s.speed == 24 && s.life == 60 && s.damage == 4,
+			"and the ship's weapon parameters");
+	CHECK(s.playerNr == ship.playerNr, "and its owner");
+
+	// The muzzle sits forward of the hotspot along the facing, not on it.
+	CHECK(!(s.position == ship.position),
+			"the missile appears at the muzzle, not the hotspot");
+	const std::int32_t dx = s.position.x - ship.position.x;
+	const std::int32_t dy = s.position.y - ship.position.y;
+	const std::int64_t dist2 = std::int64_t{dx} * dx + std::int64_t{dy} * dy;
+	const std::int64_t want = std::int64_t{displayToWorld(42)}
+			* displayToWorld(42);
+	// Within a few percent: the offset goes through the 14-bit sine table.
+	CHECK(dist2 > want * 9 / 10 && dist2 < want * 11 / 10,
+			"muzzle should be ~42 display pixels out, got %lld vs %lld",
+			static_cast<long long>(dist2), static_cast<long long>(want));
+}
+
+void
+testTheTwoShipsDifferWhereTheCDoes()
+{
+	ShipView ship = cruiserView();
+	ship.facing = 7;
+
+	SpawnBuffer cruiser{};
+	SpawnBuffer avenger{};
+	(void)spawnCruiserPrimary(ship, cruiser);
+	(void)spawnAvengerPrimary(ship, avenger);
+
+	// human.c:281 sets index = ShipFacing; ilwrath.c:201 sets index = 0. The
+	// nuke sprite is directional and the flame is not, so a rewrite that made
+	// these symmetrical would draw the Ilwrath's flame wrong.
+	CHECK(cruiser[0].frameIndex == 7,
+			"the cruiser's missile frame follows its facing, got %u",
+			cruiser[0].frameIndex);
+	CHECK(avenger[0].frameIndex == 0,
+			"the avenger's flame frame does not, got %u",
+			avenger[0].frameIndex);
+
+	// ilwrath.c:203 -- IGNORE_SIMILAR, so a flame stream does not collide
+	// with itself. human.c:283 -- flags 0, so missiles do.
+	CHECK(!cruiser[0].ignoreSimilar, "cruiser missiles collide with each other");
+	CHECK(avenger[0].ignoreSimilar, "flame does not collide with itself");
+}
+
 }  // namespace
 
 int
 main()
 {
+	testSpawningIsRepeatable();
+	testSpawnCarriesTheShipsParameters();
+	testTheTwoShipsDifferWhereTheCDoes();
 	testThrustTakesItsFacingAsAnArgument();
 	testThrustReachesAndHoldsMaxSpeed();
 	testInertialessThrustIsInstant();
