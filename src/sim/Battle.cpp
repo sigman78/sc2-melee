@@ -138,13 +138,32 @@ Battle::testPair(EntityId aId, EntityId bId)
 	if (!hit)
 		return false;
 
-	// Both stop where they met, which is what the C writes back through
-	// EndPoint, and both are marked so neither is tested again this frame.
-	// The round trip through display space costs sub-pixel precision, which is
-	// what the C loses too -- EndPoint is display space and there is nothing
-	// finer to write back.
-	a->next = displayToWorld(hit.at0);
-	b->next = displayToWorld(hit.at1);
+	// Both stop where they met -- but placed in *world* units, by rewinding
+	// their own motion to the impact time, not by converting the impact point
+	// back from display space.
+	//
+	// Converting back looked equivalent and was not. displayToWorld multiplies
+	// by four, so it snapped every collision to a four-unit grid and dragged
+	// each body backwards by up to three world units. Two ships in contact
+	// were pulled together again every frame by as much as the impulse pushed
+	// them apart, so they stuck instead of separating -- and the minimum-nudge
+	// in applyImpulse then fought the same battle from the other side.
+	//
+	// The sub-frame time is exact and already computed, so interpolating the
+	// original world-space motion keeps full precision.
+	const std::int32_t t = static_cast<std::int32_t>(hit.time) - 1;  // 0..256
+	const auto rewind = [t](Vec2i from, Vec2i to) {
+		return Vec2i{from.x
+					+ static_cast<std::int32_t>(
+							(std::int64_t{to.x - from.x} * t) >> kTimeShift),
+				from.y
+						+ static_cast<std::int32_t>(
+								(std::int64_t{to.y - from.y} * t) >> kTimeShift)};
+	};
+	const Vec2i aNext = rewind(a->current, a->next);
+	const Vec2i bNext = rewind(b->current, b->next);
+	a->next = aNext;
+	b->next = bNext;
 	a->collidedWith = bId;
 	b->collidedWith = aId;
 	a->flags |= ElementFlags::Collided;
