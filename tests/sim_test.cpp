@@ -2003,6 +2003,21 @@ testShipWarpsInBeforeItIsSolid()
 				"a shadow carries the hull's mask, or it is drawn at a "
 				"fallback size and reads as debris rather than as the ship");
 		CHECK(s->facing == 4, "a shadow keeps the facing it was shed at");
+
+		// And it lies *behind* the ship. The exhaust's own direction is the
+		// reference: spawnIonTrail offsets along facingToAngle + kHalfCircle
+		// and that trail is known to come out of the engines, so the same
+		// vector negated is forward.
+		const int ahead = sim::facingToAngle(4);
+		const Vec2i fwd{sim::cosine(ahead, 1000), sim::sine(ahead, 1000)};
+		const Vec2i off = sim::wrapDelta(
+				Vec2i{s->current.x - arrival.x, s->current.y - arrival.y});
+		const std::int64_t dot = static_cast<std::int64_t>(off.x) * fwd.x
+				+ static_cast<std::int64_t>(off.y) * fwd.y;
+		CHECK(dot < 0,
+				"the trail must lie behind the ship, not ahead of it "
+				"(dot=%lld, offset=%d,%d forward=%d,%d)",
+				static_cast<long long>(dot), off.x, off.y, fwd.x, fwd.y);
 	}
 
 	// And it arrives: solid, still, and driving itself from here.

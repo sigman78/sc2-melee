@@ -191,12 +191,46 @@ inline constexpr int kStarPlanes = 3;
 inline constexpr std::array<int, kStarPlanes> kStarsPerPlane{{30, 60, 90}};
 inline constexpr int kStarCount = 30 + 60 + 90;
 
-// Near plane first, so the array is grouped by plane.
+// Only a fallback, for when the art is missing. The cels carry their own
+// colour and their own brightness, and they are already graded by plane --
+// which is the whole reason they must be drawn as *frames* and not as
+// silhouettes.
+//
+// Drawing the silhouette was the defect: a silhouette is a flat fill of every
+// non-transparent pixel, and these glyphs are mostly near-black. The 11x11
+// cel is a bright core with almost-invisible diffraction arms, and the 5x5 is
+// a single bright pixel inside a faint halo. Filling them turned three subtle
+// stars into solid blobs and made the sky unreadable.
 inline constexpr std::array<Colour, kStarPlanes> kStarColours{{
-		Colour{0xD0, 0xD0, 0xE0},
-		Colour{0x90, 0x90, 0xA8},
-		Colour{0x58, 0x58, 0x70},
+		Colour{0x94, 0x9C, 0xFC},
+		Colour{0x80, 0x8C, 0xFC},
+		Colour{0xA4, 0xAC, 0xFC},
 }};
+
+// How large a patch the field tiles over, in display pixels.
+//
+// The C cannot be copied directly here. galaxy.c:248-259 puts each star at
+// `rand % SPACE_WIDTH << factor` with factor = ONE_SHIFT + MAX_REDUCTION
+// (BACKGROUND_SHIFT is 3, so that term is zero), which makes plane 0's space
+// exactly LOG_SPACE_WIDTH -- the whole arena -- and then draws it at whatever
+// reduction the camera is at. So the C's on-screen density *varies with
+// zoom*: about three stars at 1:1, and all 180 when zoomed fully out, because
+// the view grows to cover the arena while the stars stay put.
+//
+// This field is deliberately zoom-independent -- that is what removed the
+// shimmer -- so it cannot have both ends of that range, and has to pick one
+// number. Tiling over the screen gave all 180 at once, which is the fully
+// zoomed-out density applied at every zoom, and reads as a nebula. Tiling
+// over the arena gave the 1:1 density, which is two or three stars. Four
+// screens' worth lands between them at around 45 in view, which is what the
+// melee actually looks like at the zooms it spends its time at.
+inline constexpr std::int32_t kStarFieldWidth = sim::kSpaceWidth * 2;
+inline constexpr std::int32_t kStarFieldHeight = sim::kSpaceHeight * 2;
+
+// Which cel each plane draws: 11x11 near, 5x5 mid, a single pixel far.
+// star_frame_ofs (galaxy.c:316) picks the largest group for the nearest plane
+// and the smallest for the farthest, which is the same ordering.
+inline constexpr std::array<std::size_t, kStarPlanes> kStarCels{{1, 0, 2}};
 
 struct Game
 {
@@ -208,8 +242,10 @@ struct Game
 	sim::Battle battle{0x2A5B};
 	game::Camera camera;
 
-	// The starfield, three planes deep (galaxy.c:37-44).
+	// The starfield, three planes deep (galaxy.c:37-44). Positions are in
+	// display pixels on a screen-sized torus, one per plane -- see drawStars.
 	std::array<Vec2i, kStarCount> stars{};
+	const game::SpriteSet *starArt = nullptr;
 	Pacer pacer;
 	std::array<InputAccumulator, 2> players;
 
@@ -442,6 +478,7 @@ setUp(Game &g, const std::filesystem::path &content)
 	// The C picks a planet type at random per battle (load_gravity_well,
 	// cons_res.c:52-82). One fixed type until melee setup exists to choose.
 	g.world = load("planet.acid.large");
+	g.starArt = load("graphics.stars");
 
 	const auto loadSounds = [&](const char *id) {
 		const std::span<const platform::Sound> set =
@@ -537,14 +574,12 @@ setUp(Game &g, const std::filesystem::path &content)
 	const sim::CollisionMask *rockMask =
 			g.rock->maskFor(0) != nullptr ? g.rock->maskFor(0) : &g.rockMask;
 
-	// Stars are spread over the arena and tiled by the same wrap the sim uses,
-	// so a plane never runs out however far the camera travels.
+	// Spread over the arena, in display pixels. See kStarFieldWidth.
 	for (Vec2i &s : g.stars)
-		s = Vec2i{
+		s = Vec2i{static_cast<std::int32_t>(
+						  g.battle.rng().next() % kStarFieldWidth),
 				static_cast<std::int32_t>(
-						g.battle.rng().next() % sim::kLogSpaceWidth),
-				static_cast<std::int32_t>(
-						g.battle.rng().next() % sim::kLogSpaceHeight)};
+						g.battle.rng().next() % kStarFieldHeight)};
 
 	(void)sim::spawnPlanet(g.battle, planetMask);
 	for (int i = 0; i < sim::kNumAsteroids; ++i)
@@ -553,43 +588,84 @@ setUp(Game &g, const std::filesystem::path &content)
 
 // The background, before anything in the arena.
 //
-// Stars are drawn at a fixed pixel size rather than through camera.scale():
-// they are meant to be at infinity, so zooming the arena must not swell them.
+// Stars do not zoom and they do not scale. They are meant to be at infinity,
+// so putting them through camera.scale() was wrong twice over: it swelled
+// them as the arena zoomed, and -- because the zoom drifts continuously as the
+// ships close and separate -- it fed a moving divisor into every star's
+// position, so the whole field shimmered under any pan or zoom. That was the
+// jitter. The fix is not better rounding; it is that the zoom has no business
+// in this calculation at all.
+//
+// What is left is a plain pan. Each plane is a screen-sized torus, and the
+// camera's position enters it divided by 2^plane, so plane 0 slides a pixel
+// for every display pixel the camera travels, plane 1 half that, plane 2 a
+// quarter. Integer arithmetic throughout, one shift, nothing to round.
 void
 drawStars(Game &g)
 {
 	const Vec2i centre = g.camera.centre();
 
+	const auto wrapTo = [](std::int32_t v, std::int32_t n) {
+		v %= n;
+		return v < 0 ? v + n : v;
+	};
+
 	std::size_t first = 0;
 	for (int plane = 0; plane < kStarPlanes; ++plane)
 	{
-		const std::size_t count =
-				static_cast<std::size_t>(kStarsPerPlane[static_cast<std::size_t>(plane)]);
-		const Colour c = kStarColours[static_cast<std::size_t>(plane)];
+		const auto p = static_cast<std::size_t>(plane);
+		const std::size_t count = static_cast<std::size_t>(kStarsPerPlane[p]);
+		const Colour c = kStarColours[p];
 
-		// 1/2^plane of the camera's travel. Dividing the *viewpoint* is the
-		// same thing as the C multiplying the plane's coordinate space, and
-		// it does not need a second set of world constants to wrap against.
-		const Vec2i eye{centre.x >> plane, centre.y >> plane};
+		// World to display is a shift of two; the plane's own slowdown is
+		// another `plane` on top of it.
+		const std::int32_t ox = centre.x >> (sim::kOneShift + plane);
+		const std::int32_t oy = centre.y >> (sim::kOneShift + plane);
 
-		// Near stars are 2x2, the rest single pixels.
-		const std::uint32_t size = plane == 0 ? 2u : 1u;
+		const game::SpriteSet *art = g.starArt;
+		const std::size_t cel = kStarCels[p];
+		const bool haveArt = art != nullptr && cel < art->frames.size()
+				&& cel < art->masks.size();
+
+		Extent2u size{1, 1};
+		Vec2i hs{0, 0};
+		if (haveArt)
+		{
+			size = art->masks[cel].size();
+			hs = art->masks[cel].hotspot();
+		}
 
 		for (std::size_t i = first; i < first + count; ++i)
 		{
-			const Vec2i d = sim::wrapDelta(
-					Vec2i{g.stars[i].x - eye.x, g.stars[i].y - eye.y});
-			const Vec2i at{sim::kSpaceWidth / 2 + g.camera.scale(d.x),
-					sim::kSpaceHeight / 2 + g.camera.scale(d.y)};
-			if (at.x < 0 || at.y < 0 || at.x >= sim::kSpaceWidth
-					|| at.y >= sim::kSpaceHeight)
-				continue;
-			g.window.fillRect(at, Extent2u{size, size}, c.r, c.g, c.b);
+			const std::int32_t sx = wrapTo(g.stars[i].x - ox, kStarFieldWidth);
+			const std::int32_t sy = wrapTo(g.stars[i].y - oy, kStarFieldHeight);
+
+			// Drawn up to four times so a star straddling the seam comes back
+			// in on the other side instead of popping out of existence.
+			for (int wx = 0; wx < 2; ++wx)
+			{
+				for (int wy = 0; wy < 2; ++wy)
+				{
+					const std::int32_t x = sx - wx * kStarFieldWidth - hs.x;
+					const std::int32_t y = sy - wy * kStarFieldHeight - hs.y;
+					if (x + static_cast<std::int32_t>(size.w) <= 0
+							|| y + static_cast<std::int32_t>(size.h) <= 0
+							|| x >= sim::kSpaceWidth || y >= sim::kSpaceHeight)
+						continue;
+
+					if (haveArt)
+						g.window.draw(art->frames[cel], Vec2i{x, y}, size);
+					else
+						g.window.fillRect(
+								Vec2i{x, y}, size, c.r, c.g, c.b);
+				}
+			}
 		}
 
 		first += count;
 	}
 }
+
 
 void drawOverlay(Game &g);
 void drawHud(Game &g);
@@ -621,7 +697,7 @@ draw(Game &g)
 				continue;
 			const Colour c = kIonRamp[step];
 			const Vec2i at = g.camera.toScreen(e->current);
-			g.window.fillRect(at, Extent2u{2, 2}, c.r, c.g, c.b);
+			g.window.fillRect(at, Extent2u{1, 1}, c.r, c.g, c.b);
 			continue;
 		}
 
@@ -729,8 +805,13 @@ draw(Game &g)
 			const std::int32_t cloak = e->ship.cloakLevel;
 			if (cloak > 0 && i < set->silhouettes.size())
 			{
-				if (cloak >= static_cast<std::int32_t>(kCloakRamp.size()))
-					continue;  // fully hidden
+				// The last step is invisible, not black. The C fills with
+				// BLACK_COLOR and that reads as gone against its own black
+				// space -- but this renderer clears to a dark blue, so a black
+				// fill leaves a ship-shaped hole, which is worse than no cloak
+				// at all. Drawing nothing is what the C means.
+				if (cloak >= sim::kCloakSteps - 1)
+					continue;
 				const Colour c = kCloakRamp[static_cast<std::size_t>(cloak)];
 				g.window.drawTinted(set->silhouettes[i],
 						Vec2i{at.x - ox, at.y - oy}, dest, c.r, c.g, c.b);
