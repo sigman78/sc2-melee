@@ -21,7 +21,7 @@ set(BUILD_TESTING OFF)
 # the tree is SDL3 now. Everything outside this block still talks to the
 # version-agnostic `uqm::SDL` target.
 set(SDL_TEST_LIBRARY OFF)
-if(EMSCRIPTEN)
+if(EMSCRIPTEN AND UQM_LEGACY)
 	# SDL3 defaults SDL_PTHREADS off for Emscripten because SharedArrayBuffer
 	# is not universally available; without it SDL_CreateSemaphore() returns
 	# NULL and UQM aborts initialising the draw-command queue. We already

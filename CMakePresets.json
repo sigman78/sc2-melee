@@ -56,13 +56,38 @@
         "CMAKE_SYSTEM_NAME": "iOS",
         "UQM_NETPLAY": "OFF"
       }
+    },
+    {
+      "name": "core",
+      "inherits": "dev",
+      "displayName": "core - the rewrite only, no C game",
+      "cacheVariables": {
+        "UQM_LEGACY": "OFF"
+      }
+    },
+    {
+      "name": "wasm-core",
+      "inherits": "wasm",
+      "displayName": "wasm-core - the rewrite only; no pthreads, no SharedArrayBuffer",
+      "cacheVariables": {
+        "UQM_LEGACY": "OFF"
+      }
     }
   ],
   "testPresets": [
     {
       "name": "dev",
       "configurePreset": "dev",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "core",
+      "configurePreset": "core",
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ],
   "buildPresets": [
@@ -81,6 +106,14 @@
     {
       "name": "ios",
       "configurePreset": "ios"
+    },
+    {
+      "name": "core",
+      "configurePreset": "core"
+    },
+    {
+      "name": "wasm-core",
+      "configurePreset": "wasm-core"
     }
   ]
 }

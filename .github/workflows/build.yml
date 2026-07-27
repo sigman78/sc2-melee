@@ -119,6 +119,42 @@ jobs:
       - name: Check include hygiene
         run: python3 tools/check-includes.py src
 
+  core:
+    name: core (rewrite only, no C game)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # SDL3 is built from source, so it needs its own X11/Wayland
+      # dependencies -- the same set the main Linux job installs.
+      - name: Install build tools and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
+
+      # UQM_LEGACY=OFF builds a tree containing only the rewrite. This job
+      # exists to keep that split honest: the moment src/ picks up a
+      # dependency on the C game, it fails here rather than at the point
+      # someone tries to deploy.
+      #
+      # It is also what the wasm deploy will use. The C game is threaded, and
+      # on Emscripten that forces SDL_PTHREADS, which forces SharedArrayBuffer,
+      # which forces COOP/COEP headers on whoever hosts the page. The rewrite
+      # needs none of it.
+      - name: Configure
+        run: cmake --preset core -DUQM_WERROR=ON
+
+      - name: Build
+        run: cmake --build --preset core
+
+      - name: Test
+        run: ctest --preset core --output-on-failure
+
   wasm:
     name: wasm (emscripten)
     runs-on: ubuntu-latest

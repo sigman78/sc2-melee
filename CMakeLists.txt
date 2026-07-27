@@ -40,6 +40,18 @@ option(UQM_ZIP "Read content straight out of .zip/.uqm archives" ON)
 option(UQM_OPENAL "Build the OpenAL sound backend (runtime --sound=openal)" OFF)
 option(UQM_WERROR "Treat compiler warnings as errors" OFF)
 option(UQM_TESTS "Build the unit tests in tests/" ON)
+
+# The original C game. On by default and stays in CI for the whole project --
+# side-by-side comparison is the only oracle the "does it feel right"
+# questions have.
+#
+# Turning it off leaves a tree containing only the rewrite, which is what the
+# wasm deploy wants. The C game still needs threads (Starcon2Main), and on
+# Emscripten that forces SDL_PTHREADS, which forces SharedArrayBuffer, which
+# forces COOP/COEP headers on whoever hosts the page. The rewrite needs none
+# of that, and there is no reason for it to inherit the constraint just
+# because the two share a repository.
+option(UQM_LEGACY "Build the original C game in sc2/src" ON)
 	# Its own option rather than BUILD_TESTING, which Dependencies.cmake turns
 	# off in this scope to keep the fetched dependencies from building theirs.
 set(UQM_CONTENTDIR "" CACHE STRING
@@ -63,17 +75,26 @@ include(ConfigHeader)
 # Vendored third-party code gets its own static library so its warnings stay out
 # of the game's build log.
 
-add_executable(uqm)
-add_library(uqm_uio STATIC)
-add_library(uqm_mikmod STATIC)
+if(UQM_LEGACY)
+	add_executable(uqm)
+endif()
+# spng and miniz are shared: the rewrite decodes PNG through the same spng the
+# C game does, so both trees decode content identically. The rest belong to the
+# C game alone, and a target declared without sources is a configure error --
+# which is why these are conditional rather than merely unused.
 add_library(uqm_miniz STATIC)
 add_library(uqm_spng STATIC)
-add_library(uqm_stb STATIC)
+set(UQM_VENDORED_TARGETS uqm_miniz uqm_spng)
 
-set(UQM_VENDORED_TARGETS uqm_uio uqm_mikmod uqm_miniz uqm_spng uqm_stb)
-if(NOT HAVE_GETOPT_LONG)
-	add_library(uqm_getopt STATIC)
-	list(APPEND UQM_VENDORED_TARGETS uqm_getopt)
+if(UQM_LEGACY)
+	add_library(uqm_uio STATIC)
+	add_library(uqm_mikmod STATIC)
+	add_library(uqm_stb STATIC)
+	list(APPEND UQM_VENDORED_TARGETS uqm_uio uqm_mikmod uqm_stb)
+	if(NOT HAVE_GETOPT_LONG)
+		add_library(uqm_getopt STATIC)
+		list(APPEND UQM_VENDORED_TARGETS uqm_getopt)
+	endif()
 endif()
 
 # Settings shared by every target compiled from this tree.
@@ -103,32 +124,35 @@ target_compile_definitions(uqm_buildsettings INTERFACE
 )
 target_link_libraries(uqm_buildsettings INTERFACE uqm::SDL)
 
-foreach(_target uqm ${UQM_VENDORED_TARGETS})
+foreach(_target ${UQM_VENDORED_TARGETS})
 	target_link_libraries(${_target} PRIVATE uqm_buildsettings)
 endforeach()
 
-target_link_libraries(uqm PRIVATE ${UQM_VENDORED_TARGETS})
-if(UQM_ZIP)
+if(UQM_LEGACY)
+	target_link_libraries(uqm PRIVATE uqm_buildsettings)
+	target_link_libraries(uqm PRIVATE ${UQM_VENDORED_TARGETS})
+endif()
+if(UQM_ZIP AND UQM_LEGACY)
 	# miniz, vendored, rather than the fetched zlib: uio's whole zlib surface
 	# is six decompress-only symbols and miniz is source-compatible with them
 	# (sc2/src/libs/vendor/miniz/README.md). The vendored spng inflates
 	# through it too, which is what left Dependencies.cmake with only SDL.
 	target_link_libraries(uqm_uio PRIVATE uqm_miniz)
 endif()
-if(UQM_OPENAL)
+if(UQM_OPENAL AND UQM_LEGACY)
 	target_link_libraries(uqm PRIVATE OpenAL::OpenAL)
 endif()
-if(WIN32)
+if(WIN32 AND UQM_LEGACY)
 	target_link_libraries(uqm PRIVATE user32)
 	if(UQM_NETPLAY)
 		target_link_libraries(uqm PRIVATE ws2_32)
 	endif()
 endif()
-if(UNIX AND NOT EMSCRIPTEN)
+if(UNIX AND NOT EMSCRIPTEN AND UQM_LEGACY)
 	target_link_libraries(uqm PRIVATE m)
 endif()
 
-if(EMSCRIPTEN)
+if(EMSCRIPTEN AND UQM_LEGACY)
 	# docs/plan.md Phase 3. The game is still threaded (Starcon2Main), so
 	# pthreads are on for now; §7.6's flip is what lets them go, and with them
 	# the SharedArrayBuffer requirement and the COOP/COEP headers it forces on
@@ -162,7 +186,7 @@ if(EMSCRIPTEN)
 		SUFFIX ".html"
 	)
 endif()
-if(APPLE)
+if(APPLE AND UQM_LEGACY)
 	# log/msgbox_macosx.m (NSAlert) and darwin/SDLMain.m (NSApplication).
 	target_link_libraries(uqm PRIVATE "-framework Cocoa")
 endif()
@@ -173,13 +197,17 @@ endif()
 
 if(MSVC)
 	target_compile_options(uqm_buildsettings INTERFACE /utf-8)
-	target_compile_options(uqm PRIVATE /W3)
 	set(_uqm_quiet /w)
 	set(_uqm_werror /WX)
+	if(UQM_LEGACY)
+		target_compile_options(uqm PRIVATE /W3)
+	endif()
 else()
-	target_compile_options(uqm PRIVATE -W -Wall)
 	set(_uqm_quiet -w)
 	set(_uqm_werror -Werror)
+	if(UQM_LEGACY)
+		target_compile_options(uqm PRIVATE -W -Wall)
+	endif()
 endif()
 
 foreach(_target ${UQM_VENDORED_TARGETS})
@@ -190,7 +218,16 @@ if(UQM_WERROR)
 	target_compile_options(uqm PRIVATE ${_uqm_werror})
 endif()
 
-add_subdirectory(sc2/src)
+if(UQM_LEGACY)
+	add_subdirectory(sc2/src)
+else()
+	# The rewrite decodes PNG with the same vendored spng the C game uses, so
+	# both trees decode content identically -- deliberate, and worth keeping
+	# even when the rest of sc2/src is not built. spng inflates through miniz,
+	# hence both.
+	add_subdirectory(sc2/src/libs/vendor/miniz)
+	add_subdirectory(sc2/src/libs/vendor/spng)
+endif()
 add_subdirectory(src)
 
 # --- Tests -------------------------------------------------------------------

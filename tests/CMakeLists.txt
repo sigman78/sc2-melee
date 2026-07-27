@@ -2,6 +2,8 @@
 # need one -- each test is a standalone program that returns non-zero on
 # failure and is registered with CTest.
 
+# The two C tests exercise sc2/src machinery, so they follow UQM_LEGACY.
+if(UQM_LEGACY)
 add_executable(coroutine_test coroutine_test.c)
 target_link_libraries(coroutine_test PRIVATE uqm_buildsettings)
 if(MSVC)
@@ -27,6 +29,7 @@ if(UQM_WERROR)
 endif()
 
 add_test(NAME response COMMAND response_test)
+endif()
 
 # The C++ content library. Given the content tree it sweeps every .ct and
 # .ani in it, which is the point -- these formats' surprises are empirical
