@@ -48,6 +48,17 @@ struct CollisionEvent
 	Vec2i afterB;
 };
 
+// Something entered the simulation this step. The audio layer reads these to
+// start effects; scanning the list for Appearing flags afterwards was the
+// alternative, and it silently depended on a step-loop bug that left the flag
+// set one frame too long. Observational only, like CollisionEvent.
+struct SpawnEvent
+{
+	EntityId id;
+	ElementKind kind = ElementKind::Unknown;
+	std::int32_t playerNr = -1;
+};
+
 class Battle
 {
 public:
@@ -88,21 +99,30 @@ public:
 		return collisions_;
 	}
 
+	// Elements spawned during the most recent step, in spawn order. Cleared
+	// at the start of each step, so setup spawns are not reported.
+	[[nodiscard]] std::span<const SpawnEvent> spawns() const noexcept
+	{
+		return spawns_;
+	}
+
 private:
 	void preProcessPass();
 	void postProcessPass();
+	void catchUpFrom(EntityId first);
 	void preProcessOne(EntityId id) noexcept;
 	void collideAgainstSuccessors(EntityId id);
 	void collideAgainstAll(EntityId id);
 	bool testPair(EntityId a, EntityId b);
+	void recordSpawn(EntityId id, const Element &e);
 
 	EntityList<Element> elements_;
 	Rng rng_;
 	std::uint64_t frame_ = 0;
 
 	// Both reused across steps so a steady-state frame allocates nothing.
-	std::vector<EntityId> scratch_;
 	std::vector<CollisionEvent> collisions_;
+	std::vector<SpawnEvent> spawns_;
 };
 
 }  // namespace uqm::sim

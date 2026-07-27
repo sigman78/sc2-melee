@@ -9,18 +9,30 @@
 
 namespace uqm::sim {
 
+void
+Battle::recordSpawn(EntityId id, const Element &e)
+{
+	spawns_.push_back(SpawnEvent{id, e.kind, e.playerNr});
+}
+
 EntityId
 Battle::spawnFront(Element e)
 {
 	e.flags |= ElementFlags::Appearing;
-	return elements_.pushFront(std::move(e));
+	const EntityId id = elements_.pushFront(std::move(e));
+	if (auto p = elements_.get(id); p != nullptr)
+		recordSpawn(id, *p);
+	return id;
 }
 
 EntityId
 Battle::spawnBack(Element e)
 {
 	e.flags |= ElementFlags::Appearing;
-	return elements_.pushBack(std::move(e));
+	const EntityId id = elements_.pushBack(std::move(e));
+	if (auto p = elements_.get(id); p != nullptr)
+		recordSpawn(id, *p);
+	return id;
 }
 
 // PreProcess (process.c:128-186), which is more than "call the hook".
@@ -73,7 +85,12 @@ Battle::preProcessOne(EntityId id) noexcept
 	{
 		if (any(flags & ElementFlags::Appearing))
 		{
-			e->next = e->current;  // SetUpElement (process.c:117-126)
+			// SetUpElement (process.c:117-126). A laser is exempt: its
+			// `current` and `next` are the two ENDS of the beam rather than a
+			// position and a destination, and seeding next from current would
+			// collapse it to a point before its one frame on screen.
+			if (e->kind != ElementKind::Laser)
+				e->next = e->current;
 			if (any(flags & ElementFlags::PlayerShip))
 				flags &= ~ElementFlags::Appearing;  // the local, not the element
 		}
@@ -90,11 +107,24 @@ Battle::preProcessOne(EntityId id) noexcept
 		// Motion is gated on IGNORE_VELOCITY alone (process.c:163). A newly
 		// spawned element still moves on its first frame; APPEARING suppresses
 		// the hook, not the movement.
+		//
+		// Two details are the C's and both were once "tidied" away:
+		//
+		//   - Integration ADDS to `next` (process.c:172-173) rather than
+		//     rebuilding it from `current`, so a hook that nudged `next`
+		//     keeps its nudge (crew_preprocess positions drifting crew that
+		//     way).
+		//   - The result is NOT wrapped. The C wraps at the commit
+		//     (process.c:899-916), so a seam-crossing element is collision-
+		//     tested with raw coordinates: the sweep sees a short hop off the
+		//     arena's edge. Wrapping here handed the sweep a full-arena
+		//     traversal instead, which could manufacture phantom hits against
+		//     anything near that path. The cost, also the C's: a genuine
+		//     seam collision resolves one frame late.
 		if (!any(flags & ElementFlags::IgnoreVelocity))
 		{
 			const Vec2i delta = e->velocity.advance(1);
-			e->next = wrap(
-					Vec2i{e->current.x + delta.x, e->current.y + delta.y});
+			e->next = Vec2i{e->next.x + delta.x, e->next.y + delta.y};
 		}
 
 		// Unconditional once FINITE_LIFE is set (process.c:180-181): it cannot
@@ -319,109 +349,142 @@ Battle::collideAgainstAll(EntityId id)
 void
 Battle::preProcessPass()
 {
-	// Snapshot the ids first. Hooks spawn elements, and a spawn at the head
-	// would otherwise be walked into in the same pass -- which is what the
-	// post pass exists to handle deliberately rather than by accident.
-	scratch_.clear();
-	for (EntityId id = elements_.front(); id.valid(); id = elements_.next(id))
-		scratch_.push_back(id);
-
-	for (const EntityId id : scratch_)
+	// A LIVE walk, not a snapshot -- the C's PreProcessQueue follows the real
+	// list (process.c:630-746), and the difference is observable: an element
+	// a hook appends at the tail (rubble from a death, sparks from a burning
+	// hull) is walked into by this same pass, preprocessed, and collision-
+	// tested against its successors. An element head-inserted during the walk
+	// lands behind the cursor and waits for the post pass's catch-up instead,
+	// exactly as in the C. Snapshotting the ids up front deferred every
+	// tail spawn too, which is not the C's shape.
+	//
+	// Safe to walk live because nothing removes an element mid-frame: death
+	// only marks Disappearing, and the reap happens in the post pass.
+	for (EntityId id = elements_.front(); id.valid();)
 	{
 		auto e = elements_.get(id);
-		if (e == nullptr)
-			continue;
-
-		if (!any(e->flags & ElementFlags::PreProcessed))
+		if (e != nullptr && !any(e->flags & ElementFlags::PreProcessed))
 			preProcessOne(id);
 
 		e = elements_.get(id);
 		if (e != nullptr && e->collidable()
 				&& !any(e->flags & ElementFlags::Collided))
 			collideAgainstSuccessors(id);
+
+		// Fetched after the hooks so a tail insertion is walked into.
+		id = elements_.next(id);
+	}
+}
+
+void
+Battle::catchUpFrom(EntityId first)
+{
+	// The mid-frame-spawn catch-up (process.c:843-862): from the first
+	// element the post walk found un-preprocessed, run to the tail,
+	// integrating and ageing everything new and collision-testing against
+	// the WHOLE list -- everything ahead of it already moved, so successors
+	// alone would miss most partners. This is what lets a one-frame weapon
+	// -- point-defence fire -- hit something on the only frame it has, and
+	// what gives a missile its first frame of flight on the frame the
+	// trigger was pulled. Live, like the outer walk: a weapon spawned by an
+	// element this loop preprocesses is reached by this same loop.
+	for (EntityId p = first; p.valid();)
+	{
+		auto pe = elements_.get(p);
+		if (pe != nullptr && !any(pe->flags & ElementFlags::PreProcessed))
+			preProcessOne(p);
+
+		pe = elements_.get(p);
+		if (pe != nullptr && pe->collidable()
+				&& !any(pe->flags & ElementFlags::Collided))
+			collideAgainstAll(p);
+
+		p = elements_.next(p);
 	}
 }
 
 void
 Battle::postProcessPass()
 {
-	// Anything spawned during the pre pass has no PreProcessed flag. Give it
-	// the catch-up treatment before the reap, so it is integrated and aged
-	// like everything else, and so a one-frame weapon -- point-defence fire
-	// -- can still hit something this frame. A longer-lived weapon is walked
-	// too but skipped by the spawn-frame guard in testPair.
-	scratch_.clear();
-	for (EntityId id = elements_.front(); id.valid(); id = elements_.next(id))
-		scratch_.push_back(id);
-
-	for (const EntityId id : scratch_)
+	// The C's PostProcessQueue (process.c:798-983), with the drawing taken
+	// out, and like it a LIVE walk. The load-bearing consequence: a weapon
+	// fired by a ship's postprocess hook is appended at the tail, reached by
+	// this same walk, caught up -- so it moves on the frame it was fired --
+	// and committed, which is where its Appearing clears. Snapshotting here
+	// cost every projectile its first frame of flight and left Appearing set
+	// a frame late, which delayed its first possible hit by another frame.
+	for (EntityId id = elements_.front(); id.valid();)
 	{
 		auto e = elements_.get(id);
-		if (e == nullptr || any(e->flags & ElementFlags::PreProcessed))
-			continue;
+		EntityId next;
 
-		preProcessOne(id);
-
-		e = elements_.get(id);
-		if (e != nullptr && e->collidable()
-				&& !any(e->flags & ElementFlags::Collided))
-			collideAgainstAll(id);
-	}
-
-	// Commit, age, and reap.
-	scratch_.clear();
-	for (EntityId id = elements_.front(); id.valid(); id = elements_.next(id))
-		scratch_.push_back(id);
-
-	for (const EntityId id : scratch_)
-	{
-		auto e = elements_.get(id);
-		if (e == nullptr)
-			continue;
-
-		if (e->postProcess != nullptr && !any(e->flags & ElementFlags::PostProcessed))
+		if (!any(e->flags & ElementFlags::PreProcessed))
 		{
-			e->postProcess(*this, id);
+			catchUpFrom(id);
 			e = elements_.get(id);
-			if (e == nullptr)
-				continue;
+		}
+		else if (!any(e->flags & ElementFlags::Collided))
+		{
+			// A frame without a collision ends DefyPhysics
+			// (process.c:824-827). It has to expire, or the first stationary
+			// contact disables the collision stagger for good and later,
+			// unrelated contacts fall into the zero-velocity branch meant
+			// for pairs that are actually stuck.
+			e->flags &= ~ElementFlags::DefyPhysics;
 		}
 
-		// PostProcess (process.c:189-193): the hook, then commit.
-		e->current = e->next;
+		if (any(e->flags & ElementFlags::Disappearing))
+		{
+			// Removed with no postprocess and no commit (process.c:873-879).
+			// The death hook already ran in the pre pass, while the element
+			// could still be looked at.
+			next = elements_.next(id);
+			elements_.remove(id);
+		}
+		else
+		{
+			// PostProcess (process.c:188-204): the hook, then the commit.
+			if (e->postProcess != nullptr
+					&& !any(e->flags & ElementFlags::PostProcessed))
+			{
+				e->postProcess(*this, id);
+				e = elements_.get(id);
+			}
 
-		// A frame without a collision ends DefyPhysics (process.c:824-829).
-		// It has to expire, or the first stationary contact disables the
-		// collision stagger for good and later, unrelated contacts fall into
-		// the zero-velocity branch meant for pairs that are actually stuck.
-		if (!any(e->flags & ElementFlags::Collided))
-			e->flags &= ~ElementFlags::DefyPhysics;
+			if (e != nullptr)
+			{
+				// The wrap lives here, at the commit, matching the C
+				// (process.c:899-916) -- see the note in preProcessOne. A
+				// laser is exempt from the commit entirely: its two points
+				// are the beam, not motion.
+				if (e->kind != ElementKind::Laser)
+				{
+					e->next = wrap(e->next);
+					e->current = e->next;
+				}
 
-		// Ageing and the death decision both live in the pre pass, matching
-		// process.c:133-141 and 180-181, so an element dies at the start of
-		// the frame after its life reached zero -- not at the end of the one
-		// that spent it.
-		e->flags &= ~(ElementFlags::Appearing | ElementFlags::PreProcessed
-				| ElementFlags::PostProcessed);
+				// Ageing and the death decision both live in the pre pass,
+				// matching process.c:133-141 and 180-181, so an element dies
+				// at the start of the frame after its life reached zero --
+				// not at the end of the one that spent it.
+				e->flags &= ~(ElementFlags::Appearing
+						| ElementFlags::PreProcessed
+						| ElementFlags::PostProcessed);
+			}
+
+			// Fetched after the hook, so a tail spawn is walked into.
+			next = elements_.next(id);
+		}
+
+		id = next;
 	}
-
-	scratch_.clear();
-	for (EntityId id = elements_.front(); id.valid(); id = elements_.next(id))
-	{
-		auto e = elements_.get(id);
-		if (e != nullptr && any(e->flags & ElementFlags::Disappearing))
-			scratch_.push_back(id);
-	}
-	// The death hook already ran in the pre pass, while the element was still
-	// in the list and could still be looked at.
-	for (const EntityId id : scratch_)
-		elements_.remove(id);
 }
 
 void
 Battle::step()
 {
 	collisions_.clear();
+	spawns_.clear();
 	preProcessPass();
 	postProcessPass();
 	++frame_;
