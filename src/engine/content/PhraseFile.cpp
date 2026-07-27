@@ -3,6 +3,7 @@
 #include "PhraseFile.hpp"
 
 #include "engine/core/Text.hpp"
+#include "engine/core/Types.hpp"
 
 #include <optional>
 
@@ -28,7 +29,7 @@ strtokStep(std::string_view &rest, std::string_view delims) noexcept
 	if (rest.empty())
 		return std::nullopt;
 
-	const std::size_t end = rest.find_first_of(delims);
+	const usize end = rest.find_first_of(delims);
 	const std::string_view token = rest.substr(0, end);
 	rest = (end == std::string_view::npos) ? std::string_view{}
 										   : rest.substr(end + 1);
@@ -65,7 +66,7 @@ PhraseFile::byName(std::string_view name) const noexcept
 }
 
 const Phrase *
-PhraseFile::byOrdinal(std::size_t ordinal) const noexcept
+PhraseFile::byOrdinal(usize ordinal) const noexcept
 {
 	if (ordinal == 0 || ordinal > phrases_.size())
 		return nullptr;
@@ -88,14 +89,14 @@ parsePhrases(std::string_view text, std::vector<ContentError> *problems)
 		if (!file.phrases_.empty() && bodyBegin != nullptr && bodyEnd != nullptr)
 		{
 			file.phrases_.back().text = std::string_view(
-					bodyBegin, static_cast<std::size_t>(bodyEnd - bodyBegin));
+					bodyBegin, static_cast<usize>(bodyEnd - bodyBegin));
 		}
 		bodyBegin = nullptr;
 		bodyEnd = nullptr;
 		skippedInBody = false;
 	};
 
-	forEachLine(text, [&](std::string_view line, std::size_t lineNo) {
+	forEachLine(text, [&](std::string_view line, usize lineNo) {
 		// The C branches on line[0] == '#' first and only then asks whether a
 		// name came out of it. A '#' line that yields no name is dropped on
 		// the floor -- it never reaches the append branch.
@@ -122,7 +123,7 @@ parsePhrases(std::string_view text, std::vector<ContentError> *problems)
 			{
 				// Text before the first #(NAME); the C drops it.
 				problems->emplace_back(ContentErrorCode::BadFieldCount,
-						static_cast<std::uint32_t>(lineNo));
+						static_cast<u32>(lineNo));
 			}
 			return;
 		}
@@ -137,7 +138,7 @@ parsePhrases(std::string_view text, std::vector<ContentError> *problems)
 				// concatenates across it; a view cannot, so say so rather
 				// than hand back a body with a stray "#()" inside it.
 				problems->emplace_back(ContentErrorCode::WrongSize,
-						static_cast<std::uint32_t>(lineNo));
+						static_cast<u32>(lineNo));
 			}
 			skippedInBody = false;
 			bodyEnd = line.data() + line.size();
@@ -154,9 +155,9 @@ attachTimestamps(PhraseFile &file, std::string_view ts,
 {
 	using enum ContentErrorCode;
 
-	const auto note = [problems](ContentErrorCode code, std::size_t at) {
+	const auto note = [problems](ContentErrorCode code, usize at) {
 		if (problems != nullptr)
-			problems->emplace_back(code, static_cast<std::uint32_t>(at));
+			problems->emplace_back(code, static_cast<u32>(at));
 	};
 
 	// Collected first, applied only on success: the C's failure mode is to
@@ -166,7 +167,7 @@ attachTimestamps(PhraseFile &file, std::string_view ts,
 	collected.reserve(file.size());
 
 	std::string_view rest = ts;
-	for (std::size_t i = 0; i < file.size(); ++i)
+	for (usize i = 0; i < file.size(); ++i)
 	{
 		const std::string_view name = file[i].name;
 
@@ -184,7 +185,7 @@ attachTimestamps(PhraseFile &file, std::string_view ts,
 		}
 
 		// strstr, exactly as the C does it.
-		const std::size_t at = line.find(name);
+		const usize at = line.find(name);
 		if (at == std::string_view::npos)
 		{
 			note(NonNumericField, i + 1);
@@ -208,7 +209,7 @@ attachTimestamps(PhraseFile &file, std::string_view ts,
 		collected.push_back(data);
 	}
 
-	for (std::size_t i = 0; i < file.phrases_.size(); ++i)
+	for (usize i = 0; i < file.phrases_.size(); ++i)
 		file.phrases_[i].timestamps = collected[i];
 	return true;
 }

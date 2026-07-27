@@ -2,6 +2,7 @@
 
 #include "Damage.hpp"
 
+#include "engine/core/Types.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Ship.hpp"
 #include "sim/Trig.hpp"
@@ -12,7 +13,7 @@
 namespace uqm::sim {
 
 bool
-deltaCrew(ShipState &s, std::int32_t delta) noexcept
+deltaCrew(ShipState &s, i32 delta) noexcept
 {
 	if (delta > 0)
 	{
@@ -35,7 +36,7 @@ deltaCrew(ShipState &s, std::int32_t delta) noexcept
 }
 
 void
-doDamage(Battle &b, EntityId id, std::int32_t damage) noexcept
+doDamage(Battle &b, EntityId id, i32 damage) noexcept
 {
 	auto e = b.get(id);
 	if (e == nullptr)
@@ -90,7 +91,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	const EntityId targetId = w->collidedWith;
 
 	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
-	const std::int32_t damage = w->mass;
+	const i32 damage = w->mass;
 
 	// weapon.c:145-158: hurts anything transient or at NORMAL_LIFE (excludes
 	// something already dying). A target that SURVIVES marks the weapon
@@ -104,7 +105,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 		target = b.get(targetId);
 		if (w == nullptr)
 			return;
-		std::int32_t left = 0;
+		i32 left = 0;
 		if (target != nullptr)
 		{
 			const ShipState *ts = b.ship(targetId);
@@ -125,7 +126,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 
 	const Vec2i at = w->next;
 	const int angle = w->velocity.travelAngle();
-	const std::int32_t blastOffset = w->blastOffset;
+	const i32 blastOffset = w->blastOffset;
 
 	w->hitPoints = 0;
 	w->lifeSpan = 0;
@@ -178,8 +179,8 @@ solidCollision(Battle &b, EntityId id) noexcept
 	// PLAYER_SHIP, hit_points IS crew_level (one union field, element.h:126-133)
 	// -- every C hit_points read on a player ship is a crew read.
 	const ShipState *ss = b.ship(id);
-	const std::int32_t own = ss != nullptr ? ss->crew : e->hitPoints;
-	std::int32_t damage = own >> 2;
+	const i32 own = ss != nullptr ? ss->crew : e->hitPoints;
+	i32 damage = own >> 2;
 	if (damage == 0)
 		damage = 1;
 	doDamage(b, id, damage);

@@ -259,7 +259,15 @@ mask into content that outlives the battle, a ship's descriptor — under rule
 review. No `shared_ptr` in `sim/`: refcount traffic in a 24 Hz loop is rule
 1's problem wearing a safety vest.
 
-## 14. A file is one concern
+## 14. Integer types are spelled short
+
+`engine/core/Types.hpp` aliases the fixed-width types into `namespace
+uqm`: `i8..i64`, `u8..u64`, `usize`. Use those spellings everywhere in
+the rewrite; `static_cast<std::int32_t>` three times a line was syntax
+noise, and the noise was the argument. `<cstdint>` spellings survive only
+inside Types.hpp itself.
+
+## 15. A file is one concern
 
 When an app file accretes a second job, split by function, not by layer:
 `app/melee/` is `assets` (finding and loading content), `draw` (render, HUD,

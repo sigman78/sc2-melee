@@ -10,11 +10,11 @@
 
 #include "engine/content/ResourceMap.hpp"
 #include "engine/core/Text.hpp"
+#include "engine/core/Types.hpp"
 #include "game/Melee.hpp"
 #include "game/Ships.hpp"
 #include "platform/File.hpp"
 
-#include <cstddef>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -101,9 +101,9 @@ testBattleSoundSlots(const content::ResourceMap &map, const fs::path &content)
 	if (!bytes)
 		return;
 
-	std::size_t lines = 0;
+	usize lines = 0;
 	forEachLine(platform::asText(*bytes), [&](std::string_view line,
-											  std::size_t) {
+											  usize) {
 		if (!trim(line).empty())
 			++lines;
 	});

@@ -2,22 +2,23 @@
 
 #include "Impulse.hpp"
 
+#include "engine/core/Types.hpp"
 #include "sim/Trig.hpp"
 #include "sim/World.hpp"
 
 namespace uqm::sim {
 
-std::uint32_t
-isqrt(std::uint32_t value) noexcept
+u32
+isqrt(u32 value) noexcept
 {
 	if (value == 0)
 		return 0;
 
 	// Bit-by-bit restoring, which is floor(sqrt(v)) exactly and uses no
 	// floating point.
-	std::uint32_t rem = value;
-	std::uint32_t root = 0;
-	std::uint32_t bit = std::uint32_t{1} << 30;
+	u32 rem = value;
+	u32 root = 0;
+	u32 bit = u32{1} << 30;
 	while (bit > rem)
 		bit >>= 2;
 
@@ -41,9 +42,9 @@ SpeedState
 deriveSpeedState(const Velocity &v, const ThrustProfile &profile) noexcept
 {
 	const Vec2i c = v.current();
-	const std::int64_t speedSq = std::int64_t{c.x} * c.x + std::int64_t{c.y} * c.y;
-	const std::int64_t maxVel = worldToVelocity(profile.max);
-	const std::int64_t maxSq = maxVel * maxVel;
+	const i64 speedSq = i64{c.x} * c.x + i64{c.y} * c.y;
+	const i64 maxVel = worldToVelocity(profile.max);
+	const i64 maxSq = maxVel * maxVel;
 
 	if (speedSq > maxSq)
 		return SpeedState::BeyondMax;
@@ -67,8 +68,8 @@ applyImpulse(Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept
 
 	const Vec2i vrel{va.x - vb.x, va.y - vb.y};
 	const int relTravel = arctan(vrel.x, vrel.y);
-	const auto speed = static_cast<std::int32_t>(isqrt(static_cast<std::uint32_t>(
-			std::int64_t{vrel.x} * vrel.x + std::int64_t{vrel.y} * vrel.y)));
+	const auto speed = static_cast<i32>(isqrt(static_cast<u32>(
+			i64{vrel.x} * vrel.x + i64{vrel.y} * vrel.y)));
 
 	int directness = normalizeAngle(relTravel - impactA);
 	if (directness <= kQuadrant || directness >= kHalfCircle + kQuadrant)
@@ -98,14 +99,13 @@ applyImpulse(Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept
 		b.flags |= ElementFlags::DefyPhysics | ElementFlags::Collided;
 	}
 
-	const std::int32_t massA = a.mass;
-	const std::int32_t massB = b.mass;
-	const std::int64_t scalar =
-			std::int64_t{sine(directness, speed << 1)} * (massA * massB);
+	const i32 massA = a.mass;
+	const i32 massB = b.mass;
+	const i64 scalar = i64{sine(directness, speed << 1)} * (massA * massB);
 
 	const auto push = [&](Element &self, bool selfIsShip, Element &other,
-							  int impactAngle, std::int32_t selfMass,
-							  std::int32_t otherMass) {
+							  int impactAngle, i32 selfMass,
+							  i32 otherMass) {
 		if (isGravityMass(self.mass + 1))
 			return;  // a planet is not pushed
 
@@ -122,11 +122,10 @@ applyImpulse(Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept
 			}
 		}
 
-		const std::int64_t denom =
-				std::int64_t{selfMass} * (selfMass + otherMass);
+		const i64 denom = i64{selfMass} * (selfMass + otherMass);
 		if (denom == 0)
 			return;
-		const auto impulse = static_cast<std::int32_t>(scalar / denom);
+		const auto impulse = static_cast<i32>(scalar / denom);
 
 		self.velocity.deltaComponents(
 				cosine(impactAngle, impulse), sine(impactAngle, impulse));
@@ -135,11 +134,11 @@ applyImpulse(Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept
 		// sit inside the other shape and collide again. Give it a minimum
 		// nudge along the impact axis (collide.c:126-136).
 		const Vec2i now = self.velocity.current();
-		const std::int32_t mag =
+		const i32 mag =
 				(now.x < 0 ? -now.x : now.x) + (now.y < 0 ? -now.y : now.y);
 		if (velocityToWorld(mag) < kScaledOne)
 		{
-			const std::int32_t least = worldToVelocity(kScaledOne) - 1;
+			const i32 least = worldToVelocity(kScaledOne) - 1;
 			self.velocity.setComponents(
 					cosine(impactAngle, least), sine(impactAngle, least));
 		}

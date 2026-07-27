@@ -20,6 +20,7 @@
 #include "engine/content/ResourceMap.hpp"
 #include "engine/content/Sprite.hpp"
 #include "engine/core/Geometry.hpp"
+#include "engine/core/Types.hpp"
 #include "platform/File.hpp"
 
 #include <algorithm>
@@ -98,7 +99,7 @@ testBigEndianReads()
 	CHECK(readU16BE(bytes, 2) == 0x5678, "readU16BE at an offset");
 	CHECK(fits(bytes, 0, 4) && !fits(bytes, 1, 4), "fits");
 	// The overflow the obvious `at + len <= size` would miss.
-	CHECK(!fits(bytes, 2, static_cast<std::size_t>(-1)),
+	CHECK(!fits(bytes, 2, static_cast<usize>(-1)),
 			"fits must not overflow");
 }
 
@@ -306,7 +307,7 @@ sweepContent(const fs::path &content)
 	// Every .ct must parse as a container, and every entry as one of the two
 	// shapes -- the counts are pinned so a content change that introduces a
 	// third shape fails here rather than in the renderer.
-	std::size_t ctFiles = 0, shapeA = 0, shapeB = 0;
+	usize ctFiles = 0, shapeA = 0, shapeB = 0;
 	for (const auto &e : fs::recursive_directory_iterator(content))
 	{
 		if (!e.is_regular_file() || e.path().extension() != ".ct")
@@ -342,7 +343,7 @@ sweepContent(const fs::path &content)
 			shapeB);
 
 	// Every .ani must parse with no complaints at all.
-	std::size_t aniFiles = 0, cels = 0;
+	usize aniFiles = 0, cels = 0;
 	for (const auto &e : fs::recursive_directory_iterator(content))
 	{
 		if (!e.is_regular_file() || e.path().extension() != ".ani")
@@ -369,7 +370,7 @@ sweepContent(const fs::path &content)
 	// says in its own header that it is reference material "not used directly
 	// in UQM", and asserting things about files the game never opens is how a
 	// checker acquires false failures and then gets ignored.
-	std::size_t txtFiles = 0, phrases = 0, convFiles = 0, convPhrases = 0;
+	usize txtFiles = 0, phrases = 0, convFiles = 0, convPhrases = 0;
 	std::map<std::string, fs::path> byStem;
 	for (const Resource &res : map)
 	{
@@ -415,7 +416,7 @@ sweepContent(const fs::path &content)
 			"reports), found %zu",
 			convPhrases);
 
-	std::size_t tsFiles = 0, tsOk = 0;
+	usize tsFiles = 0, tsOk = 0;
 	for (const auto &e : fs::recursive_directory_iterator(content))
 	{
 		if (!e.is_regular_file() || e.path().extension() != ".ts")
@@ -462,7 +463,7 @@ sweepContent(const fs::path &content)
 			tsFiles - tsOk, tsFiles);
 
 	// Fonts are directories.
-	std::size_t fontDirs = 0, glyphs = 0;
+	usize fontDirs = 0, glyphs = 0;
 	for (const auto &e : fs::recursive_directory_iterator(content))
 	{
 		if (!e.is_directory() || e.path().extension() != ".fon")
@@ -480,8 +481,8 @@ sweepContent(const fs::path &content)
 
 	// Every PNG must decode. The colour-type histogram is printed rather than
 	// asserted: it is the map of what the content actually uses.
-	std::size_t pngs = 0, indexed = 0, rgba = 0, subByte = 0, keyed = 0;
-	std::map<unsigned, std::size_t> byColorType, byBitDepth;
+	usize pngs = 0, indexed = 0, rgba = 0, subByte = 0, keyed = 0;
+	std::map<unsigned, usize> byColorType, byBitDepth;
 	for (const auto &e : fs::recursive_directory_iterator(content))
 	{
 		if (!e.is_regular_file() || e.path().extension() != ".png")
@@ -513,7 +514,7 @@ sweepContent(const fs::path &content)
 					e.path().filename().string().c_str(), img->pixels().size(),
 					img->size().w, img->size().h);
 			// An index with no palette entry draws as nothing in particular.
-			for (const std::uint8_t px : img->pixels())
+			for (const u8 px : img->pixels())
 			{
 				if (px >= img->paletteSize())
 				{
@@ -548,10 +549,10 @@ sweepContent(const fs::path &content)
 	// Round-trip the encoder the browser writes sheets with.
 	{
 		constexpr Extent2u size{4, 4};
-		std::vector<std::uint8_t> rgbaPixels(
-				static_cast<std::size_t>(size.area()) * 4);
-		for (std::size_t i = 0; i < rgbaPixels.size(); ++i)
-			rgbaPixels[i] = static_cast<std::uint8_t>(i * 7);
+		std::vector<u8> rgbaPixels(
+				static_cast<usize>(size.area()) * 4);
+		for (usize i = 0; i < rgbaPixels.size(); ++i)
+			rgbaPixels[i] = static_cast<u8>(i * 7);
 
 		const auto encoded = encodeRgbaPng(size, rgbaPixels);
 		CHECK(encoded.has_value(), "encode failed");
@@ -589,18 +590,18 @@ testOpacityBitsFollowAlpha()
 	// pixel must be clear and *any* non-zero alpha must be set -- including
 	// the partially transparent edge pixels, which the C treats as solid
 	// because its masks come from a colour-key, not a gradient.
-	constexpr std::uint32_t w = 3;
-	constexpr std::uint32_t h = 2;
-	const std::vector<std::uint8_t> rgba{
+	constexpr u32 w = 3;
+	constexpr u32 h = 2;
+	const std::vector<u8> rgba{
 			// row 0: opaque, clear, barely-there
 			255, 0, 0, 255, /**/ 0, 0, 0, 0, /**/ 9, 9, 9, 1,
 			// row 1: clear, opaque, clear
 			0, 0, 0, 0, /**/ 1, 2, 3, 255, /**/ 4, 5, 6, 0};
 
-	const std::vector<std::uint8_t> bits = opacityBits(rgba, Extent2u{w, h});
-	const std::vector<std::uint8_t> want{1, 0, 1, 0, 1, 0};
+	const std::vector<u8> bits = opacityBits(rgba, Extent2u{w, h});
+	const std::vector<u8> want{1, 0, 1, 0, 1, 0};
 	CHECK(bits == want, "opacity should follow alpha exactly");
-	CHECK(bits.size() == static_cast<std::size_t>(w) * h,
+	CHECK(bits.size() == static_cast<usize>(w) * h,
 			"one byte per pixel, got %zu", bits.size());
 }
 

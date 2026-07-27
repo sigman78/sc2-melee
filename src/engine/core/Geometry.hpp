@@ -3,8 +3,8 @@
 #ifndef UQM2_ENGINE_CORE_GEOMETRY_HPP
 #define UQM2_ENGINE_CORE_GEOMETRY_HPP
 
-#include <cstddef>
-#include <cstdint>
+#include "engine/core/Types.hpp"
+
 #include <type_traits>
 
 namespace uqm {
@@ -50,8 +50,8 @@ struct Vec2
 	}
 };
 
-using Vec2i = Vec2<std::int32_t>;
-using Vec2u = Vec2<std::uint32_t>;
+using Vec2i = Vec2<i32>;
+using Vec2u = Vec2<u32>;
 using Vec2f = Vec2<float>;
 
 // A size, deliberately not a Vec2: adding two sizes is meaningless and
@@ -73,9 +73,9 @@ struct Extent2
 	}
 
 	// Widened so a 4096x4096 image does not overflow a 32-bit product.
-	[[nodiscard]] constexpr std::uint64_t area() const noexcept
+	[[nodiscard]] constexpr u64 area() const noexcept
 	{
-		return static_cast<std::uint64_t>(w) * static_cast<std::uint64_t>(h);
+		return static_cast<u64>(w) * static_cast<u64>(h);
 	}
 
 	[[nodiscard]] constexpr bool contains(Vec2<T> p) const noexcept
@@ -89,8 +89,8 @@ struct Extent2
 	}
 };
 
-using Extent2u = Extent2<std::uint32_t>;
-using Extent2i = Extent2<std::int32_t>;
+using Extent2u = Extent2<u32>;
+using Extent2i = Extent2<i32>;
 
 // A CLOSED interval [first, last], not half-open -- see
 // docs/cpp-conventions.md rule 7 for why (a uint8_t range over real content
@@ -114,9 +114,9 @@ struct ClosedRange
 	// question worth asking, and callers do ask it.
 	[[nodiscard]] constexpr bool valid() const noexcept { return first <= last; }
 
-	[[nodiscard]] constexpr std::size_t count() const noexcept
+	[[nodiscard]] constexpr usize count() const noexcept
 	{
-		return valid() ? static_cast<std::size_t>(last - first) + 1u : 0u;
+		return valid() ? static_cast<usize>(last - first) + 1u : 0u;
 	}
 
 	[[nodiscard]] constexpr bool contains(T v) const noexcept
@@ -125,7 +125,7 @@ struct ClosedRange
 	}
 };
 
-using ClosedRangeU8 = ClosedRange<std::uint8_t>;
+using ClosedRangeU8 = ClosedRange<u8>;
 
 }  // namespace uqm
 

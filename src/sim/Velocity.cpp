@@ -2,11 +2,13 @@
 
 #include "Velocity.hpp"
 
+#include "engine/core/Types.hpp"
+
 namespace uqm::sim {
 
 void
-Velocity::setAxis(std::int32_t v, std::int32_t &vector, std::int32_t &incr,
-		std::int32_t &fract) noexcept
+Velocity::setAxis(i32 v, i32 &vector, i32 &incr,
+		i32 &fract) noexcept
 {
 	if (v >= 0)
 	{
@@ -25,7 +27,7 @@ Velocity::setAxis(std::int32_t v, std::int32_t &vector, std::int32_t &incr,
 }
 
 void
-Velocity::setComponents(std::int32_t dx, std::int32_t dy) noexcept
+Velocity::setComponents(i32 dx, i32 dy) noexcept
 {
 	const int angle = arctan(dx, dy);
 	if (angle == kFullCircle)
@@ -46,14 +48,14 @@ Velocity::setComponents(std::int32_t dx, std::int32_t dy) noexcept
 }
 
 void
-Velocity::setVector(std::int32_t magnitude, Facing facing) noexcept
+Velocity::setVector(i32 magnitude, Facing facing) noexcept
 {
 	const int angle = facing.angle().raw();
 	travelAngle_ = angle;
 
 	magnitude = worldToVelocity(magnitude);
-	const std::int32_t dx = cosine(angle, magnitude);
-	const std::int32_t dy = sine(angle, magnitude);
+	const i32 dx = cosine(angle, magnitude);
+	const i32 dy = sine(angle, magnitude);
 
 	setAxis(dx, vector_.x, incr_.x, fract_.x);
 	setAxis(dy, vector_.y, incr_.y, fract_.y);
@@ -64,7 +66,7 @@ Velocity::setVector(std::int32_t magnitude, Facing facing) noexcept
 }
 
 void
-Velocity::deltaComponents(std::int32_t dx, std::int32_t dy) noexcept
+Velocity::deltaComponents(i32 dx, i32 dy) noexcept
 {
 	const Vec2i now = current();
 	setComponents(dx + now.x, dy + now.y);
@@ -77,11 +79,11 @@ Velocity::advance(int frames) noexcept
 
 	// `e` is a COUNT (uint16) in the C, and the remainder is masked back into
 	// the error each time, so the accumulator cannot run away.
-	const std::int32_t ex = error_.x + fract_.x * frames;
+	const i32 ex = error_.x + fract_.x * frames;
 	out.x = vector_.x * frames + loSigned(incr_.x) * (ex >> kVelocityShift);
 	error_.x = remainder(ex);
 
-	const std::int32_t ey = error_.y + fract_.y * frames;
+	const i32 ey = error_.y + fract_.y * frames;
 	out.y = vector_.y * frames + loSigned(incr_.y) * (ey >> kVelocityShift);
 	error_.y = remainder(ey);
 

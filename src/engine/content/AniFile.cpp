@@ -3,6 +3,7 @@
 #include "AniFile.hpp"
 
 #include "engine/core/Text.hpp"
+#include "engine/core/Types.hpp"
 
 #include <array>
 
@@ -15,22 +16,22 @@ parseAni(std::string_view text, std::vector<ContentError> *problems)
 
 	AniFile ani;
 
-	const auto note = [problems](ContentErrorCode code, std::size_t line,
-								  std::uint64_t expected = 0,
-								  std::uint64_t actual = 0) {
+	const auto note = [problems](ContentErrorCode code, usize line,
+								  u64 expected = 0,
+								  u64 actual = 0) {
 		if (problems != nullptr)
 		{
-			problems->emplace_back(code, static_cast<std::uint32_t>(line),
+			problems->emplace_back(code, static_cast<u32>(line),
 					expected, actual);
 		}
 	};
 
-	forEachLine(text, [&](std::string_view line, std::size_t lineNo) {
+	forEachLine(text, [&](std::string_view line, usize lineNo) {
 		// Five fields, in order. Collected into a fixed array rather than a
 		// vector: the count is part of the format, so a sixth field is an
 		// error, not a resize.
 		std::array<std::string_view, 5> field{};
-		std::size_t count = 0;
+		usize count = 0;
 		forEachField(line, [&](std::string_view f) {
 			if (count < field.size())
 				field[count] = f;
@@ -53,7 +54,7 @@ parseAni(std::string_view text, std::vector<ContentError> *problems)
 		Cel cel;
 		cel.file = field[0];
 
-		std::int32_t transparent = 0;
+		i32 transparent = 0;
 		if (!parseInt(field[1], transparent)
 				|| !parseInt(field[2], cel.colormapIndex)
 				|| !parseInt(field[3], cel.hotspot.x)
@@ -82,7 +83,7 @@ parseAni(std::string_view text, std::vector<ContentError> *problems)
 				if (transparent < 0)
 				{
 					note(BadTransparency, lineNo, 0,
-							static_cast<std::uint64_t>(transparent));
+							static_cast<u64>(transparent));
 					return;
 				}
 				cel.transparency = Transparency::PaletteIndex;

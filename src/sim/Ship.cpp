@@ -2,11 +2,11 @@
 
 #include "Ship.hpp"
 
+#include "engine/core/Types.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Damage.hpp"
 #include "sim/Trig.hpp"
 
-#include <cstddef>
 #include <utility>
 
 namespace uqm::sim {
@@ -17,7 +17,7 @@ namespace {
 // success (ship.c:296-299). Every success re-arms the regen countdown
 // (status.c:317-323); a failed spend does not.
 bool
-deltaEnergy(ShipState &s, std::int32_t delta) noexcept
+deltaEnergy(ShipState &s, i32 delta) noexcept
 {
 	if (delta < 0 && s.energy + delta < 0)
 		return false;
@@ -39,8 +39,8 @@ applyFacingMask(Element &e, const ShipSpec &spec) noexcept
 {
 	if (spec.facingMasks.empty())
 		return;
-	const std::size_t i =
-			static_cast<std::size_t>(e.facing.raw()) % spec.facingMasks.size();
+	const usize i =
+			static_cast<usize>(e.facing.raw()) % spec.facingMasks.size();
 	e.mask = &spec.facingMasks[i];
 }
 
@@ -136,11 +136,11 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 		view.blastOffset = spec.weapon.blastOffset;
 
 		SpawnBuffer buf{};
-		const std::size_t n = spec.weapon.spawn != nullptr
+		const usize n = spec.weapon.spawn != nullptr
 				? spec.weapon.spawn(view, buf)
 				: 0;
 
-		for (std::size_t i = 0; i < n; ++i)
+		for (usize i = 0; i < n; ++i)
 		{
 			const Spawn &sp = buf[i];
 			Element w;
@@ -163,8 +163,7 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			w.colorCycle = sp.frameIndex;
 			w.mask = spec.weapon.masks.empty()
 					? nullptr
-					: &spec.weapon.masks[static_cast<std::size_t>(
-							  sp.frameIndex)
+					: &spec.weapon.masks[static_cast<usize>(sp.frameIndex)
 							% spec.weapon.masks.size()];
 			w.onCollision = spec.weapon.onCollision != nullptr
 					? spec.weapon.onCollision
@@ -341,7 +340,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 	const Vec2i from = useNext ? self->next : self->current;
 
 	int bestDelta = 0;
-	std::int32_t bestDistance = 0;
+	i32 bestDistance = 0;
 	EntityId bestTarget;
 	bool found = false;
 
@@ -369,9 +368,9 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 
 		// Nearest target, by |dx| + |dy| -- the C's own stated approximation of
 		// the real distance (weapon.c:378-385).
-		const std::int32_t adx = d.x < 0 ? -d.x : d.x;
-		const std::int32_t ady = d.y < 0 ? -d.y : d.y;
-		const std::int32_t distance = adx + ady;
+		const i32 adx = d.x < 0 ? -d.x : d.x;
+		const i32 ady = d.y < 0 ? -d.y : d.y;
+		const i32 distance = adx + ady;
 
 		if (!found || distance < bestDistance)
 		{
@@ -439,15 +438,14 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 		// the renderer draws.
 		e->colorCycle = e->facing.raw();
 		if (!ws->masks.empty())
-			e->mask = &ws->masks[static_cast<std::size_t>(e->facing.raw())
+			e->mask = &ws->masks[static_cast<usize>(e->facing.raw())
 					% ws->masks.size()];
 	}
 
 	// Accelerates as it goes (human.c:148-157): speed climbs with life spent,
 	// capped -- a nuke chasing you a while is much harder to outrun than one
 	// just launched.
-	std::int32_t speed =
-			ws->speed + (ws->life - e->lifeSpan) * g->thrustScale;
+	i32 speed = ws->speed + (ws->life - e->lifeSpan) * g->thrustScale;
 	if (speed > g->maxSpeed)
 		speed = g->maxSpeed;
 	e->velocity.setVector(speed, e->facing);
@@ -466,7 +464,7 @@ flamePreProcess(Battle &b, EntityId id) noexcept
 	++e->colorCycle;
 	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
 	if (ws != nullptr && !ws->masks.empty())
-		e->mask = &ws->masks[static_cast<std::size_t>(e->colorCycle)
+		e->mask = &ws->masks[static_cast<usize>(e->colorCycle)
 				% ws->masks.size()];
 }
 
@@ -493,8 +491,8 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	// sprite's height so the exhaust leaves the hull rather than the hotspot
 	// (tactrans.c:808-812); the collision mask stands in for the frame rect.
 	const Angle angle = e->facing.angle().opposite();
-	const std::int32_t back = e->mask != nullptr
-			? displayToWorld(static_cast<std::int32_t>(e->mask->size().h) / 2)
+	const i32 back = e->mask != nullptr
+			? displayToWorld(static_cast<i32>(e->mask->size().h) / 2)
 			: 0;
 
 	Element t;
@@ -546,7 +544,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 	// frame left (tactrans.c:938-950), so images march inward to the ship.
 	{
 		const Angle angle = e->facing.angle();
-		const std::int32_t back = kTransitionSpeed * (e->lifeSpan - 1);
+		const i32 back = kTransitionSpeed * (e->lifeSpan - 1);
 
 		Element shadow;
 		shadow.kind = ElementKind::ShipShadow;
@@ -633,7 +631,7 @@ explosionStep(Battle &b, EntityId id) noexcept
 	// How many sparks this frame: the C's schedule (tactrans.c:545-575) ramps
 	// 1/3/1 over the 26 frames it spawns for, then nothing for the last ten
 	// while thrown sparks finish burning.
-	const std::int32_t age = kExplosionLife - e->lifeSpan;
+	const i32 age = kExplosionLife - e->lifeSpan;
 	int count = 3;
 	if (age <= 2 || (age >= 20 && age <= 25))
 		count = 1;
@@ -651,19 +649,19 @@ explosionStep(Battle &b, EntityId id) noexcept
 		// Scattered around the hull: random bearing, up to 8 display pixels out, a
 		// third thrown 8 further so the cloud has an edge, not a rim
 		// (tactrans.c:597-604).
-		const std::uint32_t r0 = b.rng().next();
+		const u32 r0 = b.rng().next();
 		const Angle spot{static_cast<int>(r0 >> 16)};
-		std::int32_t dist = displayToWorld(static_cast<std::int32_t>(r0 % 8u));
+		i32 dist = displayToWorld(static_cast<i32>(r0 % 8u));
 		if (((r0 >> 8) & 0xFFu) < 256u / 3u)
 			dist += displayToWorld(8);
 
 		// Drifting: its own bearing, up to 4 display pixels a frame. The speed
 		// slice is HIBYTE(LOWORD()) -- one byte, then modulo (tactrans.c:607-612);
 		// slicing different bits draws a different value from the same stream.
-		const std::uint32_t r1 = b.rng().next();
+		const u32 r1 = b.rng().next();
 		const Angle drift{static_cast<int>(r1)};
-		const std::int32_t speed = displayToWorld(
-				static_cast<std::int32_t>(((r1 >> 8) & 0xFFu) % 5u));
+		const i32 speed = displayToWorld(
+				static_cast<i32>(((r1 >> 8) & 0xFFu) % 5u));
 
 		Element d;
 		d.kind = ElementKind::Debris;
@@ -695,7 +693,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		return;
 
 	const ShipSpec &spec = *sp->spec;
-	const std::int32_t range = spec.special.pointDefenceRange;
+	const i32 range = spec.special.pointDefenceRange;
 	if (range <= 0)
 		return;
 
@@ -728,8 +726,8 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		const Vec2i dv = wrapDelta(
 				Vec2i{t->next.x - from.x, t->next.y - from.y});
-		const std::int32_t dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
-		const std::int32_t dy = worldToDisplay(dv.y < 0 ? -dv.y : dv.y);
+		const i32 dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
+		const i32 dy = worldToDisplay(dv.y < 0 ? -dv.y : dv.y);
 		if (dx > range || dy > range || dx * dx + dy * dy > range * range)
 			continue;
 
@@ -805,8 +803,8 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 	// Raw deltas, no WRAP_DELTA -- the C computes these unwrapped
 	// (ilwrath.c:297-300), so an ambush across the seam aims the long way
 	// round. Faithful, not an oversight.
-	const std::int32_t dx = (t->current.x + dT.x) - (e->current.x + dO.x);
-	const std::int32_t dy = (t->current.y + dT.y) - (e->current.y + dO.y);
+	const i32 dx = (t->current.x + dT.x) - (e->current.x + dO.x);
+	const i32 dy = (t->current.y + dT.y) - (e->current.y + dO.y);
 
 	e->facing = Angle(arctan(dx, dy)).facing();
 

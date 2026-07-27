@@ -2,12 +2,14 @@
 
 #include "ColorTable.hpp"
 
+#include "engine/core/Types.hpp"
+
 #include <cstring>
 
 namespace uqm::content {
 
 Palette
-ColorTableEntry::palette(std::size_t i) const noexcept
+ColorTableEntry::palette(usize i) const noexcept
 {
 	assert(shape_ == ColorTableShape::Palettes && i < paletteCount());
 	Palette out;
@@ -36,9 +38,9 @@ parseColorTableEntry(Bytes bytes, ColorTableShape shape)
 	}
 
 	const Bytes payload = bytes.subspan(2);
-	const std::size_t stride =
+	const usize stride =
 			shape == ColorTableShape::Palettes ? kPaletteBytes : kRgbSize;
-	const std::size_t want = range.count() * stride;
+	const usize want = range.count() * stride;
 
 	// Exact, not "at least". A wrong-shape read is the failure this type
 	// exists to prevent, and slack is how it would slip through.

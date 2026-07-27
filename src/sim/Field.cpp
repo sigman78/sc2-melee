@@ -2,6 +2,7 @@
 
 #include "Field.hpp"
 
+#include "engine/core/Types.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Damage.hpp"
 #include "sim/Gravity.hpp"
@@ -16,18 +17,18 @@ namespace {
 // DISPLAY_ALIGN_X/Y (units.h:85-86): the random word truncates to 16 bits
 // (COUNT) before folding into the arena and snapping to a pixel -- the
 // truncated *value* differs from a 31-bit modulo, and replays care about values.
-[[nodiscard]] std::int32_t
-displayAlignX(std::uint32_t r) noexcept
+[[nodiscard]] i32
+displayAlignX(u32 r) noexcept
 {
-	return static_cast<std::int32_t>(
-			(static_cast<std::uint16_t>(r) % kLogSpaceWidth) & ~(kScaledOne - 1));
+	return static_cast<i32>(
+			(static_cast<u16>(r) % kLogSpaceWidth) & ~(kScaledOne - 1));
 }
 
-[[nodiscard]] std::int32_t
-displayAlignY(std::uint32_t r) noexcept
+[[nodiscard]] i32
+displayAlignY(u32 r) noexcept
 {
-	return static_cast<std::int32_t>(
-			(static_cast<std::uint16_t>(r) % kLogSpaceHeight) & ~(kScaledOne - 1));
+	return static_cast<i32>(
+			(static_cast<u16>(r) % kLogSpaceHeight) & ~(kScaledOne - 1));
 }
 
 // asteroid_preprocess (misc.c:107-128): tumbles only, by its Spin
@@ -96,7 +97,7 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 }
 
 void
-placeShipAtRandom(Battle &b, EntityId id, std::int32_t minSeparation)
+placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 {
 	if (b.get(id) == nullptr)
 		return;
@@ -104,7 +105,7 @@ placeShipAtRandom(Battle &b, EntityId id, std::int32_t minSeparation)
 	// Far enough from every *other* ship, across the wrap. Squared, so there
 	// is no square root and no overflow worry: the arena is 8192 across, so
 	// the largest separation squared still fits an int32 with room to spare.
-	const auto farEnough = [&b, id](std::int32_t want) {
+	const auto farEnough = [&b, id](i32 want) {
 		if (want <= 0)
 			return true;
 		auto self = b.get(id);
@@ -187,7 +188,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	// Six draws, in the order misc.c:156-191 makes them -- not stylistic:
 	// getting the sequence wrong desynchronised network play there, and would
 	// desynchronise a replay here.
-	const std::uint32_t edge = b.rng().next();
+	const u32 edge = b.rng().next();
 	if ((edge & (1u << 0)) != 0)
 	{
 		a.current.x = (edge & (1u << 1)) != 0 ? kLogSpaceWidth : 0;
@@ -199,8 +200,8 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 		a.current.y = (edge & (1u << 1)) != 0 ? kLogSpaceHeight : 0;
 	}
 
-	const std::int32_t magnitude =
-			displayToWorld(static_cast<std::int32_t>(b.rng().next() & 7) + 4);
+	const i32 magnitude =
+			displayToWorld(static_cast<i32>(b.rng().next() & 7) + 4);
 	a.velocity.setVector(magnitude, Facing(static_cast<int>(b.rng().next())));
 
 	a.facing = Facing(static_cast<int>(b.rng().next()));
@@ -210,7 +211,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	// Element::thrustWait; the values and their draw order are pinned, the
 	// packing is not.
 	Spin spin;
-	spin.period = static_cast<std::int32_t>(b.rng().next() & 3);
+	spin.period = static_cast<i32>(b.rng().next() & 3);
 	spin.countdown = spin.period;
 	spin.backwards = (b.rng().next() & (1u << 7)) != 0;
 

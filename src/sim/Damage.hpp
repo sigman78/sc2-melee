@@ -3,9 +3,8 @@
 #ifndef UQM2_SIM_DAMAGE_HPP
 #define UQM2_SIM_DAMAGE_HPP
 
+#include "engine/core/Types.hpp"
 #include "sim/Element.hpp"
-
-#include <cstdint>
 
 namespace uqm::sim {
 
@@ -18,17 +17,17 @@ struct ShipState;
 
 // Blast life is a constant, not derived from sprite frames -- see
 // design-notes V9.
-inline constexpr std::int32_t kBlastLife = 5;
+inline constexpr i32 kBlastLife = 5;
 
 // Applies a crew change and reports whether the ship survived it. False means
 // this reduced the crew to zero -- which is the *only* thing the caller acts
 // on, so it is the return value rather than a count.
-bool deltaCrew(ShipState &s, std::int32_t delta) noexcept;
+bool deltaCrew(ShipState &s, i32 delta) noexcept;
 
 // Hurts whatever this is, by whatever rule applies to it. A gravity mass
 // takes no damage: asked *without* gravity.c's `+ 1` (misc.c:214) -- see
 // Element.hpp for why the two predicates differ.
-void doDamage(Battle &b, EntityId id, std::int32_t damage) noexcept;
+void doDamage(Battle &b, EntityId id, i32 damage) noexcept;
 
 // A weapon's collision hook. `id` is the weapon; it reads its own
 // `collidedWith` for the target.

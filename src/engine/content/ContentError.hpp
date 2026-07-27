@@ -3,9 +3,9 @@
 #ifndef UQM2_ENGINE_CONTENT_CONTENTERROR_HPP
 #define UQM2_ENGINE_CONTENT_CONTENTERROR_HPP
 
+#include "engine/core/Types.hpp"
+
 #include <array>
-#include <cstddef>
-#include <cstdint>
 #include <string_view>
 
 namespace uqm::content {
@@ -19,7 +19,7 @@ namespace uqm::content {
 // The engine branches on the code only, no prose -- `uqm2-browse` and the
 // tests format one with std::format at the point it is shown, keeping ~40
 // string literals out of the shipping binary.
-enum class ContentErrorCode : std::uint8_t
+enum class ContentErrorCode : u8
 {
 	Empty,
 	TooShort,
@@ -44,13 +44,13 @@ enum class ContentErrorCode : std::uint8_t
 struct ContentError
 {
 	ContentErrorCode code = ContentErrorCode::Empty;
-	std::uint32_t at = 0;        // byte offset, entry index or line number
-	std::uint64_t expected = 0;
-	std::uint64_t actual = 0;
+	u32 at = 0;        // byte offset, entry index or line number
+	u64 expected = 0;
+	u64 actual = 0;
 
 	constexpr ContentError() = default;
-	constexpr explicit ContentError(ContentErrorCode c, std::uint32_t at_ = 0,
-			std::uint64_t expected_ = 0, std::uint64_t actual_ = 0) noexcept
+	constexpr explicit ContentError(ContentErrorCode c, u32 at_ = 0,
+			u64 expected_ = 0, u64 actual_ = 0) noexcept
 		: code(c), at(at_), expected(expected_), actual(actual_)
 	{
 	}
@@ -82,7 +82,7 @@ describe(ContentErrorCode code) noexcept
 		"image decode failed",
 		"image encode failed",
 	};
-	const auto i = static_cast<std::size_t>(code);
+	const auto i = static_cast<usize>(code);
 	return i < kText.size() ? kText[i] : std::string_view("unknown error");
 }
 

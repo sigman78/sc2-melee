@@ -3,10 +3,10 @@
 #ifndef UQM2_GAME_SPRITESET_HPP
 #define UQM2_GAME_SPRITESET_HPP
 
+#include "engine/core/Types.hpp"
 #include "platform/Platform.hpp"
 #include "sim/Collision.hpp"
 
-#include <cstddef>
 #include <filesystem>
 #include <vector>
 
@@ -43,8 +43,7 @@ struct SpriteSet
 	{
 		if (masks.empty())
 			return nullptr;
-		return &masks[static_cast<std::size_t>(facing)
-				% masks.size()];
+		return &masks[static_cast<usize>(facing) % masks.size()];
 	}
 };
 

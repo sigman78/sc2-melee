@@ -4,9 +4,9 @@
 #define UQM2_GAME_CAMERA_HPP
 
 #include "engine/core/Geometry.hpp"
+#include "engine/core/Types.hpp"
 #include "sim/World.hpp"
 
-#include <cstdint>
 #include <span>
 
 namespace uqm::game {
@@ -35,29 +35,28 @@ inline constexpr MeleeScale kMeleeScale = MeleeScale::UQM_MELEE_SCALE;
 
 // Zoom is a 1/256ths multiplier: 256 is 1:1, 1024 is four times out.
 inline constexpr int kZoomShift = 8;                    // units.h:76
-inline constexpr std::int32_t kZoomOne = 1 << kZoomShift;
+inline constexpr i32 kZoomOne = 1 << kZoomShift;
 inline constexpr int kMaxVisReduction = 2;              // units.h:72
 inline constexpr int kReductionShift = 1;               // units.h:73
 
 // MAX_ZOOM_OUT (units.h:77), which is 1 << (8 + 3 - 1) == 1024, i.e. 4:1.
-inline constexpr std::int32_t kMaxZoomOut =
-		1 << (kZoomShift + sim::kMaxReduction - 1);
+inline constexpr i32 kMaxZoomOut = 1 << (kZoomShift + sim::kMaxReduction - 1);
 
 // TRANSITION_WIDTH/HEIGHT (units.h:92-95): the arena at MAX_VIS_REDUCTION.
-inline constexpr std::int32_t kTransitionWidth =
+inline constexpr i32 kTransitionWidth =
 		sim::displayToWorld(sim::kSpaceWidth) << kMaxVisReduction;
-inline constexpr std::int32_t kTransitionHeight =
+inline constexpr i32 kTransitionHeight =
 		sim::displayToWorld(sim::kSpaceHeight) << kMaxVisReduction;
 
 // Hysteresis on zooming back in (process.c:235-236), in world units.
-inline constexpr std::int32_t kHysteresisX = sim::displayToWorld(24);
-inline constexpr std::int32_t kHysteresisY = sim::displayToWorld(20);
+inline constexpr i32 kHysteresisX = sim::displayToWorld(24);
+inline constexpr i32 kHysteresisY = sim::displayToWorld(20);
 
 class Camera
 {
 public:
 	[[nodiscard]] Vec2i centre() const noexcept { return centre_; }
-	[[nodiscard]] std::int32_t zoom() const noexcept { return zoom_; }
+	[[nodiscard]] i32 zoom() const noexcept { return zoom_; }
 
 	// Recentres on the ships and picks a zoom that keeps them all on screen.
 	//
@@ -71,8 +70,8 @@ public:
 			return;
 
 		Vec2i origin = ships.front();
-		std::int32_t spanX = 0;
-		std::int32_t spanY = 0;
+		i32 spanX = 0;
+		i32 spanY = 0;
 
 		for (const Vec2i &s : ships.subspan(1))
 		{
@@ -82,8 +81,8 @@ public:
 
 			// Written out rather than std::max, to keep <algorithm> out of a
 			// header this widely included for two comparisons.
-			const std::int32_t adx = d.x < 0 ? -d.x : d.x;
-			const std::int32_t ady = d.y < 0 ? -d.y : d.y;
+			const i32 adx = d.x < 0 ? -d.x : d.x;
+			const i32 ady = d.y < 0 ? -d.y : d.y;
 			if (adx > spanX)
 				spanX = adx;
 			if (ady > spanY)
@@ -107,17 +106,16 @@ public:
 
 	// A length in world units, in screen pixels. Sprites need this too, which
 	// is the point of having one zoom rather than two camera modes.
-	[[nodiscard]] std::int32_t
-	scale(std::int32_t worldLength) const noexcept
+	[[nodiscard]] i32
+	scale(i32 worldLength) const noexcept
 	{
 		// One rounded division, not world-to-display-then-divide-by-zoom:
 		// that truncates twice (throws away two bits, then divides by up to
 		// four more), which reads as jitter and breathes sprite sizes by a pixel.
-		const std::int64_t denom = std::int64_t{sim::kScaledOne} * zoom_;
-		const std::int64_t num = std::int64_t{worldLength} * kZoomOne;
-		const std::int64_t half = denom / 2;
-		return static_cast<std::int32_t>(
-				(num >= 0 ? num + half : num - half) / denom);
+		const i64 denom = i64{sim::kScaledOne} * zoom_;
+		const i64 num = i64{worldLength} * kZoomOne;
+		const i64 half = denom / 2;
+		return static_cast<i32>((num >= 0 ? num + half : num - half) / denom);
 	}
 
 private:
@@ -126,11 +124,11 @@ private:
 	// so snapping the origin would judder the whole screen by a pixel instead.
 
 	// process.c:222-243.
-	[[nodiscard]] std::int32_t
-	stepZoom(std::int32_t dx, std::int32_t dy) const noexcept
+	[[nodiscard]] i32
+	stepZoom(i32 dx, i32 dy) const noexcept
 	{
-		const std::int32_t sdx = dx;
-		const std::int32_t sdy = dy;
+		const i32 sdx = dx;
+		const i32 sdy = dy;
 
 		int reduction = kMaxVisReduction;
 		while (reduction > 0)
@@ -158,20 +156,19 @@ private:
 	}
 
 	// process.c:254-269.
-	[[nodiscard]] static std::int32_t
-	continuousZoom(std::int32_t dx, std::int32_t dy) noexcept
+	[[nodiscard]] static i32
+	continuousZoom(i32 dx, i32 dy) noexcept
 	{
-		const auto axis = [](std::int32_t d, std::int32_t extent) {
-			std::int32_t z = static_cast<std::int32_t>(
-					std::int64_t{d} * kMaxZoomOut / (extent >> 2));
+		const auto axis = [](i32 d, i32 extent) {
+			i32 z = static_cast<i32>(i64{d} * kMaxZoomOut / (extent >> 2));
 			if (z < kZoomOne)
 				z = kZoomOne;
 			else if (z > kMaxZoomOut)
 				z = kMaxZoomOut;
 			return z;
 		};
-		const std::int32_t zx = axis(dx, sim::kLogSpaceWidth);
-		const std::int32_t zy = axis(dy, sim::kLogSpaceHeight);
+		const i32 zx = axis(dx, sim::kLogSpaceWidth);
+		const i32 zy = axis(dy, sim::kLogSpaceHeight);
 		return zy > zx ? zy : zx;
 	}
 
@@ -179,13 +176,13 @@ private:
 	currentReduction() const noexcept
 	{
 		int r = 0;
-		for (std::int32_t z = zoom_; z > kZoomOne; z >>= 1)
+		for (i32 z = zoom_; z > kZoomOne; z >>= 1)
 			++r;
 		return r;
 	}
 
 	Vec2i centre_{sim::kLogSpaceWidth / 2, sim::kLogSpaceHeight / 2};
-	std::int32_t zoom_ = kZoomOne;
+	i32 zoom_ = kZoomOne;
 };
 
 }  // namespace uqm::game

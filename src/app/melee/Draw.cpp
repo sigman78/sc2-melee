@@ -12,6 +12,7 @@
 #include "app/melee/Game.hpp"
 
 #include "engine/core/Geometry.hpp"
+#include "engine/core/Types.hpp"
 #include "game/Melee.hpp"
 #include "game/SpriteSet.hpp"
 #include "platform/Platform.hpp"
@@ -22,8 +23,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstddef>
-#include <cstdint>
 #include <string_view>
 
 namespace uqm::melee {
@@ -32,16 +31,16 @@ namespace {
 
 // A colour packed as 0xRRGGBB, the form the C's own tables are quoted in.
 constexpr Colour
-rgb(std::uint32_t c) noexcept
+rgb(u32 c) noexcept
 {
-	return Colour{static_cast<std::uint8_t>((c >> 16) & 0xFF),
-			static_cast<std::uint8_t>((c >> 8) & 0xFF),
-			static_cast<std::uint8_t>(c & 0xFF)};
+	return Colour{static_cast<u8>((c >> 16) & 0xFF),
+			static_cast<u8>((c >> 8) & 0xFF),
+			static_cast<u8>(c & 0xFF)};
 }
 
 // visualFor's fallback colours, and drawHud's crew-number colour.
 [[nodiscard]] Colour
-colourFor(sim::ElementKind kind, std::int32_t playerNr) noexcept
+colourFor(sim::ElementKind kind, i32 playerNr) noexcept
 {
 	switch (kind)
 	{
@@ -64,7 +63,7 @@ colourFor(sim::ElementKind kind, std::int32_t playerNr) noexcept
 // A 3x5 digit font (one bit per pixel), not the game's real font --
 // wiring FontDir in means atlases and kerning for two numbers per
 // player. Scaffolding until the M2 status panel uses real fonts.
-constexpr std::array<std::uint16_t, 10> kDigits{{
+constexpr std::array<u16, 10> kDigits{{
 		0b111'101'101'101'111,  // 0
 		0b010'110'010'010'111,  // 1
 		0b111'001'111'100'111,  // 2
@@ -82,7 +81,7 @@ drawDigit(platform::Platform &w, int digit, Vec2i at, int scale, Colour c)
 {
 	if (digit < 0 || digit > 9)
 		return;
-	const std::uint16_t bits = kDigits[static_cast<std::size_t>(digit)];
+	const u16 bits = kDigits[static_cast<usize>(digit)];
 	for (int row = 0; row < 5; ++row)
 	{
 		for (int col = 0; col < 3; ++col)
@@ -92,8 +91,8 @@ drawDigit(platform::Platform &w, int digit, Vec2i at, int scale, Colour c)
 			if (((bits >> bit) & 1) == 0)
 				continue;
 			w.fillRect(Vec2i{at.x + col * scale, at.y + row * scale},
-					Extent2u{static_cast<std::uint32_t>(scale),
-						static_cast<std::uint32_t>(scale)},
+					Extent2u{static_cast<u32>(scale),
+						static_cast<u32>(scale)},
 					c.r, c.g, c.b);
 		}
 	}
@@ -101,7 +100,7 @@ drawDigit(platform::Platform &w, int digit, Vec2i at, int scale, Colour c)
 
 // Right-aligned, so a number shrinking from 18 to 9 does not shift about.
 void
-drawNumber(platform::Platform &w, std::int32_t value, Vec2i rightTop,
+drawNumber(platform::Platform &w, i32 value, Vec2i rightTop,
 		int scale, Colour c)
 {
 	if (value < 0)
@@ -134,7 +133,7 @@ inline constexpr std::array<Colour, kStarPlanes> kStarColours{{
 // Cel per plane -- 11x11 near, 5x5 mid, a pixel far, one size down from
 // star_frame_ofs's ordering (galaxy.c:316): the 11x11 cel is too large
 // for a background at this resolution.
-inline constexpr std::array<std::size_t, kStarPlanes> kStarCels{{0, 2, 2}};
+inline constexpr std::array<usize, kStarPlanes> kStarCels{{0, 2, 2}};
 
 // cycle_ion_trail's colour table (tactrans.c:757-770), 5-bit RGB widened
 // to 8: yellow-white at the muzzle through red to near-black, one step
@@ -169,7 +168,7 @@ constexpr std::array<Colour, 6> kCloakRamp{{
 }  // namespace
 
 Visual
-visualFor(Game &g, sim::ElementKind kind, std::int32_t playerNr)
+visualFor(Game &g, sim::ElementKind kind, i32 playerNr)
 {
 	const Colour fallback = colourFor(kind, playerNr);
 	const Visual rect{nullptr, CelPolicy::Rect, fallback};
@@ -182,8 +181,8 @@ visualFor(Game &g, sim::ElementKind kind, std::int32_t playerNr)
 
 	// The owner's definition, for the kinds whose art is the ship's own.
 	const game::ShipDef *def = playerNr >= 0
-					&& static_cast<std::size_t>(playerNr) < g.roster.size()
-			? g.roster[static_cast<std::size_t>(playerNr)]
+					&& static_cast<usize>(playerNr) < g.roster.size()
+			? g.roster[static_cast<usize>(playerNr)]
 			: nullptr;
 
 	switch (kind)
@@ -236,26 +235,26 @@ drawStars(Game &g)
 {
 	const Vec2i centre = g.camera.centre();
 
-	const auto wrapTo = [](std::int32_t v, std::int32_t n) {
+	const auto wrapTo = [](i32 v, i32 n) {
 		v %= n;
 		return v < 0 ? v + n : v;
 	};
 
-	std::size_t first = 0;
+	usize first = 0;
 	for (int plane = 0; plane < kStarPlanes; ++plane)
 	{
-		const auto p = static_cast<std::size_t>(plane);
-		const std::size_t count = static_cast<std::size_t>(kStarsPerPlane[p]);
+		const auto p = static_cast<usize>(plane);
+		const usize count = static_cast<usize>(kStarsPerPlane[p]);
 		const Colour c = kStarColours[p];
 
 		// World to display is a shift of two; the plane's own slowdown is
 		// another `plane` on top of it.
-		const std::int32_t ox = centre.x >> (sim::kOneShift + plane);
-		const std::int32_t oy = centre.y >> (sim::kOneShift + plane);
+		const i32 ox = centre.x >> (sim::kOneShift + plane);
+		const i32 oy = centre.y >> (sim::kOneShift + plane);
 
 		const game::SpriteSet *art =
 				&g.content.sprites(g.window, game::kMeleeArt.stars);
-		const std::size_t cel = kStarCels[p];
+		const usize cel = kStarCels[p];
 		const bool haveArt = art != nullptr && cel < art->frames.size()
 				&& cel < art->masks.size();
 
@@ -267,10 +266,10 @@ drawStars(Game &g)
 			hs = art->masks[cel].hotspot();
 		}
 
-		for (std::size_t i = first; i < first + count; ++i)
+		for (usize i = first; i < first + count; ++i)
 		{
-			const std::int32_t sx = wrapTo(g.stars[i].x - ox, kStarFieldWidth);
-			const std::int32_t sy = wrapTo(g.stars[i].y - oy, kStarFieldHeight);
+			const i32 sx = wrapTo(g.stars[i].x - ox, kStarFieldWidth);
+			const i32 sy = wrapTo(g.stars[i].y - oy, kStarFieldHeight);
 
 			// Drawn up to four times so a star straddling the seam comes back
 			// in on the other side instead of popping out of existence.
@@ -278,10 +277,10 @@ drawStars(Game &g)
 			{
 				for (int wy = 0; wy < 2; ++wy)
 				{
-					const std::int32_t x = sx - wx * kStarFieldWidth - hs.x;
-					const std::int32_t y = sy - wy * kStarFieldHeight - hs.y;
-					if (x + static_cast<std::int32_t>(size.w) <= 0
-							|| y + static_cast<std::int32_t>(size.h) <= 0
+					const i32 x = sx - wx * kStarFieldWidth - hs.x;
+					const i32 y = sy - wy * kStarFieldHeight - hs.y;
+					if (x + static_cast<i32>(size.w) <= 0
+							|| y + static_cast<i32>(size.h) <= 0
 							|| x >= sim::kSpaceWidth || y >= sim::kSpaceHeight)
 						continue;
 
@@ -334,7 +333,7 @@ draw(Game &g)
 		// ages. lifeSpan counts down, so the ramp index counts up.
 		if (v->policy == CelPolicy::RampPoint)
 		{
-			const std::size_t step = static_cast<std::size_t>(
+			const usize step = static_cast<usize>(
 					sim::kIonTrailLife - e->lifeSpan);
 			if (step >= kIonRamp.size())
 				continue;
@@ -355,27 +354,27 @@ draw(Game &g)
 				g.window.fillRect(at, Extent2u{2, 2}, 0xFF, 0xC0, 0x40);
 				continue;
 			}
-			const std::size_t frames = set->frames.size();
-			const std::int32_t age = sim::kDebrisLife - e->lifeSpan;
-			const std::size_t i = std::min(frames - 1,
-					static_cast<std::size_t>(std::max(0, age))
-							* frames / static_cast<std::size_t>(
+			const usize frames = set->frames.size();
+			const i32 age = sim::kDebrisLife - e->lifeSpan;
+			const usize i = std::min(frames - 1,
+					static_cast<usize>(std::max(0, age))
+							* frames / static_cast<usize>(
 									sim::kDebrisLife));
 			const Extent2u sz = set->masks[i].size();
 			const Vec2i hs = set->masks[i].hotspot();
-			const std::int32_t dw =
+			const i32 dw =
 					std::max(1, g.camera.scale(sim::displayToWorld(
-											 static_cast<std::int32_t>(sz.w))));
-			const std::int32_t dh =
+											 static_cast<i32>(sz.w))));
+			const i32 dh =
 					std::max(1, g.camera.scale(sim::displayToWorld(
-											 static_cast<std::int32_t>(sz.h))));
+											 static_cast<i32>(sz.h))));
 			g.window.draw(set->frames[i],
-					Vec2i{at.x - static_cast<std::int32_t>(hs.x) * dw
-									/ std::max(1, static_cast<std::int32_t>(sz.w)),
-						at.y - static_cast<std::int32_t>(hs.y) * dh
-									/ std::max(1, static_cast<std::int32_t>(sz.h))},
-					Extent2u{static_cast<std::uint32_t>(dw),
-						static_cast<std::uint32_t>(dh)});
+					Vec2i{at.x - static_cast<i32>(hs.x) * dw
+									/ std::max(1, static_cast<i32>(sz.w)),
+						at.y - static_cast<i32>(hs.y) * dh
+									/ std::max(1, static_cast<i32>(sz.h))},
+					Extent2u{static_cast<u32>(dw),
+						static_cast<u32>(dh)});
 			continue;
 		}
 
@@ -393,19 +392,19 @@ draw(Game &g)
 		// One zoom, one scale, no separate LOD path (design-notes.md D6).
 		const Extent2u mask =
 				e->mask != nullptr ? e->mask->size() : Extent2u{8, 8};
-		const std::int32_t w = std::max(
+		const i32 w = std::max(
 				1, g.camera.scale(sim::displayToWorld(
-						   static_cast<std::int32_t>(mask.w))));
-		const std::int32_t h = std::max(
+						   static_cast<i32>(mask.w))));
+		const i32 h = std::max(
 				1, g.camera.scale(sim::displayToWorld(
-						   static_cast<std::int32_t>(mask.h))));
+						   static_cast<i32>(mask.h))));
 
 		if (at.x + w < 0 || at.y + h < 0 || at.x - w > sim::kSpaceWidth
 				|| at.y - h > sim::kSpaceHeight)
 			continue;
 
-		const Extent2u dest{static_cast<std::uint32_t>(w),
-				static_cast<std::uint32_t>(h)};
+		const Extent2u dest{static_cast<u32>(w),
+				static_cast<u32>(h)};
 
 		// A ship that has not arrived yet is not drawn -- only the shadows it
 		// sheds are (tactrans.c:863). And a dead one is drawn as its own
@@ -413,7 +412,7 @@ draw(Game &g)
 		// ship component itself, since only a Ship element ever has one.
 		if (const sim::ShipState *s = g.battle.ship(id); s != nullptr)
 		{
-			const std::int32_t crew = s->crew;
+			const i32 crew = s->crew;
 
 			if (any(e->flags & sim::ElementFlags::NonSolid) && crew > 0)
 				continue;  // still warping in
@@ -430,10 +429,10 @@ draw(Game &g)
 		{
 			// A weapon draws the cel colorCycle names -- the facing for a
 			// directional missile, the animation frame for the flame.
-			const std::size_t i = v->policy == CelPolicy::ByFrame
-					? static_cast<std::size_t>(e->colorCycle)
+			const usize i = v->policy == CelPolicy::ByFrame
+					? static_cast<usize>(e->colorCycle)
 							% set->frames.size()
-					: static_cast<std::size_t>(e->facing.raw())
+					: static_cast<usize>(e->facing.raw())
 							% set->frames.size();
 
 			// Draw from the cel's hotspot, not its centre: each facing's
@@ -441,13 +440,13 @@ draw(Game &g)
 			// shift the hull as it turns and offset it from the mask.
 			const Vec2i hs = set->masks[i].hotspot();
 			const Extent2u src = set->masks[i].size();
-			const std::int32_t ox = src.w != 0
-					? static_cast<std::int32_t>(hs.x) * w
-							/ static_cast<std::int32_t>(src.w)
+			const i32 ox = src.w != 0
+					? static_cast<i32>(hs.x) * w
+							/ static_cast<i32>(src.w)
 					: w / 2;
-			const std::int32_t oy = src.h != 0
-					? static_cast<std::int32_t>(hs.y) * h
-							/ static_cast<std::int32_t>(src.h)
+			const i32 oy = src.h != 0
+					? static_cast<i32>(hs.y) * h
+							/ static_cast<i32>(src.h)
 					: h / 2;
 
 			// A warp-in shadow: the hull as a flat fill stepping through
@@ -455,7 +454,7 @@ draw(Game &g)
 			// the cloak below uses, since only the outline is wanted.
 			if (v->policy == CelPolicy::RampSilhouette)
 			{
-				const std::size_t step = static_cast<std::size_t>(
+				const usize step = static_cast<usize>(
 						sim::kIonTrailLife - e->lifeSpan);
 				if (step >= kIonRamp.size() || i >= set->silhouettes.size())
 					continue;
@@ -466,8 +465,7 @@ draw(Game &g)
 			}
 
 			const sim::Cloak *cloakState = g.battle.find<sim::Cloak>(id);
-			const std::int32_t cloak =
-					cloakState != nullptr ? cloakState->level : 0;
+			const i32 cloak = cloakState != nullptr ? cloakState->level : 0;
 			if (cloak > 0 && i < set->silhouettes.size())
 			{
 				// Cloak ramp (ilwrath.c:250-285): levels 1..5 are the fill
@@ -475,7 +473,7 @@ draw(Game &g)
 				// which here would show as a hole against the dark clear.
 				if (cloak >= sim::kCloakFullLevel)
 					continue;
-				const Colour c = kCloakRamp[static_cast<std::size_t>(cloak)];
+				const Colour c = kCloakRamp[static_cast<usize>(cloak)];
 				g.window.drawTinted(set->silhouettes[i],
 						Vec2i{at.x - ox, at.y - oy}, dest, c.r, c.g, c.b);
 				continue;
@@ -507,10 +505,10 @@ void
 drawHud(Game &g)
 {
 	constexpr int kScale = 1;
-	constexpr std::int32_t kMargin = 4;
-	constexpr std::int32_t kLine = 7;
+	constexpr i32 kMargin = 4;
+	constexpr i32 kLine = 7;
 
-	for (std::size_t p = 0; p < g.ships.size(); ++p)
+	for (usize p = 0; p < g.ships.size(); ++p)
 	{
 		const auto e = g.battle.get(g.ships[p]);
 		if (e == nullptr)
@@ -524,7 +522,7 @@ drawHud(Game &g)
 
 		// Player 0 hugs the left edge, player 1 the right. Both are drawn
 		// right-aligned; only the anchor differs.
-		const std::int32_t right = p == 0
+		const i32 right = p == 0
 				? kMargin + 3 * 4 * kScale
 				: sim::kSpaceWidth - kMargin;
 
@@ -551,18 +549,18 @@ drawOverlay(Game &g)
 
 		const Vec2i at = g.camera.toScreen(e->current);
 		const Extent2u m = e->mask->size();
-		const std::int32_t w = g.camera.scale(
-				sim::displayToWorld(static_cast<std::int32_t>(m.w)));
-		const std::int32_t h = g.camera.scale(
-				sim::displayToWorld(static_cast<std::int32_t>(m.h)));
+		const i32 w = g.camera.scale(
+				sim::displayToWorld(static_cast<i32>(m.w)));
+		const i32 h = g.camera.scale(
+				sim::displayToWorld(static_cast<i32>(m.h)));
 		const Vec2i hs = e->mask->hotspot();
-		const std::int32_t ox = m.w != 0
-				? static_cast<std::int32_t>(hs.x) * w
-						/ static_cast<std::int32_t>(m.w)
+		const i32 ox = m.w != 0
+				? static_cast<i32>(hs.x) * w
+						/ static_cast<i32>(m.w)
 				: w / 2;
-		const std::int32_t oy = m.h != 0
-				? static_cast<std::int32_t>(hs.y) * h
-						/ static_cast<std::int32_t>(m.h)
+		const i32 oy = m.h != 0
+				? static_cast<i32>(hs.y) * h
+						/ static_cast<i32>(m.h)
 				: h / 2;
 
 		const Vec2i tl{at.x - ox, at.y - oy};
@@ -582,11 +580,10 @@ drawOverlay(Game &g)
 	// Contact points and response vectors. Velocities are scaled up because a
 	// frame of travel is a handful of world units and an unscaled arrow would
 	// be a dot.
-	constexpr std::int32_t kVectorGain = 8;
+	constexpr i32 kVectorGain = 8;
 	for (const Game::Mark &mark : g.marks)
 	{
-		const std::int64_t age =
-				static_cast<std::int64_t>(g.battle.frame()) - mark.frame;
+		const i64 age = static_cast<i64>(g.battle.frame()) - mark.frame;
 		if (age > kMarkLife)
 			continue;
 
@@ -597,8 +594,8 @@ drawOverlay(Game &g)
 				0xFF, 0x30, 0x30);
 
 		// Before in dim, after in bright: the difference *is* the response.
-		const auto arrow = [&](Vec2i v, std::uint8_t r, std::uint8_t gg,
-								   std::uint8_t b) {
+		const auto arrow = [&](Vec2i v, u8 r, u8 gg,
+								   u8 b) {
 			g.window.drawLine(at,
 					Vec2i{at.x + g.camera.scale(v.x * kVectorGain),
 						at.y + g.camera.scale(v.y * kVectorGain)},

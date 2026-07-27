@@ -5,9 +5,9 @@
 
 #include "engine/core/Geometry.hpp"
 #include "engine/core/Pacing.hpp"
+#include "engine/core/Types.hpp"
 #include "engine/input/Input.hpp"
 
-#include <cstdint>
 #include <filesystem>
 #include <span>
 
@@ -89,37 +89,37 @@ public:
 
 	[[nodiscard]] SDL_Renderer *renderer() const noexcept { return renderer_; }
 
-	void clear(std::uint8_t r, std::uint8_t g, std::uint8_t b) noexcept;
-	void fillRect(Vec2i topLeft, Extent2u size, std::uint8_t r,
-			std::uint8_t g, std::uint8_t b) noexcept;
+	void clear(u8 r, u8 g, u8 b) noexcept;
+	void fillRect(Vec2i topLeft, Extent2u size, u8 r,
+			u8 g, u8 b) noexcept;
 
 	// Uploads 8-bit RGBA. Returns an invalid Texture if `rgba` is the wrong
 	// size for `size`, which is a content bug and worth not crashing over.
 	[[nodiscard]] Texture upload(
-			Extent2u size, std::span<const std::uint8_t> rgba) noexcept;
+			Extent2u size, std::span<const u8> rgba) noexcept;
 
 	// Draws `t` scaled into `dest` pixels at `topLeft` (nearest-neighbour, set
 	// at upload -- this is pixel art). `alpha` is 255 for opaque; used for the
 	// Ilwrath cloak, the only thing drawn partly-there so far.
 	void draw(const Texture &t, Vec2i topLeft, Extent2u dest,
-			std::uint8_t alpha = 255) noexcept;
+			u8 alpha = 255) noexcept;
 
 	// Draws `t` multiplied by a colour. With a white-filled texture that is a
 	// flat silhouette of any colour, which is what the C's STAMPFILL_PRIM is.
 	void drawTinted(const Texture &t, Vec2i topLeft, Extent2u dest,
-			std::uint8_t r, std::uint8_t g, std::uint8_t b) noexcept;
+			u8 r, u8 g, u8 b) noexcept;
 
 	// A one-pixel line. Only the debug overlay uses this -- the game draws
 	// sprites -- but drawing a vector is how you see a vector.
-	void drawLine(Vec2i from, Vec2i to, std::uint8_t r, std::uint8_t g,
-			std::uint8_t b) noexcept;
+	void drawLine(Vec2i from, Vec2i to, u8 r, u8 g,
+			u8 b) noexcept;
 
 	void present() noexcept;
 
 private:
 	SDL_Window *window_ = nullptr;
 	SDL_Renderer *renderer_ = nullptr;
-	std::uint64_t startNs_ = 0;
+	u64 startNs_ = 0;
 };
 
 }  // namespace uqm::platform

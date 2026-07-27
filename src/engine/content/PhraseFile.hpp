@@ -4,9 +4,9 @@
 #define UQM2_ENGINE_CONTENT_PHRASEFILE_HPP
 
 #include "ContentError.hpp"
+#include "engine/core/Types.hpp"
 
 #include <cassert>
-#include <cstddef>
 #include <string_view>
 #include <vector>
 
@@ -38,13 +38,13 @@ struct Phrase
 class PhraseFile
 {
 public:
-	[[nodiscard]] std::size_t size() const noexcept { return phrases_.size(); }
+	[[nodiscard]] usize size() const noexcept { return phrases_.size(); }
 	[[nodiscard]] bool empty() const noexcept { return phrases_.empty(); }
 
 	[[nodiscard]] auto begin() const noexcept { return phrases_.begin(); }
 	[[nodiscard]] auto end() const noexcept { return phrases_.end(); }
 
-	[[nodiscard]] const Phrase &operator[](std::size_t i) const noexcept
+	[[nodiscard]] const Phrase &operator[](usize i) const noexcept
 	{
 		assert(i < phrases_.size() && "phrase index out of range");
 		return phrases_[i];
@@ -56,7 +56,7 @@ public:
 
 	// 1-based, matching the enum: ordinal 1 is phrase 0. Returns nullptr for
 	// 0, which the C reserves as "say nothing".
-	[[nodiscard]] const Phrase *byOrdinal(std::size_t ordinal) const noexcept;
+	[[nodiscard]] const Phrase *byOrdinal(usize ordinal) const noexcept;
 
 	friend PhraseFile parsePhrases(
 			std::string_view, std::vector<ContentError> *);

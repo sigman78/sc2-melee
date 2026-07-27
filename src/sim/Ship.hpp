@@ -4,18 +4,17 @@
 #define UQM2_SIM_SHIP_HPP
 
 #include "engine/core/Borrowed.hpp"
+#include "engine/core/Types.hpp"
 #include "sim/Element.hpp"
 #include "sim/Spawn.hpp"
 #include "sim/Thrust.hpp"
-
-#include <cstdint>
 
 namespace uqm::sim {
 
 class Battle;
 
 // What the player is asking for this frame.
-enum class ShipInput : std::uint8_t
+enum class ShipInput : u8
 {
 	None = 0,
 	Left = 1u << 0,
@@ -29,13 +28,13 @@ enum class ShipInput : std::uint8_t
 operator|(ShipInput a, ShipInput b) noexcept
 {
 	return static_cast<ShipInput>(
-			static_cast<std::uint8_t>(a) | static_cast<std::uint8_t>(b));
+			static_cast<u8>(a) | static_cast<u8>(b));
 }
 [[nodiscard]] constexpr ShipInput
 operator&(ShipInput a, ShipInput b) noexcept
 {
 	return static_cast<ShipInput>(
-			static_cast<std::uint8_t>(a) & static_cast<std::uint8_t>(b));
+			static_cast<u8>(a) & static_cast<u8>(b));
 }
 constexpr ShipInput &
 operator|=(ShipInput &a, ShipInput b) noexcept
@@ -45,29 +44,29 @@ operator|=(ShipInput &a, ShipInput b) noexcept
 [[nodiscard]] constexpr bool
 any(ShipInput f) noexcept
 {
-	return static_cast<std::uint8_t>(f) != 0;
+	return static_cast<u8>(f) != 0;
 }
 
 // A ship's weapon: the primary-fire descriptor plus the shot's own flight
 // parameters, guidance, and per-frame/collision hooks.
 struct WeaponSpec
 {
-	std::int32_t wait = 0;
-	std::int32_t energyCost = 0;
+	i32 wait = 0;
+	i32 energyCost = 0;
 
 	// Handed to the spawn function below (Spawn.hpp's ShipView).
-	std::int32_t speed = 0;
-	std::int32_t life = 0;
-	std::int32_t damage = 0;
-	std::int32_t hitPoints = 0;
-	std::int32_t muzzleOffset = 0;
-	std::int32_t blastOffset = 0;
+	i32 speed = 0;
+	i32 life = 0;
+	i32 damage = 0;
+	i32 hitPoints = 0;
+	i32 muzzleOffset = 0;
+	i32 blastOffset = 0;
 
 	// Guided-weapon parameters (human.c:36-44). Zero for a weapon that just
 	// flies straight, which is most of them.
-	std::int32_t trackWait = 0;
-	std::int32_t maxSpeed = 0;
-	std::int32_t thrustScale = 0;
+	i32 trackWait = 0;
+	i32 maxSpeed = 0;
+	i32 thrustScale = 0;
 
 	// The primary weapon, as a pure descriptor function (Spawn.hpp).
 	SpawnFn spawn = nullptr;
@@ -89,8 +88,8 @@ struct WeaponSpec
 // A ship's SPECIAL: cost, cooldown and what it does.
 struct SpecialSpec
 {
-	std::int32_t wait = 0;
-	std::int32_t energyCost = 0;
+	i32 wait = 0;
+	i32 energyCost = 0;
 
 	// What SPECIAL does in the post phase; the engine only ticks the
 	// counter, everything a special does is per-ship (ship.c:342-346). Null
@@ -99,7 +98,7 @@ struct SpecialSpec
 
 	// LASER_RANGE (human.c:55), in display pixels. Zero for a ship without
 	// point defence.
-	std::int32_t pointDefenceRange = 0;
+	i32 pointDefenceRange = 0;
 };
 
 // An immutable description of a ship type: a *value*, constructible in code,
@@ -107,16 +106,16 @@ struct SpecialSpec
 // inventory, shofixti.c:461-517 a damaged variant by copying one.
 struct ShipSpec
 {
-	std::int32_t maxCrew = 0;
-	std::int32_t maxEnergy = 0;
-	std::int32_t energyRegen = 0;
-	std::int32_t energyWait = 0;
+	i32 maxCrew = 0;
+	i32 maxEnergy = 0;
+	i32 energyRegen = 0;
+	i32 energyWait = 0;
 
 	ThrustProfile thrust;
-	std::int32_t thrustWait = 0;
-	std::int32_t turnWait = 0;
+	i32 thrustWait = 0;
+	i32 turnWait = 0;
 
-	std::int32_t mass = 0;
+	i32 mass = 0;
 
 	WeaponSpec weapon;
 	SpecialSpec special;
@@ -154,12 +153,12 @@ struct ShipState
 
 	Borrowed<const ShipSpec> spec = nullptr;
 
-	std::int32_t crew = 0;
-	std::int32_t energy = 0;
+	i32 crew = 0;
+	i32 energy = 0;
 
-	std::int32_t energyCounter = 0;
-	std::int32_t weaponCounter = 0;
-	std::int32_t specialCounter = 0;
+	i32 energyCounter = 0;
+	i32 weaponCounter = 0;
+	i32 specialCounter = 0;
 
 	SpeedState speed = SpeedState::Normal;
 
@@ -193,15 +192,15 @@ struct WeaponGuidance
 // spec declares guidance; nukePreProcess is its system function.
 struct Guided
 {
-	std::int32_t trackWait = 0;
-	std::int32_t maxSpeed = 0;
-	std::int32_t thrustScale = 0;
-	std::int32_t clock = 0;
+	i32 trackWait = 0;
+	i32 maxSpeed = 0;
+	i32 thrustScale = 0;
+	i32 clock = 0;
 };
 
 // The cloak walk: five visible fill colours (levels 1..5), then black.
-inline constexpr std::int32_t kCloakVisibleColours = 5;
-inline constexpr std::int32_t kCloakFullLevel = kCloakVisibleColours + 1;
+inline constexpr i32 kCloakVisibleColours = 5;
+inline constexpr i32 kCloakFullLevel = kCloakVisibleColours + 1;
 
 // The cloak as its own component (review-004 X5): only a ship that has one
 // carries it -- every ShipState used to hold an Ilwrath field, which is
@@ -214,7 +213,7 @@ inline constexpr std::int32_t kCloakFullLevel = kCloakVisibleColours + 1;
 // Not a fade: walked one step per frame, reversed to uncloak (Ship.cpp).
 struct Cloak
 {
-	std::int32_t level = 0;
+	i32 level = 0;
 };
 
 // Presence is the phase; removal replaces the C's per-instance hook swap
@@ -266,24 +265,24 @@ void flameCollision(Battle &b, EntityId id) noexcept;
 
 // How long the exhaust fade runs, in frames -- the length of the C's colour
 // table (tactrans.c:757-770).
-inline constexpr std::int32_t kIonTrailLife = 12;
+inline constexpr i32 kIonTrailLife = 12;
 
 // HYPERJUMP_LIFE (element.h:69): how long a ship spends warping in, invisible
 // and untouchable, before it becomes real.
-inline constexpr std::int32_t kWarpInFrames = 15;
+inline constexpr i32 kWarpInFrames = 15;
 
 // TRANSITION_SPEED (tactrans.c:909): how far apart the images of an arriving
 // ship are spaced along its path.
-inline constexpr std::int32_t kTransitionSpeed = displayToWorld(40);
+inline constexpr i32 kTransitionSpeed = displayToWorld(40);
 
 // How long one spark of the explosion lasts, and when the hull itself stops
 // being drawn -- 15 frames into a 36-frame death (tactrans.c:569-571).
-inline constexpr std::int32_t kDebrisLife = 9;
-inline constexpr std::int32_t kHullVanishAge = 15;
+inline constexpr i32 kDebrisLife = 9;
+inline constexpr i32 kHullVanishAge = 15;
 
 // NUM_EXPLOSION_FRAMES * 3 (element.h:71, tactrans.c:714).
-inline constexpr std::int32_t kExplosionFrames = 12;
-inline constexpr std::int32_t kExplosionLife = kExplosionFrames * 3;
+inline constexpr i32 kExplosionFrames = 12;
+inline constexpr i32 kExplosionLife = kExplosionFrames * 3;
 
 // One point of exhaust, dropped behind a thrusting ship (tactrans.c:792-840).
 void spawnIonTrail(Battle &b, EntityId ship) noexcept;

@@ -5,9 +5,8 @@
 
 #include "engine/core/Borrowed.hpp"
 #include "engine/core/Geometry.hpp"
+#include "engine/core/Types.hpp"
 
-#include <cstddef>
-#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -17,7 +16,7 @@ namespace uqm::sim {
 // test canvas.c:2047-2056). AI lookahead depends on the semantics
 // (cyborg.c:259). Masks, not canvases, headless-safe -- design-notes D2.
 
-using TimeValue = std::uint16_t;
+using TimeValue = u16;
 
 // A frame is divided into 256 sub-steps, and the walk runs t in 1..257.
 inline constexpr int kTimeShift = 8;
@@ -39,26 +38,25 @@ public:
 	// `opaque` is row-major, one byte per pixel, non-zero where the pixel would
 	// collide: a byte, not bool, because that's the source data's shape and
 	// std::vector<bool> can't form a span.
-	CollisionMask(
-			Extent2u size, Vec2i hotspot, std::span<const std::uint8_t> opaque);
+	CollisionMask(Extent2u size, Vec2i hotspot, std::span<const u8> opaque);
 
 	[[nodiscard]] Extent2u size() const noexcept { return size_; }
 	[[nodiscard]] Vec2i hotspot() const noexcept { return hotspot_; }
 	[[nodiscard]] bool empty() const noexcept { return size_.empty(); }
 
 	[[nodiscard]] bool
-	opaqueAt(std::int32_t x, std::int32_t y) const noexcept
+	opaqueAt(i32 x, i32 y) const noexcept
 	{
-		if (x < 0 || y < 0 || x >= static_cast<std::int32_t>(size_.w)
-				|| y >= static_cast<std::int32_t>(size_.h))
+		if (x < 0 || y < 0 || x >= static_cast<i32>(size_.w)
+				|| y >= static_cast<i32>(size_.h))
 			return false;
-		const std::size_t bit =
-				static_cast<std::size_t>(y) * size_.w + static_cast<std::size_t>(x);
+		const usize bit =
+				static_cast<usize>(y) * size_.w + static_cast<usize>(x);
 		return (words_[bit >> 6] >> (bit & 63)) & 1u;
 	}
 
 private:
-	std::vector<std::uint64_t> words_;
+	std::vector<u64> words_;
 	Extent2u size_;
 	Vec2i hotspot_;
 };

@@ -3,9 +3,9 @@
 #ifndef UQM2_PLATFORM_AUDIO_HPP
 #define UQM2_PLATFORM_AUDIO_HPP
 
+#include "engine/core/Types.hpp"
+
 #include <array>
-#include <cstddef>
-#include <cstdint>
 #include <filesystem>
 #include <vector>
 
@@ -39,8 +39,8 @@ public:
 private:
 	friend class Audio;
 
-	std::uint8_t *data_ = nullptr;
-	std::uint32_t length_ = 0;
+	u8 *data_ = nullptr;
+	u32 length_ = 0;
 
 	// SDL_AudioSpec by value would drag SDL.h into this header for three
 	// fields, so it is kept opaque and unpacked in the .cpp.
@@ -80,7 +80,7 @@ private:
 	// by address: two Sounds are the same effect exactly when they are the
 	// same object, since the cache hands out references into it.
 	std::vector<const Sound *> playing_;
-	std::size_t next_ = 0;
+	usize next_ = 0;
 };
 
 }  // namespace uqm::platform

@@ -4,16 +4,15 @@
 #define UQM2_SIM_VELOCITY_HPP
 
 #include "engine/core/Geometry.hpp"
+#include "engine/core/Types.hpp"
 #include "sim/Trig.hpp"
-
-#include <cstdint>
 
 namespace uqm::sim {
 
 // How a ship's speed stands against its own maximum. Lives here, not in
 // Thrust.hpp, so an Element needn't drag in thrust machinery to hold one
 // (docs/cpp-conventions.md rule 2).
-enum class SpeedState : std::uint8_t
+enum class SpeedState : u8
 {
 	// Under the ship's own maximum: normal acceleration applies.
 	Normal,
@@ -34,16 +33,16 @@ enum class SpeedState : std::uint8_t
 // component = (vector << 5) + (fract - hi(incr)).
 
 inline constexpr int kVelocityShift = 5;
-inline constexpr std::int32_t kVelocityScale = 1 << kVelocityShift;  // 32
+inline constexpr i32 kVelocityScale = 1 << kVelocityShift;  // 32
 
-[[nodiscard]] constexpr std::int32_t
-velocityToWorld(std::int32_t v) noexcept
+[[nodiscard]] constexpr i32
+velocityToWorld(i32 v) noexcept
 {
 	return v >> kVelocityShift;
 }
 
-[[nodiscard]] constexpr std::int32_t
-worldToVelocity(std::int32_t l) noexcept
+[[nodiscard]] constexpr i32
+worldToVelocity(i32 l) noexcept
 {
 	return l << kVelocityShift;
 }
@@ -78,38 +77,38 @@ public:
 	Vec2i advance(int frames) noexcept;
 
 	// Set from a magnitude in world units and a *facing* (0..15).
-	void setVector(std::int32_t magnitude, Facing facing) noexcept;
+	void setVector(i32 magnitude, Facing facing) noexcept;
 
 	// Set from components in velocity units.
-	void setComponents(std::int32_t dx, std::int32_t dy) noexcept;
+	void setComponents(i32 dx, i32 dy) noexcept;
 
 	// Add to the current components.
-	void deltaComponents(std::int32_t dx, std::int32_t dy) noexcept;
+	void deltaComponents(i32 dx, i32 dy) noexcept;
 
 	constexpr void zero() noexcept { *this = Velocity{}; }
 
 private:
-	static constexpr std::int32_t hi(std::int32_t packed) noexcept
+	static constexpr i32 hi(i32 packed) noexcept
 	{
 		return (packed >> 8) & 0xFF;
 	}
 	// lo(incr) as a signed byte: +1 or -1.
-	static constexpr std::int32_t loSigned(std::int32_t packed) noexcept
+	static constexpr i32 loSigned(i32 packed) noexcept
 	{
-		return static_cast<std::int8_t>(packed & 0xFF);
+		return static_cast<i8>(packed & 0xFF);
 	}
-	static constexpr std::int32_t makeWord(
-			std::int32_t lo, std::int32_t hiByte) noexcept
+	static constexpr i32 makeWord(
+			i32 lo, i32 hiByte) noexcept
 	{
 		return (lo & 0xFF) | ((hiByte & 0xFF) << 8);
 	}
-	static constexpr std::int32_t remainder(std::int32_t v) noexcept
+	static constexpr i32 remainder(i32 v) noexcept
 	{
 		return v & (kVelocityScale - 1);
 	}
 
-	void setAxis(std::int32_t v, std::int32_t &vector, std::int32_t &incr,
-			std::int32_t &fract) noexcept;
+	void setAxis(i32 v, i32 &vector, i32 &incr,
+			i32 &fract) noexcept;
 
 	Vec2i vector_;   // whole world units per frame
 	Vec2i fract_;    // sub-unit remainder, 0..31

@@ -5,13 +5,13 @@
 #include "app/melee/Draw.hpp"
 #include "app/melee/Sound.hpp"
 
+#include "engine/core/Types.hpp"
 #include "game/Melee.hpp"
 #include "sim/Damage.hpp"
 #include "sim/Field.hpp"
 
 #include <array>
 #include <chrono>
-#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <span>
@@ -47,13 +47,12 @@ toShipInput(input::Buttons b) noexcept
 
 }  // namespace
 
-std::uint32_t
+u32
 battleSeed()
 {
-	const auto t = static_cast<std::uint64_t>(
+	const auto t = static_cast<u64>(
 			std::chrono::steady_clock::now().time_since_epoch().count());
-	const auto seed =
-			static_cast<std::uint32_t>((t ^ (t >> 32)) & 0x7FFFFFFFu) | 1u;
+	const auto seed = static_cast<u32>((t ^ (t >> 32)) & 0x7FFFFFFFu) | 1u;
 	std::fprintf(stderr, "battle seed: %lu\n", static_cast<unsigned long>(seed));
 	return seed;
 }
@@ -79,7 +78,7 @@ setUpBattle(Game &g)
 		// collision against a square is not per-pixel collision, so a
 		// missing mask changes how the ships actually touch.
 		const game::SpriteSet &set = g.content.sprites(g.window,
-				g.roster[static_cast<std::size_t>(player)]->art.ship);
+				g.roster[static_cast<usize>(player)]->art.ship);
 		e.mask = set.maskFor(facing.raw());
 		e.preProcess = sim::shipPreProcess;
 		e.postProcess = sim::shipPostProcess;
@@ -102,7 +101,7 @@ setUpBattle(Game &g)
 	// Minimum separation so a melee doesn't open with the ships touching
 	// (design-notes.md V7): 1024 world units, far enough to close on each
 	// other, close enough for the camera to hold both.
-	constexpr std::int32_t kMinSeparation = 1024;
+	constexpr i32 kMinSeparation = 1024;
 
 	g.ships[0] = addShip(g.shipData[0], Vec2i{0, 0}, randomFacing(), 0);
 	sim::placeShipAtRandom(g.battle, g.ships[0], kMinSeparation);
@@ -119,10 +118,8 @@ setUpBattle(Game &g)
 
 	// Spread over the arena, in display pixels. See kStarFieldWidth.
 	for (Vec2i &s : g.stars)
-		s = Vec2i{static_cast<std::int32_t>(
-						  g.battle.rng().next() % kStarFieldWidth),
-				static_cast<std::int32_t>(
-						g.battle.rng().next() % kStarFieldHeight)};
+		s = Vec2i{static_cast<i32>(g.battle.rng().next() % kStarFieldWidth),
+				static_cast<i32>(g.battle.rng().next() % kStarFieldHeight)};
 
 	// Asteroids first, then the planet -- init.c:228-233's order. The planet's
 	// placement loop rejects anything it would overlap, so it has to be able
@@ -166,7 +163,7 @@ iterate(Game &g)
 	{
 		// Input is consumed once per step, not once per frame, so a tap
 		// lands exactly once (design-notes.md D7, V6).
-		for (std::size_t p = 0; p < g.players.size(); ++p)
+		for (usize p = 0; p < g.players.size(); ++p)
 		{
 			const input::Buttons b = g.players[p].consume();
 			if (b.test(Button::Escape))
@@ -188,7 +185,7 @@ iterate(Game &g)
 		for (const sim::CollisionEvent &c : g.battle.collisions())
 		{
 			g.marks.push_back(
-					Game::Mark{c, static_cast<std::int64_t>(g.battle.frame())});
+					Game::Mark{c, static_cast<i64>(g.battle.frame())});
 		}
 
 		playStepSounds(g);
@@ -207,7 +204,7 @@ iterate(Game &g)
 
 	// Drop what has aged out. Done here rather than while drawing so the list
 	// does not grow without bound when the overlay is off.
-	const std::int64_t now = static_cast<std::int64_t>(g.battle.frame());
+	const i64 now = static_cast<i64>(g.battle.frame());
 	std::erase_if(g.marks, [now](const Game::Mark &m) {
 		return now - m.frame > kMarkLife;
 	});
@@ -222,7 +219,7 @@ iterate(Game &g)
 		if (!alive0 || !alive1)
 		{
 			g.winner = alive0 ? 0 : (alive1 ? 1 : 2);
-			g.endedAtFrame = static_cast<std::int64_t>(g.battle.frame());
+			g.endedAtFrame = static_cast<i64>(g.battle.frame());
 			if (g.winner == 2)
 				std::printf("mutual destruction\n");
 			else
@@ -230,7 +227,7 @@ iterate(Game &g)
 			std::fflush(stdout);
 		}
 	}
-	else if (static_cast<std::int64_t>(g.battle.frame()) - g.endedAtFrame
+	else if (static_cast<i64>(g.battle.frame()) - g.endedAtFrame
 			> kBattleHz * 2)
 	{
 		// Two seconds to watch the wreck, then out. A menu goes here in M2.
@@ -241,7 +238,7 @@ iterate(Game &g)
 	// being part of it -- recomputed once per displayed frame from whatever
 	// the last step left behind.
 	std::array<Vec2i, 2> eyes{};
-	std::size_t living = 0;
+	usize living = 0;
 	for (const sim::EntityId id : g.ships)
 		if (auto e = g.battle.get(id); e != nullptr)
 			eyes[living++] = e->current;

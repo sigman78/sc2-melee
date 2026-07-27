@@ -3,6 +3,7 @@
 #ifndef UQM2_SIM_BATTLE_HPP
 #define UQM2_SIM_BATTLE_HPP
 
+#include "engine/core/Types.hpp"
 #include "sim/Element.hpp"
 #include "sim/Entity.hpp"
 #include "sim/Random.hpp"
@@ -11,8 +12,6 @@
 #include <entt/entity/registry.hpp>
 
 #include <array>
-#include <cstddef>
-#include <cstdint>
 #include <span>
 #include <utility>
 #include <vector>
@@ -51,13 +50,13 @@ struct SpawnEvent
 {
 	EntityId id = kNoEntity;
 	ElementKind kind = ElementKind::Unknown;
-	std::int32_t playerNr = -1;
+	i32 playerNr = -1;
 };
 
 class Battle
 {
 public:
-	explicit Battle(std::uint32_t seed);
+	explicit Battle(u32 seed);
 
 	[[nodiscard]] Rng &rng() noexcept { return rng_; }
 
@@ -72,7 +71,7 @@ public:
 	{
 		return reg_.valid(id);
 	}
-	[[nodiscard]] std::size_t size() const noexcept { return count_; }
+	[[nodiscard]] usize size() const noexcept { return count_; }
 
 	// The element, or null for a dead or stale id. A raw borrow: the pool
 	// is in_place_delete, so the address holds for the entity's lifetime --
@@ -98,7 +97,7 @@ public:
 	// One simulation step, 1/24 second of game time.
 	void step();
 
-	[[nodiscard]] std::uint64_t frame() const noexcept { return frame_; }
+	[[nodiscard]] u64 frame() const noexcept { return frame_; }
 
 	// Collisions resolved during the most recent step. Cleared at the start of
 	// each one, so this is always the current frame's.
@@ -212,9 +211,9 @@ private:
 	// Tail of each layer's segment in the one chain; kNoEntity = empty.
 	std::array<EntityId, kLayerCount> layerTail_{
 			kNoEntity, kNoEntity, kNoEntity};
-	std::size_t count_ = 0;
+	usize count_ = 0;
 	Rng rng_;
-	std::uint64_t frame_ = 0;
+	u64 frame_ = 0;
 
 	// Both reused across steps so a steady-state frame allocates nothing.
 	std::vector<CollisionEvent> collisions_;

@@ -3,6 +3,7 @@
 #include "app/melee/Assets.hpp"
 #include "app/melee/Game.hpp"
 
+#include "engine/core/Types.hpp"
 #include "game/Melee.hpp"
 #include "game/Ships.hpp"
 #include "platform/Platform.hpp"
@@ -94,7 +95,7 @@ loadAssets(Game &g, const std::filesystem::path &content)
 	const auto warmSounds = [&](std::string_view id) {
 		const std::span<const platform::Sound> set =
 				g.content.sounds(g.audio, id);
-		std::size_t ok = 0;
+		usize ok = 0;
 		for (const platform::Sound &snd : set)
 			ok += snd.valid() ? 1 : 0;
 		std::fprintf(stderr, "audio: %.*s -> %zu/%zu loaded\n",
@@ -118,7 +119,7 @@ loadAssets(Game &g, const std::filesystem::path &content)
 
 	// Skipping this leaves a default ShipSpec with thrust.max = 0 and
 	// turnWait = 0, a ship that cannot accelerate and spins every frame.
-	for (std::size_t p = 0; p < g.roster.size(); ++p)
+	for (usize p = 0; p < g.roster.size(); ++p)
 	{
 		const game::ShipDef &def = *g.roster[p];
 		g.shipData[p] = game::materialize(def, g.content, g.window);

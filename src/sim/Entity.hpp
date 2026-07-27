@@ -3,10 +3,9 @@
 #ifndef UQM2_SIM_ENTITY_HPP
 #define UQM2_SIM_ENTITY_HPP
 
-#include <entt/entity/entity.hpp>
+#include "engine/core/Types.hpp"
 
-#include <cstddef>
-#include <cstdint>
+#include <entt/entity/entity.hpp>
 
 namespace uqm::sim {
 
@@ -27,7 +26,7 @@ inline constexpr EntityId kNoEntity = entt::null;
 // needing a new position in the frame (the Pkunk phoenix, which must
 // preprocess before the dying ship's death hook) declares a new layer
 // here instead of computing an insertion point.
-enum class Layer : std::uint8_t
+enum class Layer : u8
 {
 	// Exhaust, warp shadows, debris sparks: drawn behind everything,
 	// walked first -- the C's head inserts.
@@ -42,7 +41,7 @@ enum class Layer : std::uint8_t
 	Ordnance = 2,
 };
 
-inline constexpr std::size_t kLayerCount = 3;
+inline constexpr usize kLayerCount = 3;
 
 // The C's disp_q, as data: the registry stores, this orders. Traversal
 // order is gameplay (sim-architecture.md) -- so the order is an

@@ -3,9 +3,9 @@
 #ifndef UQM2_SIM_TRIG_HPP
 #define UQM2_SIM_TRIG_HPP
 
+#include "engine/core/Types.hpp"
+
 #include <array>
-#include <cstddef>
-#include <cstdint>
 
 namespace uqm::sim {
 
@@ -33,7 +33,7 @@ inline constexpr int kSinScale = 1 << kSinShift;        // 16384
 // Transcribed from trans.c:23-89 by reading the file, not by hand. The values
 // are (SIZE)(x * 16384) of the authored decimals, so they truncate toward
 // zero and sit within 1 of -cos(2*pi*a/64) * 16384.
-inline constexpr std::array<std::int16_t, kFullCircle> kSineTab{
+inline constexpr std::array<i16, kFullCircle> kSineTab{
 	-16384, -16305, -16069, -15678, -15136, -14449, -13622, -12664,
 	-11585, -10393, -9102, -7723, -6269, -4756, -3196, -1605,
 	0, 1605, 3196, 4756, 6269, 7723, 9102, 10393,
@@ -65,13 +65,13 @@ facingToAngle(int f) noexcept
 	return f << (kCircleShift - kFacingShift);
 }
 
-[[nodiscard]] constexpr std::int16_t
+[[nodiscard]] constexpr i16
 sinVal(int a) noexcept
 {
-	return kSineTab[static_cast<std::size_t>(normalizeAngle(a))];
+	return kSineTab[static_cast<usize>(normalizeAngle(a))];
 }
 
-[[nodiscard]] constexpr std::int16_t
+[[nodiscard]] constexpr i16
 cosVal(int a) noexcept
 {
 	return sinVal(a + kQuadrant);
@@ -80,21 +80,20 @@ cosVal(int a) noexcept
 // SINE/COSINE scale a magnitude by the table entry. The intermediate is
 // widened because a magnitude times 16384 leaves the 16 bits the C's SIZE
 // would have; the C widens to long for the same reason.
-[[nodiscard]] constexpr std::int32_t
-sine(int a, std::int32_t m) noexcept
+[[nodiscard]] constexpr i32
+sine(int a, i32 m) noexcept
 {
-	return static_cast<std::int32_t>(
-			(static_cast<std::int64_t>(sinVal(a)) * m) >> kSinShift);
+	return static_cast<i32>((static_cast<i64>(sinVal(a)) * m) >> kSinShift);
 }
 
-[[nodiscard]] constexpr std::int32_t
-cosine(int a, std::int32_t m) noexcept
+[[nodiscard]] constexpr i32
+cosine(int a, i32 m) noexcept
 {
 	return sine(a + kQuadrant, m);
 }
 
 // The 33-entry quarter-turn table ARCTAN interpolates (trans.c:95-130).
-inline constexpr std::array<std::uint8_t, 33> kArcTanTab{
+inline constexpr std::array<u8, 33> kArcTanTab{
 	0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7,
 	7, 7, 7, 7, 7, 8, 8, 8,
 };
@@ -108,21 +107,19 @@ arctan(int dx, int dy) noexcept
 	if (dx == 0 && dy == 0)
 		return kFullCircle;
 
-	std::int32_t v1 = dx < 0 ? -dx : dx;
-	const std::int32_t v2 = dy < 0 ? -dy : dy;
+	i32 v1 = dx < 0 ? -dx : dx;
+	const i32 v2 = dy < 0 ? -dy : dy;
 
 	// (32 * lesser + greater/2) / greater -- a rounded 0..32 index.
 	if (v1 > v2)
 	{
-		const std::int32_t i =
-				((v2 << (kCircleShift - 1)) + (v1 >> 1)) / v1;
-		v1 = kQuadrant - kArcTanTab[static_cast<std::size_t>(i)];
+		const i32 i = ((v2 << (kCircleShift - 1)) + (v1 >> 1)) / v1;
+		v1 = kQuadrant - kArcTanTab[static_cast<usize>(i)];
 	}
 	else
 	{
-		const std::int32_t i =
-				((v1 << (kCircleShift - 1)) + (v2 >> 1)) / v2;
-		v1 = kArcTanTab[static_cast<std::size_t>(i)];
+		const i32 i = ((v1 << (kCircleShift - 1)) + (v2 >> 1)) / v2;
+		v1 = kArcTanTab[static_cast<usize>(i)];
 	}
 
 	if (dx < 0)
@@ -147,7 +144,7 @@ class Angle
 public:
 	constexpr Angle() = default;
 	explicit constexpr Angle(int a) noexcept
-		: v_(static_cast<std::uint8_t>(a & (kFullCircle - 1)))
+		: v_(static_cast<u8>(a & (kFullCircle - 1)))
 	{
 	}
 
@@ -183,7 +180,7 @@ public:
 	friend constexpr bool operator==(Angle, Angle) = default;
 
 private:
-	std::uint8_t v_ = 0;
+	u8 v_ = 0;
 };
 
 class Facing
@@ -191,7 +188,7 @@ class Facing
 public:
 	constexpr Facing() = default;
 	explicit constexpr Facing(int f) noexcept
-		: v_(static_cast<std::uint8_t>(f & (kNumFacings - 1)))
+		: v_(static_cast<u8>(f & (kNumFacings - 1)))
 	{
 	}
 
@@ -236,7 +233,7 @@ public:
 	friend constexpr bool operator==(Facing, Facing) = default;
 
 private:
-	std::uint8_t v_ = 0;
+	u8 v_ = 0;
 };
 
 constexpr Facing
@@ -247,13 +244,13 @@ Angle::facing() const noexcept
 
 // Trig over the types; the int overloads above remain the sentinel-tolerant
 // primitive layer.
-[[nodiscard]] constexpr std::int32_t
-sine(Angle a, std::int32_t m) noexcept
+[[nodiscard]] constexpr i32
+sine(Angle a, i32 m) noexcept
 {
 	return sine(a.raw(), m);
 }
-[[nodiscard]] constexpr std::int32_t
-cosine(Angle a, std::int32_t m) noexcept
+[[nodiscard]] constexpr i32
+cosine(Angle a, i32 m) noexcept
 {
 	return cosine(a.raw(), m);
 }

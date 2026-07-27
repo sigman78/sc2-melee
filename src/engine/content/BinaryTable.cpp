@@ -2,12 +2,14 @@
 
 #include "BinaryTable.hpp"
 
+#include "engine/core/Types.hpp"
+
 namespace uqm::content {
 
 namespace {
-constexpr std::uint32_t kUncompressed = 0xFFFFFFFFu;
-constexpr std::size_t kPrefixSize = 4;
-constexpr std::size_t kHeaderSize = 8;  // count + extra
+constexpr u32 kUncompressed = 0xFFFFFFFFu;
+constexpr usize kPrefixSize = 4;
+constexpr usize kHeaderSize = 8;  // count + extra
 }  // namespace
 
 std::expected<BinaryTable, ContentError>
@@ -34,14 +36,13 @@ parseBinaryTable(Bytes bytes)
 
 	// count and extra are file data, so every use of them is checked against
 	// the buffer before it sizes anything.
-	if (!fits(data, kHeaderSize, static_cast<std::size_t>(count) * 4))
+	if (!fits(data, kHeaderSize, static_cast<usize>(count) * 4))
 	{
 		return std::unexpected(
 				ContentError{CountOverflows, 0, count, data.size()});
 	}
 
-	const std::size_t headerWords =
-			std::size_t{2} + count + static_cast<std::size_t>(extra);
+	const usize headerWords = usize{2} + count + static_cast<usize>(extra);
 	if (headerWords > data.size() / 4)
 	{
 		return std::unexpected(
@@ -51,11 +52,11 @@ parseBinaryTable(Bytes bytes)
 	BinaryTable table;
 	table.entries_.reserve(count);
 
-	std::size_t at = headerWords * 4;
-	for (std::uint32_t i = 0; i < count; ++i)
+	usize at = headerWords * 4;
+	for (u32 i = 0; i < count; ++i)
 	{
 		const auto len =
-				readU32BE(data, kHeaderSize + std::size_t{i} * 4);
+				readU32BE(data, kHeaderSize + usize{i} * 4);
 		if (!fits(data, at, len))
 		{
 			return std::unexpected(
@@ -71,7 +72,7 @@ parseBinaryTable(Bytes bytes)
 	if (at != data.size())
 	{
 		return std::unexpected(ContentError{TrailingBytes,
-				static_cast<std::uint32_t>(at), data.size(), at});
+				static_cast<u32>(at), data.size(), at});
 	}
 
 	return table;

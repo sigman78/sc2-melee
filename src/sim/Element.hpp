@@ -5,12 +5,11 @@
 
 #include "engine/core/Borrowed.hpp"
 #include "engine/core/Geometry.hpp"
+#include "engine/core/Types.hpp"
 #include "sim/Collision.hpp"
 #include "sim/Entity.hpp"
 #include "sim/Trig.hpp"
 #include "sim/Velocity.hpp"
-
-#include <cstdint>
 
 namespace uqm::sim {
 
@@ -19,7 +18,7 @@ class Battle;
 // What an element is doing this frame. The C keeps these in one
 // ELEMENT_FLAGS word (element.h); the ones the step loop itself reasons about
 // are here, and the rest belong to whoever owns the element.
-enum class ElementFlags : std::uint32_t
+enum class ElementFlags : u32
 {
 	None = 0,
 
@@ -89,18 +88,18 @@ struct BeamGeometry
 operator|(ElementFlags a, ElementFlags b) noexcept
 {
 	return static_cast<ElementFlags>(
-			static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
+			static_cast<u32>(a) | static_cast<u32>(b));
 }
 [[nodiscard]] constexpr ElementFlags
 operator&(ElementFlags a, ElementFlags b) noexcept
 {
 	return static_cast<ElementFlags>(
-			static_cast<std::uint32_t>(a) & static_cast<std::uint32_t>(b));
+			static_cast<u32>(a) & static_cast<u32>(b));
 }
 [[nodiscard]] constexpr ElementFlags
 operator~(ElementFlags a) noexcept
 {
-	return static_cast<ElementFlags>(~static_cast<std::uint32_t>(a));
+	return static_cast<ElementFlags>(~static_cast<u32>(a));
 }
 constexpr ElementFlags &
 operator|=(ElementFlags &a, ElementFlags b) noexcept
@@ -115,25 +114,25 @@ operator&=(ElementFlags &a, ElementFlags b) noexcept
 [[nodiscard]] constexpr bool
 any(ElementFlags f) noexcept
 {
-	return static_cast<std::uint32_t>(f) != 0;
+	return static_cast<u32>(f) != 0;
 }
 
 // GRAVITY_MASS (element.h:198) is `mass > 100`; gravity.c/collide.c ask
 // `mass + 1 > 100` instead (gravity.c:34,45, collide.c:102,139) -- exempting
 // a fleeing ship (battle.c:92) from gravity/impulse but not damage (misc.c:214).
-inline constexpr std::int32_t kMaxShipMass = 10;              // element.h:197
-inline constexpr std::int32_t kGravityMass = kMaxShipMass * 10;  // 100
+inline constexpr i32 kMaxShipMass = 10;              // element.h:197
+inline constexpr i32 kGravityMass = kMaxShipMass * 10;  // 100
 
 // GRAVITY_MASS as written: does this push instead of being pushed?
 [[nodiscard]] constexpr bool
-isGravityMass(std::int32_t massPoints) noexcept
+isGravityMass(i32 massPoints) noexcept
 {
 	return massPoints > kGravityMass;
 }
 
 // GRAVITY_MASS as gravity.c asks it. See above for why they differ.
 [[nodiscard]] constexpr bool
-isGravitySource(std::int32_t massPoints) noexcept
+isGravitySource(i32 massPoints) noexcept
 {
 	return massPoints + 1 > kGravityMass;
 }
@@ -141,7 +140,7 @@ isGravitySource(std::int32_t massPoints) noexcept
 // What kind of thing this is: a real tag, not a frame-pointer comparison
 // (cyborg.c:1222-1227) or a cross-ship header include for constants
 // (shofixti.c:251-253 pulls in orz.h to recognise a turret).
-enum class ElementKind : std::uint8_t
+enum class ElementKind : u8
 {
 	Unknown = 0,
 	Ship,
@@ -193,34 +192,34 @@ struct Element
 	ElementKind kind = ElementKind::Unknown;
 
 	// -1 for things nobody owns, like asteroids.
-	std::int32_t playerNr = -1;
+	i32 playerNr = -1;
 
 	Facing facing;
 
 	// NORMAL_LIFE (element.h:32), not zero. The step loop reads a zero as
 	// "died last frame" regardless of FiniteLife, so a persistent element has
 	// to start at 1 and simply never decrement.
-	std::int32_t lifeSpan = 1;
+	i32 lifeSpan = 1;
 
-	std::int32_t hitPoints = 0;
-	std::int32_t mass = 0;
-	std::int32_t damage = 0;
+	i32 hitPoints = 0;
+	i32 mass = 0;
+	i32 damage = 0;
 
 	// How far along its travel direction a weapon's blast sits, in display
 	// pixels, so the explosion lands on the surface it hit rather than inside
 	// it (weapon.c:202-208).
-	std::int32_t blastOffset = 0;
+	i32 blastOffset = 0;
 
 	// Where an element is in its colour/frame sequence (ion trail fade,
 	// explosion frames). The C's colorCycleIndex, kept per-element for the
 	// same reason: the alternative is a parallel table keyed by entity.
-	std::int32_t colorCycle = 0;
+	i32 colorCycle = 0;
 
 	// Frames until the ship may turn or thrust again. A collision adds to
 	// both, which is the stagger you feel after hitting something
 	// (collide.c:113-116).
-	std::int32_t turnWait = 0;
-	std::int32_t thrustWait = 0;
+	i32 turnWait = 0;
+	i32 thrustWait = 0;
 
 	// Not owned: masks live with the content and outlive the battle.
 	Borrowed<const CollisionMask> mask = nullptr;

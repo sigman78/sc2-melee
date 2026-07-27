@@ -7,15 +7,15 @@
 #include "ColorTable.hpp"
 #include "ContentError.hpp"
 #include "engine/core/Geometry.hpp"
+#include "engine/core/Types.hpp"
 
-#include <cstdint>
 #include <expected>
 #include <span>
 #include <vector>
 
 namespace uqm::content {
 
-enum class PixelFormat : std::uint8_t
+enum class PixelFormat : u8
 {
 	// One byte per pixel, valid only against a palette -- the PNG's own PLTE
 	// is just a preview; the game colours with the .ani's colormap slot
@@ -44,11 +44,11 @@ public:
 	[[nodiscard]] Extent2u size() const noexcept { return size_; }
 
 	// Indexed8: one byte per pixel. Rgba8: four, R,G,B,A.
-	[[nodiscard]] std::span<const std::uint8_t> pixels() const noexcept
+	[[nodiscard]] std::span<const u8> pixels() const noexcept
 	{
 		return pixels_;
 	}
-	[[nodiscard]] std::size_t bytesPerPixel() const noexcept
+	[[nodiscard]] usize bytesPerPixel() const noexcept
 	{
 		return format_ == PixelFormat::Indexed8 ? 1u : 4u;
 	}
@@ -56,33 +56,33 @@ public:
 	// Indexed8 only. The palette is a fixed array, not a vector: a PLTE holds
 	// at most 256 entries, so its size is part of the format.
 	[[nodiscard]] const Palette &palette() const noexcept { return palette_; }
-	[[nodiscard]] std::size_t paletteSize() const noexcept
+	[[nodiscard]] usize paletteSize() const noexcept
 	{
 		return paletteSize_;
 	}
 	// -1 when the image has no transparent index.
-	[[nodiscard]] std::int32_t transparentIndex() const noexcept
+	[[nodiscard]] i32 transparentIndex() const noexcept
 	{
 		return transparentIndex_;
 	}
 
 	// Index at a pixel. Asserts on format and bounds: both are the caller's
 	// invariant, not a content error.
-	[[nodiscard]] std::uint8_t indexAt(Vec2u at) const noexcept
+	[[nodiscard]] u8 indexAt(Vec2u at) const noexcept
 	{
 		assert(format_ == PixelFormat::Indexed8);
 		assert(size_.contains(at) && "pixel out of range");
-		return pixels_[static_cast<std::size_t>(at.y) * size_.w + at.x];
+		return pixels_[static_cast<usize>(at.y) * size_.w + at.x];
 	}
 
 	// What the file said, before any of the above was decided. Kept because
 	// "which of these did the content actually use" is a question the browser
 	// exists to answer.
-	[[nodiscard]] std::uint8_t sourceColorType() const noexcept
+	[[nodiscard]] u8 sourceColorType() const noexcept
 	{
 		return sourceColorType_;
 	}
-	[[nodiscard]] std::uint8_t sourceBitDepth() const noexcept
+	[[nodiscard]] u8 sourceBitDepth() const noexcept
 	{
 		return sourceBitDepth_;
 	}
@@ -90,14 +90,14 @@ public:
 	friend std::expected<PngImage, ContentError> decodePng(Bytes);
 
 private:
-	std::vector<std::uint8_t> pixels_;
+	std::vector<u8> pixels_;
 	Palette palette_{};
 	Extent2u size_;
-	std::uint16_t paletteSize_ = 0;
-	std::int32_t transparentIndex_ = -1;
+	u16 paletteSize_ = 0;
+	i32 transparentIndex_ = -1;
 	PixelFormat format_ = PixelFormat::Rgba8;
-	std::uint8_t sourceColorType_ = 0;
-	std::uint8_t sourceBitDepth_ = 0;
+	u8 sourceColorType_ = 0;
+	u8 sourceBitDepth_ = 0;
 };
 
 // Decodes a whole PNG. Classification follows png2sdl.c:213-300's mapping
@@ -108,7 +108,7 @@ private:
 // Encodes 8-bit RGBA. Used by the browser to write contact sheets; the game
 // never writes PNGs.
 [[nodiscard]] std::expected<std::vector<std::byte>, ContentError> encodeRgbaPng(
-		Extent2u size, std::span<const std::uint8_t> rgba);
+		Extent2u size, std::span<const u8> rgba);
 
 }  // namespace uqm::content
 

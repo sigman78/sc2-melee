@@ -2,14 +2,16 @@
 
 #include "Thrust.hpp"
 
+#include "engine/core/Types.hpp"
+
 namespace uqm::sim {
 
 namespace {
 
-[[nodiscard]] constexpr std::int64_t
+[[nodiscard]] constexpr i64
 speedSquared(Vec2i v) noexcept
 {
-	return std::int64_t{v.x} * v.x + std::int64_t{v.y} * v.y;
+	return i64{v.x} * v.x + i64{v.y} * v.y;
 }
 
 [[nodiscard]] constexpr bool
@@ -41,16 +43,16 @@ thrust(Velocity &velocity, Facing facing, const ThrustProfile &profile,
 			&& !state.inGravityWell)
 		return state.speed;
 
-	const std::int32_t increment = worldToVelocity(profile.increment);
+	const i32 increment = worldToVelocity(profile.increment);
 	const Vec2i current = velocity.current();
-	const std::int64_t currentSpeed = speedSquared(current);
+	const i64 currentSpeed = speedSquared(current);
 
 	const Vec2i desired{current.x + cosine(currentAngle, increment),
 		current.y + sine(currentAngle, increment)};
-	const std::int64_t desiredSpeed = speedSquared(desired);
+	const i64 desiredSpeed = speedSquared(desired);
 
-	const std::int32_t maxVel = worldToVelocity(profile.max);
-	const std::int64_t maxSpeed = std::int64_t{maxVel} * maxVel;
+	const i32 maxVel = worldToVelocity(profile.max);
+	const i64 maxSpeed = i64{maxVel} * maxVel;
 
 	if (desiredSpeed <= maxSpeed)
 	{
@@ -86,7 +88,7 @@ thrust(Velocity &velocity, Facing facing, const ThrustProfile &profile,
 			cosine(currentAngle, increment >> 1) - cosine(travelAngle, increment),
 			sine(currentAngle, increment >> 1) - sine(travelAngle, increment));
 
-	const std::int64_t turnedSpeed = speedSquared(turned.current());
+	const i64 turnedSpeed = speedSquared(turned.current());
 	if (turnedSpeed > maxSpeed)
 	{
 		// The turn would have made it faster, not just differently aimed.

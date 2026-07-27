@@ -3,8 +3,7 @@
 #ifndef UQM2_ENGINE_INPUT_INPUT_HPP
 #define UQM2_ENGINE_INPUT_INPUT_HPP
 
-#include <cstddef>
-#include <cstdint>
+#include "engine/core/Types.hpp"
 
 namespace uqm::input {
 
@@ -12,7 +11,7 @@ namespace uqm::input {
 // `pressed` is sticky until a step consumes it, so a tap shorter than one
 // battle frame (the C's per-frame poll, battle.c:198-210) still fires once.
 
-enum class Button : std::uint8_t
+enum class Button : u8
 {
 	Left,
 	Right,
@@ -27,7 +26,7 @@ enum class Button : std::uint8_t
 	Debug,
 };
 
-inline constexpr std::size_t kButtonCount = 7;
+inline constexpr usize kButtonCount = 7;
 
 // A set of buttons. A bitset in a single word -- there are six of them, and
 // this is copied per player per frame.
@@ -39,7 +38,7 @@ public:
 	[[nodiscard]] static constexpr Buttons
 	of(Button b) noexcept
 	{
-		return Buttons{static_cast<std::uint32_t>(1u << static_cast<int>(b))};
+		return Buttons{static_cast<u32>(1u << static_cast<int>(b))};
 	}
 
 	constexpr void
@@ -77,9 +76,9 @@ public:
 	friend constexpr bool operator==(Buttons, Buttons) = default;
 
 private:
-	explicit constexpr Buttons(std::uint32_t bits) noexcept : bits_(bits) {}
+	explicit constexpr Buttons(u32 bits) noexcept : bits_(bits) {}
 
-	std::uint32_t bits_ = 0;
+	u32 bits_ = 0;
 };
 
 // One player's accumulator. press/release run from the platform event pump

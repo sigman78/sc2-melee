@@ -5,11 +5,11 @@
 // the input accumulator, the pacing accumulator, and the melee camera.
 
 #include "engine/core/Pacing.hpp"
+#include "engine/core/Types.hpp"
 #include "engine/input/Input.hpp"
 #include "game/Camera.hpp"
 
 #include <array>
-#include <cstdint>
 #include <cstdio>
 #include <initializer_list>
 
@@ -270,8 +270,8 @@ testCameraZoomsOutAsShipsSeparate()
 {
 	using namespace uqm::game;
 
-	std::int32_t previous = 0;
-	for (const std::int32_t gap : {256, 1024, 2048, 4096})
+	i32 previous = 0;
+	for (const i32 gap : {256, 1024, 2048, 4096})
 	{
 		Camera cam;
 		const std::array<Vec2i, 2> ships{
@@ -304,7 +304,7 @@ testCameraKeepsBothShipsOnScreen()
 	// The property that actually matters, and the one a zoom bug breaks: at
 	// every separation the camera can be asked about, both ships are inside
 	// the viewport.
-	for (std::int32_t gap = 0; gap <= 4096; gap += 64)
+	for (i32 gap = 0; gap <= 4096; gap += 64)
 	{
 		Camera cam;
 		const std::array<Vec2i, 2> ships{
@@ -348,26 +348,26 @@ testCameraDoesNotJitter()
 	// Two ships in the follow, so the midpoint arithmetic runs; with one ship
 	// the centre is simply that ship and the origin path is never exercised.
 	Camera cam;
-	constexpr std::int32_t kStep = 7;  // deliberately not a multiple of 4
+	constexpr i32 kStep = 7;  // deliberately not a multiple of 4
 	const Vec2i anchor{sim::kLogSpaceWidth / 2, sim::kLogSpaceHeight / 2};
 	const std::array<Vec2i, 2> placed{
 			Vec2i{anchor.x - 256, anchor.y}, Vec2i{anchor.x + 256, anchor.y}};
 	cam.follow(placed);
 
-	std::int32_t previous = 0;
-	std::int32_t previousDelta = -1;
+	i32 previous = 0;
+	i32 previousDelta = -1;
 	for (int frame = 1; frame <= 200; ++frame)
 	{
 		const Vec2i at =
 				cam.toScreen(Vec2i{anchor.x + kStep * frame, anchor.y});
 		if (frame > 1)
 		{
-			const std::int32_t delta = at.x - previous;
+			const i32 delta = at.x - previous;
 			CHECK(delta >= 0, "frame %d moved backwards by %ld", frame,
 					static_cast<long>(-delta));
 			if (previousDelta >= 0)
 			{
-				const std::int32_t wobble = delta > previousDelta
+				const i32 wobble = delta > previousDelta
 						? delta - previousDelta
 						: previousDelta - delta;
 				CHECK(wobble <= 1,
@@ -397,11 +397,11 @@ testContinuousZoomRescalesEveryFrame()
 	// If this ever stops being true -- if the zoom is smoothed or quantised --
 	// this test should be updated deliberately, not deleted in passing.
 	int changes = 0;
-	std::int32_t last = 0;
+	i32 last = 0;
 	for (int frame = 1; frame <= 60; ++frame)
 	{
 		Camera cam;
-		const std::int32_t gap = 600 + 7 * frame;
+		const i32 gap = 600 + 7 * frame;
 		const std::array<Vec2i, 2> ships{
 				Vec2i{sim::kLogSpaceWidth / 2 - gap / 2, sim::kLogSpaceHeight / 2},
 				Vec2i{sim::kLogSpaceWidth / 2 + gap / 2, sim::kLogSpaceHeight / 2}};
@@ -441,7 +441,7 @@ testCameraMeasuresAcrossTheSeam()
 
 	const Vec2i a = cam.toScreen(ships[0]);
 	const Vec2i b = cam.toScreen(ships[1]);
-	const std::int32_t apart = a.x > b.x ? a.x - b.x : b.x - a.x;
+	const i32 apart = a.x > b.x ? a.x - b.x : b.x - a.x;
 	CHECK(apart == sim::worldToDisplay(256),
 			"they should be %ld pixels apart on screen, got %ld",
 			static_cast<long>(sim::worldToDisplay(256)),

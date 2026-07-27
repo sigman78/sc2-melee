@@ -3,8 +3,9 @@
 #ifndef UQM2_PLATFORM_FILE_HPP
 #define UQM2_PLATFORM_FILE_HPP
 
+#include "engine/core/Types.hpp"
+
 #include <cstddef>
-#include <cstdint>
 #include <cstdio>
 #include <expected>
 #include <filesystem>
@@ -21,7 +22,7 @@ namespace uqm::platform {
 // `std::string` reads a file one virtual call at a time and then copies the
 // whole thing again.
 
-enum class FileError : std::uint8_t
+enum class FileError : u8
 {
 	NotFound,
 	NotARegularFile,
@@ -59,9 +60,9 @@ public:
 
 	// Bytes actually transferred, or the error. A short read is not an error
 	// here; callers that require exactness check the count.
-	[[nodiscard]] std::expected<std::size_t, FileError> read(
+	[[nodiscard]] std::expected<usize, FileError> read(
 			std::span<std::byte> into);
-	[[nodiscard]] std::expected<std::size_t, FileError> write(
+	[[nodiscard]] std::expected<usize, FileError> write(
 			std::span<const std::byte> from);
 
 	void close() noexcept;

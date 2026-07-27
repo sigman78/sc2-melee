@@ -3,9 +3,8 @@
 #ifndef UQM2_SIM_GRAVITY_HPP
 #define UQM2_SIM_GRAVITY_HPP
 
+#include "engine/core/Types.hpp"
 #include "sim/Entity.hpp"
-
-#include <cstdint>
 
 namespace uqm::sim {
 
@@ -18,7 +17,7 @@ class Battle;
 // GRAVITY_THRESHOLD (element.h:199), in *display* pixels -- the comparison
 // happens after WORLD_TO_DISPLAY, so the disc is 255 pixels, or 1020 world
 // units.
-inline constexpr std::int32_t kGravityRadius = 255;
+inline constexpr i32 kGravityRadius = 255;
 
 // kMaxShipMass, kGravityMass, isGravityMass, isGravitySource: Element.hpp.
 // The two predicates are the same C macro with/without gravity.c's `+ 1`,

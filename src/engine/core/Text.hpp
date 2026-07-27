@@ -3,9 +3,10 @@
 #ifndef UQM2_ENGINE_CORE_TEXT_HPP
 #define UQM2_ENGINE_CORE_TEXT_HPP
 
+#include "engine/core/Types.hpp"
+
 #include <charconv>
 #include <concepts>
-#include <cstddef>
 #include <string_view>
 
 namespace uqm {
@@ -50,7 +51,7 @@ trim(std::string_view s) noexcept
 [[nodiscard]] constexpr std::string_view
 nextLine(std::string_view &text) noexcept
 {
-	const std::size_t nl = text.find('\n');
+	const usize nl = text.find('\n');
 	if (nl == std::string_view::npos)
 	{
 		const std::string_view line = text;
@@ -69,7 +70,7 @@ template <class Fn>
 constexpr void
 forEachLine(std::string_view text, Fn &&fn)
 {
-	std::size_t lineNo = 0;
+	usize lineNo = 0;
 	while (!text.empty())
 	{
 		++lineNo;
@@ -84,12 +85,12 @@ template <class Fn>
 constexpr void
 forEachField(std::string_view line, Fn &&fn)
 {
-	std::size_t i = 0;
+	usize i = 0;
 	while (i < line.size())
 	{
 		while (i < line.size() && isSpace(line[i]))
 			++i;
-		const std::size_t start = i;
+		const usize start = i;
 		while (i < line.size() && !isSpace(line[i]))
 			++i;
 		if (i > start)

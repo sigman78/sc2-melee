@@ -5,6 +5,7 @@
 // compile for them to have been checked. What is left is the behaviour that
 // needs a running object: stream independence and reseed semantics.
 
+#include "engine/core/Types.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Collision.hpp"
 #include "sim/Damage.hpp"
@@ -55,7 +56,7 @@ testStreamsAreIndependent()
 	Rng presentation(999);
 	CHECK(sim.next() == presentation.next(), "same seed, same first draw");
 
-	const std::uint32_t before = sim.seed();
+	const u32 before = sim.seed();
 	(void)presentation.next();
 	(void)presentation.next();
 	CHECK(sim.seed() == before, "drawing from one stream must not move another");
@@ -67,11 +68,11 @@ testReseedReturnsThePrevious()
 	// TFB_SeedRandom returns the old seed; the C uses that to save and
 	// restore a stream around a private one (melnorm.c's getStripRandomSeed).
 	Rng rng(4321);
-	const std::uint32_t saved = rng.reseed(1000);
+	const u32 saved = rng.reseed(1000);
 	CHECK(saved == 4321, "reseed returns the previous seed, got %u", saved);
 	CHECK(rng.seed() == 1000, "reseed installs the new seed");
 
-	const std::uint32_t a = rng.next();
+	const u32 a = rng.next();
 	rng.reseed(1000);
 	CHECK(rng.next() == a, "restoring a seed replays the stream");
 }
@@ -84,8 +85,8 @@ testTruncationWidthMatters()
 	// agreed, one of the two is wrong.
 	Rng wide(12345);
 	Rng narrow(12345);
-	const std::uint32_t full = wide.next() % 100u;
-	const std::uint32_t trunc = narrow.next16() % 100u;
+	const u32 full = wide.next() % 100u;
+	const u32 trunc = narrow.next16() % 100u;
 	CHECK(full != trunc,
 			"16-bit truncation must change the result for this seed "
 			"(%u vs %u)", full, trunc);
@@ -305,8 +306,8 @@ testTrigRoundTrips()
 	// and it is where a table transcribed one entry out would show up.
 	for (int a = 0; a < kFullCircle; ++a)
 	{
-		const std::int32_t x = cosine(a, 1000);
-		const std::int32_t y = sine(a, 1000);
+		const i32 x = cosine(a, 1000);
+		const i32 y = sine(a, 1000);
 		const int back = arctan(static_cast<int>(x), static_cast<int>(y));
 		CHECK(back == a, "angle %d -> (%ld, %ld) -> %d", a,
 				static_cast<long>(x), static_cast<long>(y), back);
@@ -315,9 +316,9 @@ testTrigRoundTrips()
 	// Magnitude is preserved to within rounding: cos^2 + sin^2 == m^2.
 	for (int a = 0; a < kFullCircle; ++a)
 	{
-		const std::int64_t x = cosine(a, 10000);
-		const std::int64_t y = sine(a, 10000);
-		const std::int64_t r2 = x * x + y * y;
+		const i64 x = cosine(a, 10000);
+		const i64 y = sine(a, 10000);
+		const i64 r2 = x * x + y * y;
 		// 10000^2 == 1e8; allow half a percent for the 14-bit table.
 		CHECK(r2 > 99000000 && r2 < 101000000,
 				"angle %d has magnitude^2 %lld, expected ~1e8", a,
@@ -339,9 +340,9 @@ testTrigRoundTrips()
 	int asymmetric = 0;
 	for (int a = 0; a < kFullCircle; ++a)
 	{
-		const std::int32_t here = sine(a, 4096);
-		const std::int32_t opposite = sine(a + kHalfCircle, 4096);
-		const std::int32_t sum = here + opposite;
+		const i32 here = sine(a, 4096);
+		const i32 opposite = sine(a + kHalfCircle, 4096);
+		const i32 sum = here + opposite;
 		CHECK(sum == 0 || sum == -1,
 				"sine(%d) and sine(%d) should sum to 0 or -1, got %ld", a,
 				a + kHalfCircle, static_cast<long>(sum));
@@ -371,28 +372,28 @@ testArctanSentinel()
 
 // A solid w x h mask with its hotspot at the centre.
 CollisionMask
-solid(std::uint32_t w, std::uint32_t h)
+solid(u32 w, u32 h)
 {
-	const std::vector<std::uint8_t> bits(static_cast<std::size_t>(w) * h, 1);
+	const std::vector<u8> bits(static_cast<usize>(w) * h, 1);
 	return CollisionMask(Extent2u{w, h},
-			Vec2i{static_cast<std::int32_t>(w / 2),
-				static_cast<std::int32_t>(h / 2)},
+			Vec2i{static_cast<i32>(w / 2),
+				static_cast<i32>(h / 2)},
 			bits);
 }
 
 // A ring: opaque border, hollow middle. Two of these can overlap by bounding
 // box while missing entirely, which is the whole point of per-pixel.
 CollisionMask
-ring(std::uint32_t w, std::uint32_t h)
+ring(u32 w, u32 h)
 {
-	std::vector<std::uint8_t> bits(static_cast<std::size_t>(w) * h, 0);
-	for (std::uint32_t y = 0; y < h; ++y)
-		for (std::uint32_t x = 0; x < w; ++x)
+	std::vector<u8> bits(static_cast<usize>(w) * h, 0);
+	for (u32 y = 0; y < h; ++y)
+		for (u32 x = 0; x < w; ++x)
 			if (x == 0 || y == 0 || x == w - 1 || y == h - 1)
-				bits[static_cast<std::size_t>(y) * w + x] = 1;
+				bits[static_cast<usize>(y) * w + x] = 1;
 	return CollisionMask(Extent2u{w, h},
-			Vec2i{static_cast<std::int32_t>(w / 2),
-				static_cast<std::int32_t>(h / 2)},
+			Vec2i{static_cast<i32>(w / 2),
+				static_cast<i32>(h / 2)},
 			bits);
 }
 
@@ -445,7 +446,7 @@ testCollisionBasics()
 				"impact should be inside the frame, got %u", hit.time);
 		// They meet near the middle, so the reported positions should be
 		// close together -- that is what the caller places an explosion at.
-		const std::int32_t gap = hit.at0.x - hit.at1.x;
+		const i32 gap = hit.at0.x - hit.at1.x;
 		CHECK(gap > -8 && gap < 8, "impact positions should nearly coincide, "
 									"gap %ld", static_cast<long>(gap));
 	}
@@ -468,7 +469,7 @@ testCollisionIsPerPixelNotBoxes()
 	// Two rings, one small enough to sit inside the other's hollow centre.
 	// Their boxes overlap; no opaque pixel does.
 	const CollisionMask outer = ring(9, 9);
-	const std::vector<std::uint8_t> dot{1};
+	const std::vector<u8> dot{1};
 	const CollisionMask pixel(Extent2u{1, 1}, Vec2i{0, 0}, dot);
 
 	const Body hole{&outer, Vec2i{0, 0}, Vec2i{0, 0}};
@@ -512,7 +513,7 @@ testVelocityCarriesSubUnitDrift()
 	v.setComponents(1, 0);  // 1/32 of a world unit per frame
 	CHECK(v.current().x == 1, "a sub-unit component survives being set");
 
-	std::int32_t travelled = 0;
+	i32 travelled = 0;
 	for (int f = 0; f < 32; ++f)
 		travelled += v.advance(1).x;
 	CHECK(travelled == 1,
@@ -532,7 +533,7 @@ testVelocityNegativeEncoding()
 	// The sign lives in a packed byte, and reconstruction has to recover it
 	// exactly -- including the fractional part, which is where the doubled
 	// remainder in the high byte earns its keep.
-	for (std::int32_t v = -200; v <= 200; ++v)
+	for (i32 v = -200; v <= 200; ++v)
 	{
 		Velocity vel;
 		vel.setComponents(v, -v);
@@ -546,7 +547,7 @@ testVelocityNegativeEncoding()
 	// A negative drift accumulates in the right direction.
 	Velocity down;
 	down.setComponents(0, -1);
-	std::int32_t travelled = 0;
+	i32 travelled = 0;
 	for (int f = 0; f < 32; ++f)
 		travelled += down.advance(1).y;
 	CHECK(travelled == -1, "negative sub-unit drift should move -1, got %ld",
@@ -720,13 +721,13 @@ testSpawningIsRepeatable()
 	const ShipView ship = cruiserView();
 
 	SpawnBuffer first{};
-	const std::size_t n = spawnCruiserPrimary(ship, first);
+	const usize n = spawnCruiserPrimary(ship, first);
 	CHECK(n == 1, "the cruiser fires one missile, got %zu", n);
 
 	for (int i = 0; i < 100; ++i)
 	{
 		SpawnBuffer again{};
-		const std::size_t m = spawnCruiserPrimary(ship, again);
+		const usize m = spawnCruiserPrimary(ship, again);
 		CHECK(m == n, "spawn count must not drift, got %zu on call %d", m, i);
 		CHECK(again[0] == first[0],
 				"spawn descriptor must be identical on call %d", i);
@@ -745,7 +746,7 @@ testSpawnCarriesTheShipsParameters()
 {
 	const ShipView ship = cruiserView();
 	SpawnBuffer buf{};
-	const std::size_t n = spawnCruiserPrimary(ship, buf);
+	const usize n = spawnCruiserPrimary(ship, buf);
 	CHECK(n == 1, "one spawn");
 
 	const Spawn &s = buf[0];
@@ -757,10 +758,10 @@ testSpawnCarriesTheShipsParameters()
 	// The muzzle sits forward of the hotspot along the facing, not on it.
 	CHECK(!(s.position == ship.position),
 			"the missile appears at the muzzle, not the hotspot");
-	const std::int32_t dx = s.position.x - ship.position.x;
-	const std::int32_t dy = s.position.y - ship.position.y;
-	const std::int64_t dist2 = std::int64_t{dx} * dx + std::int64_t{dy} * dy;
-	const std::int64_t want = std::int64_t{displayToWorld(42)}
+	const i32 dx = s.position.x - ship.position.x;
+	const i32 dy = s.position.y - ship.position.y;
+	const i64 dist2 = i64{dx} * dx + i64{dy} * dy;
+	const i64 want = i64{displayToWorld(42)}
 			* displayToWorld(42);
 	// Within a few percent: the offset goes through the 14-bit sine table.
 	CHECK(dist2 > want * 9 / 10 && dist2 < want * 11 / 10,
@@ -990,7 +991,7 @@ void
 testCollisionPairsAreVisitedOnce()
 {
 	Battle b(1);
-	const std::vector<std::uint8_t> bits(16, 1);
+	const std::vector<u8> bits(16, 1);
 	static const CollisionMask mask(
 			Extent2u{4, 4}, Vec2i{2, 2}, bits);
 
@@ -1089,7 +1090,7 @@ testIsqrtIsFloorSqrt()
 	CHECK(isqrt(3) == 1, "isqrt floors");
 	CHECK(isqrt(4) == 2, "isqrt(4)");
 	CHECK(isqrt(0xFFFFFFFFu) == 65535, "isqrt at the top of the range");
-	for (std::uint32_t r = 1; r < 1000; ++r)
+	for (u32 r = 1; r < 1000; ++r)
 	{
 		CHECK(isqrt(r * r) == r, "isqrt of a perfect square %u", r);
 		CHECK(isqrt(r * r - 1) == r - 1, "and just below one");
@@ -1442,7 +1443,7 @@ testOpposingMissilesDestroyEachOther()
 	b.find<Input>(a)->buttons = ShipInput::None;
 	b.find<Input>(c)->buttons = ShipInput::None;
 
-	std::size_t weapons = 0;
+	usize weapons = 0;
 	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
@@ -1807,7 +1808,7 @@ testMissileDamagesAndSpendsItself()
 	b.get(target)->mask = &m;
 	b.step();
 
-	const std::int32_t before = b.ship(target)->crew;
+	const i32 before = b.ship(target)->crew;
 	CHECK(before == 22, "the Avenger starts with 22 crew, got %ld",
 			static_cast<long>(before));
 
@@ -1876,7 +1877,7 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	if (b.get(ship) == nullptr)
 		return;
 
-	const std::int32_t before = b.ship(ship)->crew;
+	const i32 before = b.ship(ship)->crew;
 
 	// Fly into it rather than teleporting into overlap. A pair already
 	// overlapping at rest is the "BAD NEWS" case the step deliberately skips
@@ -2006,7 +2007,7 @@ testShipShotMidFlightKeepsItsMotion()
 	bool hit = false;
 	for (int i = 0; i < 6 && !hit; ++i)
 	{
-		const std::int32_t beforeX = b.get(is)->current.x;
+		const i32 beforeX = b.get(is)->current.x;
 		b.step();
 		if (!b.collisions().empty())
 		{
@@ -2126,7 +2127,7 @@ testTurningIntoOverlapIsReverted()
 	b.step();
 	CHECK(b.collisions().empty(), "setup: adjacent is not touching");
 
-	const std::int32_t crew = b.ship(ship)->crew;
+	const i32 crew = b.ship(ship)->crew;
 	b.find<Input>(ship)->buttons = ShipInput::Right;
 	b.step();
 
@@ -2214,13 +2215,13 @@ testPointDefenceBurnsOwnNuke()
 
 	b.find<Input>(ship)->buttons = ShipInput::Weapon;
 	b.step();
-	std::size_t weapons = 0;
+	usize weapons = 0;
 	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
 	CHECK(weapons == 1, "setup: one nuke in flight, got %zu", weapons);
 
-	const std::int32_t energy = b.ship(ship)->energy;
+	const i32 energy = b.ship(ship)->energy;
 	b.find<Input>(ship)->buttons = ShipInput::Special;
 	b.step();
 	b.find<Input>(ship)->buttons = ShipInput::None;
@@ -2411,9 +2412,9 @@ testShipWarpsInBeforeItIsSolid()
 	// *closer* to the arrival point than the last, so the trail converges onto
 	// the ship instead of streaming away from it.
 	const Vec2i arrival = ship()->current;
-	const auto newestDistance = [&b, &arrival]() -> std::int64_t {
-		std::int32_t best = -1;
-		std::int64_t dist = -1;
+	const auto newestDistance = [&b, &arrival]() -> i64 {
+		i32 best = -1;
+		i64 dist = -1;
 		for (sim::EntityId id = b.front(); id != kNoEntity;
 				id = b.next(id))
 		{
@@ -2425,8 +2426,8 @@ testShipWarpsInBeforeItIsSolid()
 			best = p->lifeSpan;
 			const Vec2i d = sim::wrapDelta(Vec2i{p->current.x - arrival.x,
 					p->current.y - arrival.y});
-			dist = static_cast<std::int64_t>(d.x) * d.x
-					+ static_cast<std::int64_t>(d.y) * d.y;
+			dist = static_cast<i64>(d.x) * d.x
+					+ static_cast<i64>(d.y) * d.y;
 		}
 		return dist;
 	};
@@ -2434,13 +2435,13 @@ testShipWarpsInBeforeItIsSolid()
 	int peak = 0;
 	int closing = 0;
 	int receding = 0;
-	std::int64_t previous = -1;
+	i64 previous = -1;
 	for (int i = 0; i < sim::kWarpInFrames - 2; ++i)
 	{
 		b.step();
 		peak = std::max(peak, shadows());
 
-		const std::int64_t d = newestDistance();
+		const i64 d = newestDistance();
 		if (d >= 0 && previous >= 0)
 		{
 			if (d < previous)
@@ -2483,8 +2484,8 @@ testShipWarpsInBeforeItIsSolid()
 		const Vec2i fwd{sim::cosine(ahead, 1000), sim::sine(ahead, 1000)};
 		const Vec2i off = sim::wrapDelta(
 				Vec2i{s->current.x - arrival.x, s->current.y - arrival.y});
-		const std::int64_t dot = static_cast<std::int64_t>(off.x) * fwd.x
-				+ static_cast<std::int64_t>(off.y) * fwd.y;
+		const i64 dot = static_cast<i64>(off.x) * fwd.x
+				+ static_cast<i64>(off.y) * fwd.y;
 		CHECK(dot < 0,
 				"the trail must lie behind the ship, not ahead of it "
 				"(dot=%lld, offset=%d,%d forward=%d,%d)",

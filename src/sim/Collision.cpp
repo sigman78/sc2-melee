@@ -2,22 +2,23 @@
 
 #include "Collision.hpp"
 
+#include "engine/core/Types.hpp"
+
 #include <algorithm>
 #include <cassert>
-#include <cstddef>
 
 namespace uqm::sim {
 
 CollisionMask::CollisionMask(
-		Extent2u size, Vec2i hotspot, std::span<const std::uint8_t> opaque)
+		Extent2u size, Vec2i hotspot, std::span<const u8> opaque)
 	: size_(size), hotspot_(hotspot)
 {
 	assert(opaque.size() == size.area() && "mask size does not match extent");
 	words_.assign((opaque.size() + 63) / 64, 0);
-	for (std::size_t i = 0; i < opaque.size(); ++i)
+	for (usize i = 0; i < opaque.size(); ++i)
 	{
 		if (opaque[i] != 0)
-			words_[i >> 6] |= std::uint64_t{1} << (i & 63);
+			words_[i >> 6] |= u64{1} << (i & 63);
 	}
 }
 
@@ -34,18 +35,17 @@ struct Box
 [[nodiscard]] constexpr bool
 boxIntersect(const Box &a, const Box &b, Box &out) noexcept
 {
-	const std::int32_t x0 = std::max(a.corner.x, b.corner.x);
-	const std::int32_t y0 = std::max(a.corner.y, b.corner.y);
-	const std::int32_t x1 = std::min(a.corner.x + static_cast<std::int32_t>(a.extent.w),
-			b.corner.x + static_cast<std::int32_t>(b.extent.w));
-	const std::int32_t y1 = std::min(a.corner.y + static_cast<std::int32_t>(a.extent.h),
-			b.corner.y + static_cast<std::int32_t>(b.extent.h));
+	const i32 x0 = std::max(a.corner.x, b.corner.x);
+	const i32 y0 = std::max(a.corner.y, b.corner.y);
+	const i32 x1 = std::min(a.corner.x + static_cast<i32>(a.extent.w),
+			b.corner.x + static_cast<i32>(b.extent.w));
+	const i32 y1 = std::min(a.corner.y + static_cast<i32>(a.extent.h),
+			b.corner.y + static_cast<i32>(b.extent.h));
 	if (x0 >= x1 || y0 >= y1)
 		return false;
 
 	out.corner = Vec2i{x0, y0};
-	out.extent = Extent2u{static_cast<std::uint32_t>(x1 - x0),
-		static_cast<std::uint32_t>(y1 - y0)};
+	out.extent = Extent2u{static_cast<u32>(x1 - x0), static_cast<u32>(y1 - y0)};
 	return true;
 }
 
@@ -55,12 +55,12 @@ boxIntersect(const Box &a, const Box &b, Box &out) noexcept
 masksOverlap(const CollisionMask &m0, Vec2i c0, const CollisionMask &m1,
 		Vec2i c1, const Box &inter) noexcept
 {
-	for (std::uint32_t y = 0; y < inter.extent.h; ++y)
+	for (u32 y = 0; y < inter.extent.h; ++y)
 	{
-		for (std::uint32_t x = 0; x < inter.extent.w; ++x)
+		for (u32 x = 0; x < inter.extent.w; ++x)
 		{
-			const std::int32_t px = inter.corner.x + static_cast<std::int32_t>(x);
-			const std::int32_t py = inter.corner.y + static_cast<std::int32_t>(y);
+			const i32 px = inter.corner.x + static_cast<i32>(x);
+			const i32 py = inter.corner.y + static_cast<i32>(y);
 			if (m0.opaqueAt(px - c0.x, py - c0.y)
 					&& m1.opaqueAt(px - c1.x, py - c1.y))
 				return true;
@@ -73,11 +73,11 @@ masksOverlap(const CollisionMask &m0, Vec2i c0, const CollisionMask &m1,
 struct Walk
 {
 	Vec2i corner;      // current top-left
-	std::int32_t dx = 0, dy = 0;       // |delta|
-	std::int32_t xincr = 0, yincr = 0;
-	std::int32_t cycle = 0;            // max(|dx|, |dy|)
-	std::int32_t xerror = 0, yerror = 0;
-	std::int32_t timeError = 0;
+	i32 dx = 0, dy = 0;       // |delta|
+	i32 xincr = 0, yincr = 0;
+	i32 cycle = 0;            // max(|dx|, |dy|)
+	i32 xerror = 0, yerror = 0;
+	i32 timeError = 0;
 
 	void
 	init(Vec2i start, Vec2i delta) noexcept
@@ -99,35 +99,30 @@ struct Walk
 	void
 	seek(TimeValue t0) noexcept
 	{
-		std::int32_t start =
-				cycle * static_cast<std::int32_t>(t0 - 1);
+		i32 start = cycle * static_cast<i32>(t0 - 1);
 		timeError = start & ((1 << kTimeShift) - 1);
 		start >>= kTimeShift;
 		if (start <= 0)
 			return;
 
-		if (const std::int64_t e =
-						static_cast<std::int64_t>(xerror) - std::int64_t{dx} * start;
+		if (const i64 e = static_cast<i64>(xerror) - i64{dx} * start;
 				e > 0)
-			xerror = static_cast<std::int32_t>(e);
+			xerror = static_cast<i32>(e);
 		else
 		{
-			const std::int32_t delta =
-					static_cast<std::int32_t>(-(e / cycle)) + 1;
+			const i32 delta = static_cast<i32>(-(e / cycle)) + 1;
 			corner.x += xincr * delta;
-			xerror = static_cast<std::int32_t>(e + std::int64_t{cycle} * delta);
+			xerror = static_cast<i32>(e + i64{cycle} * delta);
 		}
 
-		if (const std::int64_t e =
-						static_cast<std::int64_t>(yerror) - std::int64_t{dy} * start;
+		if (const i64 e = static_cast<i64>(yerror) - i64{dy} * start;
 				e > 0)
-			yerror = static_cast<std::int32_t>(e);
+			yerror = static_cast<i32>(e);
 		else
 		{
-			const std::int32_t delta =
-					static_cast<std::int32_t>(-(e / cycle)) + 1;
+			const i32 delta = static_cast<i32>(-(e / cycle)) + 1;
 			corner.y += yincr * delta;
-			yerror = static_cast<std::int32_t>(e + std::int64_t{cycle} * delta);
+			yerror = static_cast<i32>(e + i64{cycle} * delta);
 		}
 	}
 
@@ -183,9 +178,9 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 	// The conservative time window (intersec.c:272-390). Each axis gives the
 	// span of relative displacement over which the boxes can overlap; the
 	// intersection of the two spans, scaled into time, bounds the search.
-	std::int32_t dy = c1.y - c0.y;
-	std::int32_t timeY0 = dy - static_cast<std::int32_t>(e0.h) + 1;
-	std::int32_t timeY1 = dy + static_cast<std::int32_t>(e1.h) - 1;
+	i32 dy = c1.y - c0.y;
+	i32 timeY0 = dy - static_cast<i32>(e0.h) + 1;
+	i32 timeY1 = dy + static_cast<i32>(e1.h) - 1;
 	dy = d0.y - d1.y;
 
 	const bool yPossible = (timeY0 <= 0 && timeY1 >= 0)
@@ -193,9 +188,9 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 	if (!yPossible)
 		return none;
 
-	std::int32_t dx = c1.x - c0.x;
-	std::int32_t timeX0 = dx - static_cast<std::int32_t>(e0.w) + 1;
-	std::int32_t timeX1 = dx + static_cast<std::int32_t>(e1.w) - 1;
+	i32 dx = c1.x - c0.x;
+	i32 timeX0 = dx - static_cast<i32>(e0.w) + 1;
+	i32 timeX1 = dx + static_cast<i32>(e1.w) - 1;
 	dx = d0.x - d1.x;
 
 	const bool xPossible = (timeX0 <= 0 && timeX1 >= 0)
@@ -211,7 +206,7 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 	{
 		if (timeY1 < 0)
 		{
-			const std::int32_t t = timeY0;
+			const i32 t = timeY0;
 			timeY0 = -timeY1;
 			timeY1 = -t;
 		}
@@ -231,7 +226,7 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 
 		if (timeX1 < 0)
 		{
-			const std::int32_t t = timeX0;
+			const i32 t = timeX0;
 			timeX0 = -timeX1;
 			timeX1 = -t;
 		}
@@ -248,7 +243,7 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 		--timeX0;
 		++timeX1;
 
-		std::int64_t timeBeg, timeEnd, fract;
+		i64 timeBeg, timeEnd, fract;
 		if (dx == 0)
 		{
 			timeBeg = timeY0;
@@ -263,27 +258,27 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 		}
 		else
 		{
-			const std::int64_t bx = std::int64_t{timeX0} * dy;
-			const std::int64_t by = std::int64_t{timeY0} * dx;
+			const i64 bx = i64{timeX0} * dy;
+			const i64 by = i64{timeY0} * dx;
 			timeBeg = bx < by ? by : bx;
 
-			const std::int64_t ex = std::int64_t{timeX1} * dy;
-			const std::int64_t ey = std::int64_t{timeY1} * dx;
+			const i64 ex = i64{timeX1} * dy;
+			const i64 ey = i64{timeY1} * dx;
 			// Note: the C takes the *lesser* here despite the `>` test, which
 			// is what bounds the window to the tighter axis.
 			timeEnd = ex > ey ? ey : ex;
 
-			fract = std::int64_t{dx} * dy;
+			fract = i64{dx} * dy;
 		}
 
 		timeBeg <<= kTimeShift;
-		timeY0 = timeBeg < fract ? 0 : static_cast<std::int32_t>(timeBeg / fract);
+		timeY0 = timeBeg < fract ? 0 : static_cast<i32>(timeBeg / fract);
 
 		if (timeEnd >= fract
-				|| (timeEnd <<= kTimeShift) >= fract * std::int64_t{maxTime})
+				|| (timeEnd <<= kTimeShift) >= fract * i64{maxTime})
 			timeY1 = maxTime - 1;
 		else
-			timeY1 = static_cast<std::int32_t>((timeEnd + fract - 1) / fract) - 1;
+			timeY1 = static_cast<i32>((timeEnd + fract - 1) / fract) - 1;
 	}
 
 	if (timeY0 > timeY1)

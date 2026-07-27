@@ -6,9 +6,8 @@
 #include "ColorTable.hpp"
 #include "PngImage.hpp"
 #include "engine/core/Geometry.hpp"
+#include "engine/core/Types.hpp"
 
-#include <cstddef>
-#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -23,14 +22,14 @@ namespace uqm::content {
 // Expands a decoded PNG to 8-bit RGBA. Coloured through `palette` when
 // given, else the PNG's own PLTE; an index with no colour anywhere comes
 // out magenta, not black, so a missing colormap looks like a bug.
-[[nodiscard]] std::vector<std::uint8_t> toRgba(
+[[nodiscard]] std::vector<u8> toRgba(
 		const PngImage &img, const Palette *palette = nullptr);
 
 // One byte per pixel, 1 where not fully transparent. Built from the sprite,
 // not a bounding box, per intersec.c's actual-silhouette test (see
 // design-notes.md#D2). Bytes, not CollisionMask: that type belongs to sim/.
-[[nodiscard]] std::vector<std::uint8_t> opacityBits(
-		std::span<const std::uint8_t> rgba, Extent2u size);
+[[nodiscard]] std::vector<u8> opacityBits(
+		std::span<const u8> rgba, Extent2u size);
 
 }  // namespace uqm::content
 

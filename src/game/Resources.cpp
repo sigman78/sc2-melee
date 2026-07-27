@@ -3,10 +3,9 @@
 #include "Resources.hpp"
 
 #include "engine/core/Text.hpp"
+#include "engine/core/Types.hpp"
 #include "platform/File.hpp"
 
-#include <cstddef>
-#include <cstdint>
 #include <utility>
 
 namespace uqm::game {
@@ -24,13 +23,13 @@ namespace {
 [[nodiscard]] SpriteSet
 placeholder()
 {
-	constexpr std::uint32_t kSide = 12;
-	const std::vector<std::uint8_t> bits(
-			static_cast<std::size_t>(kSide) * kSide, 1);
+	constexpr u32 kSide = 12;
+	const std::vector<u8> bits(
+			static_cast<usize>(kSide) * kSide, 1);
 	SpriteSet set;
 	set.masks.emplace_back(Extent2u{kSide, kSide},
-			Vec2i{static_cast<std::int32_t>(kSide / 2),
-				static_cast<std::int32_t>(kSide / 2)},
+			Vec2i{static_cast<i32>(kSide / 2),
+				static_cast<i32>(kSide / 2)},
 			bits);
 	return set;
 }
@@ -108,7 +107,7 @@ Resources::sounds(const platform::Audio &audio, std::string_view id)
 			// because trailing newlines are ordinary.
 			const fs::path dir = list.parent_path();
 			forEachLine(platform::asText(*text),
-					[&](std::string_view line, std::size_t) {
+					[&](std::string_view line, usize) {
 				const std::string_view name = trim(line);
 				if (name.empty())
 					return;

@@ -5,6 +5,7 @@
 
 #include "Bytes.hpp"
 #include "ContentError.hpp"
+#include "engine/core/Types.hpp"
 
 #include <expected>
 #include <vector>
@@ -30,10 +31,10 @@ namespace uqm::content {
 class BinaryTable
 {
 public:
-	[[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
+	[[nodiscard]] usize size() const noexcept { return entries_.size(); }
 	[[nodiscard]] bool empty() const noexcept { return entries_.empty(); }
 
-	[[nodiscard]] Bytes operator[](std::size_t i) const noexcept
+	[[nodiscard]] Bytes operator[](usize i) const noexcept
 	{
 		assert(i < entries_.size() && "binary table index out of range");
 		return entries_[i];

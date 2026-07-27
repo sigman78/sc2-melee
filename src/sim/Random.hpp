@@ -3,7 +3,7 @@
 #ifndef UQM2_SIM_RANDOM_HPP
 #define UQM2_SIM_RANDOM_HPP
 
-#include <cstdint>
+#include "engine/core/Types.hpp"
 
 namespace uqm::sim {
 
@@ -18,35 +18,35 @@ namespace uqm::sim {
 class Rng
 {
 public:
-	static constexpr std::uint32_t kA = 16807;
-	static constexpr std::uint32_t kM = 2147483647u;  // 2^31 - 1
-	static constexpr std::uint32_t kQ = 127773u;      // M / A
-	static constexpr std::uint32_t kR = 2836;         // M % A
-	static constexpr std::uint32_t kDefaultSeed = 12345u;
+	static constexpr u32 kA = 16807;
+	static constexpr u32 kM = 2147483647u;  // 2^31 - 1
+	static constexpr u32 kQ = 127773u;      // M / A
+	static constexpr u32 kR = 2836;         // M % A
+	static constexpr u32 kDefaultSeed = 12345u;
 
 	constexpr Rng() noexcept = default;
-	constexpr explicit Rng(std::uint32_t seed) noexcept { reseed(seed); }
+	constexpr explicit Rng(u32 seed) noexcept { reseed(seed); }
 
 	// TFB_SeedRandom: coerces into 1..M and returns the previous seed, which
 	// is how the C juggles multiple streams out of one global.
-	constexpr std::uint32_t reseed(std::uint32_t seed) noexcept
+	constexpr u32 reseed(u32 seed) noexcept
 	{
 		if (seed == 0)
 			seed = 1;
 		else if (seed > kM)
 			seed -= kM;
 
-		const std::uint32_t old = seed_;
+		const u32 old = seed_;
 		seed_ = seed;
 		return old;
 	}
 
-	[[nodiscard]] constexpr std::uint32_t seed() const noexcept
+	[[nodiscard]] constexpr u32 seed() const noexcept
 	{
 		return seed_;
 	}
 
-	constexpr std::uint32_t next() noexcept
+	constexpr u32 next() noexcept
 	{
 		seed_ = kA * (seed_ % kQ) - kR * (seed_ / kQ);
 		if (seed_ > kM)
@@ -59,13 +59,13 @@ public:
 	// The 16-bit truncation call sites apply before a modulo (e.g.
 	// `(COUNT)TFB_Random () % 100`). Not interchangeable with next(): the
 	// truncation happens first and changes the result, so it's a separate call.
-	constexpr std::uint16_t next16() noexcept
+	constexpr u16 next16() noexcept
 	{
-		return static_cast<std::uint16_t>(next());
+		return static_cast<u16>(next());
 	}
 
 private:
-	std::uint32_t seed_ = kDefaultSeed;
+	u32 seed_ = kDefaultSeed;
 };
 
 // --------------------------------------------------------------------------
@@ -74,10 +74,10 @@ private:
 namespace detail {
 
 consteval bool
-checkStream(std::uint32_t seed, const std::uint32_t (&want)[8]) noexcept
+checkStream(u32 seed, const u32 (&want)[8]) noexcept
 {
 	Rng rng(seed);
-	for (const std::uint32_t w : want)
+	for (const u32 w : want)
 	{
 		if (rng.next() != w)
 			return false;
@@ -121,17 +121,17 @@ static_assert(checkHighSeedWraps());
 consteval bool
 checkParkMillerDivergence() noexcept
 {
-	constexpr std::uint32_t kSeed = 127773u * 16000u;  // 2044368000
+	constexpr u32 kSeed = 127773u * 16000u;  // 2044368000
 	Rng rng(kSeed);
-	const std::uint32_t got = rng.next();
+	const u32 got = rng.next();
 
 	// What a correct Park-Miller would have produced.
-	const std::int64_t t = static_cast<std::int64_t>(Rng::kA) * (kSeed % Rng::kQ)
-			- static_cast<std::int64_t>(Rng::kR) * (kSeed / Rng::kQ);
-	const std::int64_t parkMiller = t + Rng::kM;
+	const i64 t = static_cast<i64>(Rng::kA) * (kSeed % Rng::kQ)
+			- static_cast<i64>(Rng::kR) * (kSeed / Rng::kQ);
+	const i64 parkMiller = t + Rng::kM;
 
 	return t < 0 && got == 2102107649u
-			&& static_cast<std::int64_t>(got) - parkMiller == 2;
+			&& static_cast<i64>(got) - parkMiller == 2;
 }
 static_assert(checkParkMillerDivergence(),
 		"Rng must reproduce TFB_Random's uint32 wrap, not Park-Miller");

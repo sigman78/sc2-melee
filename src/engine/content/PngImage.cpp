@@ -2,6 +2,8 @@
 
 #include "PngImage.hpp"
 
+#include "engine/core/Types.hpp"
+
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -28,16 +30,16 @@ struct MallocDeleter
 // exactly one entry is fully transparent and none is partial. Anything else
 // has to become real alpha, which means giving up the indices.
 bool
-trnsIsColorKey(const spng_trns &trns, std::int32_t &key) noexcept
+trnsIsColorKey(const spng_trns &trns, i32 &key) noexcept
 {
-	std::int32_t found = -1;
-	for (std::uint32_t i = 0; i < trns.n_type3_entries; ++i)
+	i32 found = -1;
+	for (u32 i = 0; i < trns.n_type3_entries; ++i)
 	{
 		if (trns.type3_alpha[i] == 0)
 		{
 			if (found >= 0)
 				return false;  // a second fully-transparent index
-			found = static_cast<std::int32_t>(i);
+			found = static_cast<i32>(i);
 		}
 		else if (trns.type3_alpha[i] != 255)
 			return false;  // translucency
@@ -83,18 +85,18 @@ decodePng(Bytes bytes)
 
 	// Can this stay indexed? Only an indexed source with a colour-key (or
 	// absent) tRNS. Everything else goes to RGBA and lets spng do the work.
-	std::int32_t colorKey = -1;
+	i32 colorKey = -1;
 	const bool keepIndexed = ihdr.color_type == SPNG_COLOR_TYPE_INDEXED
 			&& havePlte && (!haveTrns || trnsIsColorKey(trns, colorKey));
 
 	const int fmt = keepIndexed ? SPNG_FMT_PNG : SPNG_FMT_RGBA8;
 	const int flags = keepIndexed ? 0 : SPNG_DECODE_TRNS;
 
-	std::size_t decodedSize = 0;
+	usize decodedSize = 0;
 	if (spng_decoded_image_size(ctx.get(), fmt, &decodedSize) != 0)
 		return std::unexpected(ContentError{DecodeFailed});
 
-	std::vector<std::uint8_t> raw(decodedSize);
+	std::vector<u8> raw(decodedSize);
 	if (spng_decode_image(ctx.get(), raw.data(), raw.size(), fmt, flags) != 0)
 		return std::unexpected(ContentError{DecodeFailed});
 
@@ -107,8 +109,8 @@ decodePng(Bytes bytes)
 
 	image.format_ = PixelFormat::Indexed8;
 	image.transparentIndex_ = colorKey;
-	image.paletteSize_ = static_cast<std::uint16_t>(plte.n_entries);
-	for (std::uint32_t i = 0; i < plte.n_entries && i < kPaletteSize; ++i)
+	image.paletteSize_ = static_cast<u16>(plte.n_entries);
+	for (u32 i = 0; i < plte.n_entries && i < kPaletteSize; ++i)
 	{
 		image.palette_[i] = Rgb{plte.entries[i].red, plte.entries[i].green,
 			plte.entries[i].blue};
@@ -123,22 +125,22 @@ decodePng(Bytes bytes)
 		return image;
 	}
 
-	const std::size_t stride =
-			(static_cast<std::size_t>(ihdr.width) * ihdr.bit_depth + 7) / 8;
+	const usize stride =
+			(static_cast<usize>(ihdr.width) * ihdr.bit_depth + 7) / 8;
 	if (raw.size() < stride * ihdr.height)
 		return std::unexpected(ContentError{DecodeFailed});
 
-	image.pixels_.assign(static_cast<std::size_t>(ihdr.width) * ihdr.height, 0);
+	image.pixels_.assign(static_cast<usize>(ihdr.width) * ihdr.height, 0);
 	const unsigned mask = (1u << ihdr.bit_depth) - 1u;
-	for (std::uint32_t y = 0; y < ihdr.height; ++y)
+	for (u32 y = 0; y < ihdr.height; ++y)
 	{
-		const std::uint8_t *src = raw.data() + stride * y;
-		std::uint8_t *dst = image.pixels_.data() + std::size_t{ihdr.width} * y;
-		for (std::uint32_t x = 0; x < ihdr.width; ++x)
+		const u8 *src = raw.data() + stride * y;
+		u8 *dst = image.pixels_.data() + usize{ihdr.width} * y;
+		for (u32 x = 0; x < ihdr.width; ++x)
 		{
 			// PNG packs the leftmost pixel in the most significant bits.
 			const unsigned bit = x * ihdr.bit_depth;
-			dst[x] = static_cast<std::uint8_t>(
+			dst[x] = static_cast<u8>(
 					(src[bit / 8] >> (8 - ihdr.bit_depth - bit % 8)) & mask);
 		}
 	}
@@ -147,11 +149,11 @@ decodePng(Bytes bytes)
 }
 
 std::expected<std::vector<std::byte>, ContentError>
-encodeRgbaPng(Extent2u size, std::span<const std::uint8_t> rgba)
+encodeRgbaPng(Extent2u size, std::span<const u8> rgba)
 {
 	using enum ContentErrorCode;
 
-	const std::uint64_t want = size.area() * 4u;
+	const u64 want = size.area() * 4u;
 	if (rgba.size() != want)
 		return std::unexpected(ContentError{WrongSize, 0, want, rgba.size()});
 
@@ -174,7 +176,7 @@ encodeRgbaPng(Extent2u size, std::span<const std::uint8_t> rgba)
 		return std::unexpected(ContentError{EncodeFailed});
 
 	int err = 0;
-	std::size_t encoded = 0;
+	usize encoded = 0;
 	std::unique_ptr<void, MallocDeleter> buf(
 			spng_get_png_buffer(ctx.get(), &encoded, &err));
 	if (!buf)

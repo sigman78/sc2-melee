@@ -2,6 +2,7 @@
 
 #include "Battle.hpp"
 
+#include "engine/core/Types.hpp"
 #include "sim/Damage.hpp"
 #include "sim/Impulse.hpp"
 #include "sim/World.hpp"
@@ -59,13 +60,11 @@ bodyOf(const Element &e) noexcept
 [[nodiscard]] Vec2i
 rewindTo(Vec2i from, Vec2i to, TimeValue time) noexcept
 {
-	const std::int32_t t = static_cast<std::int32_t>(time) - 1;  // 0..256
+	const i32 t = static_cast<i32>(time) - 1;  // 0..256
 	return Vec2i{from.x
-				+ static_cast<std::int32_t>(
-						(std::int64_t{to.x - from.x} * t) >> kTimeShift),
+				+ static_cast<i32>((i64{to.x - from.x} * t) >> kTimeShift),
 		from.y
-				+ static_cast<std::int32_t>(
-						(std::int64_t{to.y - from.y} * t) >> kTimeShift)};
+				+ static_cast<i32>((i64{to.y - from.y} * t) >> kTimeShift)};
 }
 
 // In world units per frame, so consumers never see the packed fixed point.
@@ -78,7 +77,7 @@ worldVelocityOf(const Element &e) noexcept
 
 }  // namespace
 
-Battle::Battle(std::uint32_t seed) : rng_(seed)
+Battle::Battle(u32 seed) : rng_(seed)
 {
 	// One chunk was the whole battle in the old arena (EntityList's
 	// kChunkSize); the reserve keeps the steady-state step allocation-free.
@@ -108,7 +107,7 @@ Battle::linkAtLayerTail(Layer layer, EntityId id) noexcept
 	// an empty layer occupies no space in the chain, only a position.
 	EntityId after = kNoEntity;
 	for (int l = static_cast<int>(layer); l >= 0 && after == kNoEntity; --l)
-		after = layerTail_[static_cast<std::size_t>(l)];
+		after = layerTail_[static_cast<usize>(l)];
 
 	OrderLink &s = reg_.get<OrderLink>(id);
 	s.layer = layer;
@@ -133,7 +132,7 @@ Battle::linkAtLayerTail(Layer layer, EntityId id) noexcept
 			tail_ = id;
 		prevLink.next = id;
 	}
-	layerTail_[static_cast<std::size_t>(layer)] = id;
+	layerTail_[static_cast<usize>(layer)] = id;
 }
 
 void
@@ -154,11 +153,11 @@ Battle::removeElement(EntityId id) noexcept
 
 	// A layer's tail retreats to the predecessor only if that predecessor
 	// is in the same layer; otherwise the layer just became empty.
-	if (layerTail_[static_cast<std::size_t>(s.layer)] == id)
+	if (layerTail_[static_cast<usize>(s.layer)] == id)
 	{
 		const bool prevSameLayer = s.prev != kNoEntity
 				&& reg_.get<OrderLink>(s.prev).layer == s.layer;
-		layerTail_[static_cast<std::size_t>(s.layer)] =
+		layerTail_[static_cast<usize>(s.layer)] =
 				prevSameLayer ? s.prev : kNoEntity;
 	}
 

@@ -2,6 +2,8 @@
 
 #include "Audio.hpp"
 
+#include "engine/core/Types.hpp"
+
 #include <SDL3/SDL.h>
 
 #include <string>
@@ -14,7 +16,7 @@ namespace {
 // Enough for the shots, hits and explosions a two-ship melee produces at once.
 // The Avenger's flame fires every frame, so this is chosen to be comfortably
 // more than one ship can start in the time a short effect lasts.
-constexpr std::size_t kStreamCount = 12;
+constexpr usize kStreamCount = 12;
 
 }  // namespace
 
@@ -71,7 +73,7 @@ Audio::Audio()
 	spec.freq = 44100;
 
 	streams_.reserve(kStreamCount);
-	for (std::size_t i = 0; i < kStreamCount; ++i)
+	for (usize i = 0; i < kStreamCount; ++i)
 	{
 		SDL_AudioStream *s = SDL_OpenAudioDeviceStream(
 				SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
@@ -98,8 +100,8 @@ Audio::load(const std::filesystem::path &wav) const
 	Sound out;
 
 	SDL_AudioSpec spec{};
-	std::uint8_t *data = nullptr;
-	std::uint32_t length = 0;
+	u8 *data = nullptr;
+	u32 length = 0;
 	if (!SDL_LoadWAV(wav.string().c_str(), &spec, &data, &length))
 		return out;
 
@@ -120,8 +122,8 @@ Audio::play(const Sound &s, float gain)
 	// If this sound is already playing, restart *that* stream rather than
 	// taking another. One voice per effect: see the header for why this, and
 	// not the gain, is what governs how loud a melee is.
-	std::size_t slot = streams_.size();
-	for (std::size_t i = 0; i < streams_.size(); ++i)
+	usize slot = streams_.size();
+	for (usize i = 0; i < streams_.size(); ++i)
 	{
 		if (playing_[i] == &s && SDL_GetAudioStreamAvailable(streams_[i]) > 0)
 		{

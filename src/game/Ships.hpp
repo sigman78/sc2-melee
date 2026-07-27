@@ -4,9 +4,9 @@
 #define UQM2_GAME_SHIPS_HPP
 
 #include "engine/core/Borrowed.hpp"
+#include "engine/core/Types.hpp"
 #include "sim/Ship.hpp"
 
-#include <cstddef>
 #include <span>
 #include <string_view>
 
@@ -31,16 +31,16 @@ struct ShipArt
 
 // A ship's .snd, by line: the order is a content contract, so it is
 // written down once instead of as a bare index at each play site.
-enum class ShipSound : std::size_t
+enum class ShipSound : usize
 {
 	Primary = 0,    // the main weapon firing
 	Secondary = 1,  // the SPECIAL -- the Cruiser's point-defence laser
 };
 
-[[nodiscard]] constexpr std::size_t
+[[nodiscard]] constexpr usize
 slot(ShipSound s) noexcept
 {
-	return static_cast<std::size_t>(s);
+	return static_cast<usize>(s);
 }
 
 // A ship type as one entry: the key setup picks it by, the sim descriptor,

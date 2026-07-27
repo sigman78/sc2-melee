@@ -2,6 +2,7 @@
 
 #include "Gravity.hpp"
 
+#include "engine/core/Types.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Trig.hpp"
 #include "sim/World.hpp"
@@ -24,7 +25,7 @@ calculateGravity(Battle &b, EntityId id)
 	const bool useNext = any(self->flags & ElementFlags::PreProcessed);
 	const Vec2i from = useNext ? self->next : self->current;
 
-	const std::int32_t pull = worldToVelocity(1);
+	const i32 pull = worldToVelocity(1);
 
 	for (EntityId other = b.front(); other != kNoEntity;
 			other = b.next(other))
@@ -47,8 +48,8 @@ calculateGravity(Battle &b, EntityId id)
 
 		// The disc is measured in display pixels, and the cheap per-axis
 		// rejection comes first exactly as in the C.
-		const std::int32_t adx = worldToDisplay(d.x < 0 ? -d.x : d.x);
-		const std::int32_t ady = worldToDisplay(d.y < 0 ? -d.y : d.y);
+		const i32 adx = worldToDisplay(d.x < 0 ? -d.x : d.x);
+		const i32 ady = worldToDisplay(d.y < 0 ? -d.y : d.y);
 		if (adx > kGravityRadius || ady > kGravityRadius)
 			continue;
 		if (adx * adx + ady * ady > kGravityRadius * kGravityRadius)

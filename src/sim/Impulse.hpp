@@ -3,10 +3,9 @@
 #ifndef UQM2_SIM_IMPULSE_HPP
 #define UQM2_SIM_IMPULSE_HPP
 
+#include "engine/core/Types.hpp"
 #include "sim/Element.hpp"
 #include "sim/Thrust.hpp"
-
-#include <cstdint>
 
 namespace uqm::sim {
 
@@ -18,8 +17,8 @@ namespace uqm::sim {
 // instead of an impulse (collide.c:72-92); if both already defy physics,
 // velocities zero and the impact angle skews by an octant to separate them.
 
-inline constexpr std::int32_t kCollisionTurnWait = 1;    // collide.h:28
-inline constexpr std::int32_t kCollisionThrustWait = 3;  // collide.h:29
+inline constexpr i32 kCollisionTurnWait = 1;    // collide.h:28
+inline constexpr i32 kCollisionThrustWait = 3;  // collide.h:29
 
 // Planets are gravity masses and do not take an impulse -- they push, they
 // are not pushed. isGravityMass is in Element.hpp, next to the gravity.c
@@ -28,7 +27,7 @@ inline constexpr std::int32_t kCollisionThrustWait = 3;  // collide.h:29
 // Deterministic integer square root: matches UQM's square_root
 // (libs/math/sqrt.c), floor(sqrt(v)), verified across ~4M values. Integer,
 // not std::sqrt, so every target (incl. wasm) gives the same answer.
-[[nodiscard]] std::uint32_t isqrt(std::uint32_t value) noexcept;
+[[nodiscard]] u32 isqrt(u32 value) noexcept;
 
 // The speed state implied by velocity vs max thrust, not a hand-set flag
 // (chmmr.c:398-409, druuge.c:266, mmrnmhrm.c:436-450). applyImpulse resets

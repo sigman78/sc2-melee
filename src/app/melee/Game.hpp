@@ -10,6 +10,7 @@
 #include "engine/core/Borrowed.hpp"
 #include "engine/core/Geometry.hpp"
 #include "engine/core/Pacing.hpp"
+#include "engine/core/Types.hpp"
 #include "engine/input/Input.hpp"
 #include "game/Camera.hpp"
 #include "game/Resources.hpp"
@@ -22,7 +23,6 @@
 #include "sim/World.hpp"
 
 #include <array>
-#include <cstdint>
 #include <filesystem>
 #include <vector>
 
@@ -31,7 +31,7 @@ namespace uqm::melee {
 // Randomness enters the simulation here or not at all: the sim never reads
 // a clock, so a battle is exactly as random as its seed. Printed so a
 // battle can be replayed from the logged value.
-[[nodiscard]] std::uint32_t battleSeed();
+[[nodiscard]] u32 battleSeed();
 
 // Total stars across all three parallax planes; see Draw.cpp for the field
 // itself.
@@ -40,8 +40,8 @@ inline constexpr int kStarCount = 30 + 60 + 90;
 struct Game
 {
 	platform::Platform window{"The Ur-Quan Masters -- melee",
-			Extent2u{static_cast<std::uint32_t>(sim::kSpaceWidth),
-				static_cast<std::uint32_t>(sim::kSpaceHeight)},
+			Extent2u{static_cast<u32>(sim::kSpaceWidth),
+				static_cast<u32>(sim::kSpaceHeight)},
 			3};
 
 	sim::Battle battle{battleSeed()};
@@ -80,7 +80,7 @@ struct Game
 	// Held rather than acted on: the battle keeps stepping so the wreck and
 	// its blast finish playing out, which is what the C does too.
 	int winner = -1;
-	std::int64_t endedAtFrame = 0;
+	i64 endedAtFrame = 0;
 
 	// F1. Off by default; costs nothing when off.
 	bool debugOverlay = false;
@@ -94,13 +94,13 @@ struct Game
 	struct Mark
 	{
 		sim::CollisionEvent event;
-		std::int64_t frame = 0;
+		i64 frame = 0;
 	};
 	std::vector<Mark> marks;
 };
 
 // How long a contact point stays on screen, in simulation frames.
-inline constexpr std::int64_t kMarkLife = 24;
+inline constexpr i64 kMarkLife = 24;
 
 // Half level: the .wav files are mastered loud enough that a dozen
 // streams would clip. With one voice per effect (platform/Audio.hpp)
@@ -110,8 +110,8 @@ inline constexpr float kEffectGain = 0.35f;
 // How large a patch the field tiles over, in display pixels. The C
 // varies on-screen density with zoom (galaxy.c:248-259); this field is
 // zoom-independent, so it tiles over four screens for ~45 stars in view.
-inline constexpr std::int32_t kStarFieldWidth = sim::kSpaceWidth * 2;
-inline constexpr std::int32_t kStarFieldHeight = sim::kSpaceHeight * 2;
+inline constexpr i32 kStarFieldWidth = sim::kSpaceWidth * 2;
+inline constexpr i32 kStarFieldHeight = sim::kSpaceHeight * 2;
 
 // Fills in the Game the two-line setUp wrapper cannot do itself: content
 // loading (Assets.cpp) followed by battle setup (Game.cpp).

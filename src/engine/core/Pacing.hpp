@@ -3,14 +3,14 @@
 #ifndef UQM2_ENGINE_CORE_PACING_HPP
 #define UQM2_ENGINE_CORE_PACING_HPP
 
-#include <cstdint>
+#include "engine/core/Types.hpp"
 
 namespace uqm {
 
 // The game's time base. ONE_SECOND is 840 ticks (libs/timelib.h:35) -- chosen
 // so the several fixed rates the game wants all divide it -- and a battle
 // frame is BATTLE_FRAME_RATE == 840/24 == 35 ticks, i.e. 24 Hz, 41.667 ms.
-using Ticks = std::int64_t;
+using Ticks = i64;
 
 inline constexpr Ticks kOneSecond = 840;
 inline constexpr Ticks kBattleFrameRate = kOneSecond / 24;  // 35

@@ -6,24 +6,24 @@
 #include "Bytes.hpp"
 #include "ContentError.hpp"
 #include "engine/core/Geometry.hpp"
+#include "engine/core/Types.hpp"
 
 #include <array>
-#include <cstdint>
 #include <expected>
 
 namespace uqm::content {
 
 struct Rgb
 {
-	std::uint8_t r = 0;
-	std::uint8_t g = 0;
-	std::uint8_t b = 0;
+	u8 r = 0;
+	u8 g = 0;
+	u8 b = 0;
 
 	friend constexpr bool operator==(const Rgb &, const Rgb &) = default;
 };
 
-inline constexpr std::size_t kPaletteSize = 256;   // NUMBER_OF_PLUTVALS
-inline constexpr std::size_t kRgbSize = 3;         // PLUTVAL_BYTE_SIZE
+inline constexpr usize kPaletteSize = 256;   // NUMBER_OF_PLUTVALS
+inline constexpr usize kRgbSize = 3;         // PLUTVAL_BYTE_SIZE
 
 // A palette is a fixed-size value: 256 x 3 bytes, no allocation, trivially
 // copyable, and byte-for-byte the file's own layout
@@ -34,12 +34,12 @@ static_assert(sizeof(Rgb) == kRgbSize, "Rgb must be exactly three bytes");
 static_assert(sizeof(Palette) == kPaletteSize * kRgbSize,
 		"Palette must match the file layout so it can be copied wholesale");
 
-inline constexpr std::size_t kPaletteBytes = sizeof(Palette);
+inline constexpr usize kPaletteBytes = sizeof(Palette);
 
 // A .ct entry's shape (docs/content-formats.md) is not recoverable from the
 // bytes -- both open with an untagged range-like pair, so Supox's "10..10"
 // is 768 bytes as a palette run but 3 as a partial one. Caller says which.
-enum class ColorTableShape : std::uint8_t
+enum class ColorTableShape : u8
 {
 	// [startSlot, endSlot] + one full 256-entry palette per slot. What
 	// SetColorMap (cmap.c:266-335) consumes. 79 entries in the tree.
@@ -67,22 +67,22 @@ public:
 
 	// --- Palettes shape ---
 
-	[[nodiscard]] constexpr std::size_t paletteCount() const noexcept
+	[[nodiscard]] constexpr usize paletteCount() const noexcept
 	{
 		return shape_ == ColorTableShape::Palettes ? range_.count() : 0u;
 	}
 
 	// By value: 768 bytes off the stack, no allocation, and the copy is a
 	// straight memcpy because the layouts are identical.
-	[[nodiscard]] Palette palette(std::size_t i) const noexcept;
+	[[nodiscard]] Palette palette(usize i) const noexcept;
 
 	// --- PartialPalette shape ---
 
-	[[nodiscard]] constexpr std::size_t colorCount() const noexcept
+	[[nodiscard]] constexpr usize colorCount() const noexcept
 	{
 		return shape_ == ColorTableShape::PartialPalette ? range_.count() : 0u;
 	}
-	[[nodiscard]] constexpr Rgb color(std::size_t i) const noexcept
+	[[nodiscard]] constexpr Rgb color(usize i) const noexcept
 	{
 		assert(shape_ == ColorTableShape::PartialPalette && i < colorCount());
 		return Rgb{readU8(payload_, i * kRgbSize),

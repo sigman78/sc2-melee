@@ -3,9 +3,8 @@
 #ifndef UQM2_APP_MELEE_DRAW_HPP
 #define UQM2_APP_MELEE_DRAW_HPP
 
+#include "engine/core/Types.hpp"
 #include "sim/Element.hpp"
-
-#include <cstdint>
 
 namespace uqm::game {
 struct SpriteSet;
@@ -17,12 +16,12 @@ struct Game;
 
 struct Colour
 {
-	std::uint8_t r, g, b;
+	u8 r, g, b;
 };
 
 // How an attached Visual becomes pixels. Chosen once at spawn (visualFor);
 // draw() only dispatches on it.
-enum class CelPolicy : std::uint8_t
+enum class CelPolicy : u8
 {
 	ByFacing,        // ships, asteroids, planet, blasts: cel = facing.raw() % frames
 	ByFrame,         // weapons: cel = colorCycle % frames
@@ -52,7 +51,7 @@ struct Visual
 // Art comes from the owner's roster entry or kMeleeArt, resolved through
 // Resources' cache -- which is why the Game is not const here.
 [[nodiscard]] Visual visualFor(
-		Game &g, sim::ElementKind kind, std::int32_t playerNr);
+		Game &g, sim::ElementKind kind, i32 playerNr);
 
 // Renders one frame: the starfield, every element, the HUD, and -- if
 // toggled -- the collision debug overlay.

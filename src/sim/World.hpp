@@ -4,8 +4,7 @@
 #define UQM2_SIM_WORLD_HPP
 
 #include "engine/core/Geometry.hpp"
-
-#include <cstdint>
+#include "engine/core/Types.hpp"
 
 namespace uqm::sim {
 
@@ -13,31 +12,31 @@ namespace uqm::sim {
 // are compile-time constants, not runtime globals -- the only assignment is
 // sdl2_pure.c:312-313, and --res moves only ScreenWidthActual (the window).
 
-inline constexpr std::int32_t kScreenWidth = 320;
-inline constexpr std::int32_t kScreenHeight = 240;
-inline constexpr std::int32_t kStatusWidth = 64;   // units.h:39
-inline constexpr std::int32_t kSafeX = 0;
-inline constexpr std::int32_t kSafeY = 0;
+inline constexpr i32 kScreenWidth = 320;
+inline constexpr i32 kScreenHeight = 240;
+inline constexpr i32 kStatusWidth = 64;   // units.h:39
+inline constexpr i32 kSafeX = 0;
+inline constexpr i32 kSafeY = 0;
 
 // The visible play area, in display pixels (units.h:43-45).
-inline constexpr std::int32_t kSpaceWidth =
+inline constexpr i32 kSpaceWidth =
 		kScreenWidth - kStatusWidth - kSafeX * 2;   // 256
-inline constexpr std::int32_t kSpaceHeight = kScreenHeight - kSafeY * 2;  // 240
+inline constexpr i32 kSpaceHeight = kScreenHeight - kSafeY * 2;  // 240
 
 // World units per display pixel. units.h:79-82: ONE_SHIFT is 2, so a pixel is
 // 4 world units, and MAX_REDUCTION is 3, so the logical arena is 8x the
 // visible one on each axis.
 inline constexpr int kOneShift = 2;
-inline constexpr std::int32_t kScaledOne = 1 << kOneShift;  // 4
+inline constexpr i32 kScaledOne = 1 << kOneShift;  // 4
 inline constexpr int kMaxReduction = 3;
 
-constexpr std::int32_t
-displayToWorld(std::int32_t x) noexcept
+constexpr i32
+displayToWorld(i32 x) noexcept
 {
 	return x << kOneShift;
 }
-constexpr std::int32_t
-worldToDisplay(std::int32_t x) noexcept
+constexpr i32
+worldToDisplay(i32 x) noexcept
 {
 	return x >> kOneShift;
 }
@@ -58,9 +57,9 @@ worldToDisplay(Vec2i p) noexcept
 }
 
 // The torus. 256 * 4 * 8 == 8192 by 240 * 4 * 8 == 7680.
-inline constexpr std::int32_t kLogSpaceWidth =
+inline constexpr i32 kLogSpaceWidth =
 		displayToWorld(kSpaceWidth) << kMaxReduction;
-inline constexpr std::int32_t kLogSpaceHeight =
+inline constexpr i32 kLogSpaceHeight =
 		displayToWorld(kSpaceHeight) << kMaxReduction;
 
 static_assert(kLogSpaceWidth == 8192, "the arena width the C computes today");
@@ -69,8 +68,8 @@ static_assert(kLogSpaceHeight == 7680, "the arena height the C computes today");
 // The battlefield wraps. WRAP_VAL (units.h:214-216) folds by one period
 // only -- enough since nothing moves a whole arena in a frame, and cheaper
 // than a modulo every axis, every entity, every step.
-constexpr std::int32_t
-wrapX(std::int32_t x) noexcept
+constexpr i32
+wrapX(i32 x) noexcept
 {
 	if (x < 0)
 		return x + kLogSpaceWidth;
@@ -79,8 +78,8 @@ wrapX(std::int32_t x) noexcept
 	return x;
 }
 
-constexpr std::int32_t
-wrapY(std::int32_t y) noexcept
+constexpr i32
+wrapY(i32 y) noexcept
 {
 	if (y < 0)
 		return y + kLogSpaceHeight;
@@ -98,16 +97,16 @@ wrap(Vec2i p) noexcept
 // The shorter way round the torus, which is what "how far apart are these"
 // means here (WRAP_DELTA_X, units.h:217-219). Distances across the seam are
 // short, not enormous, and an AI that gets this wrong flies the long way.
-constexpr std::int32_t
-wrapDeltaX(std::int32_t dx) noexcept
+constexpr i32
+wrapDeltaX(i32 dx) noexcept
 {
 	if (dx < 0)
 		return (-dx <= kLogSpaceWidth / 2) ? dx : kLogSpaceWidth + dx;
 	return (dx <= kLogSpaceWidth / 2) ? dx : dx - kLogSpaceWidth;
 }
 
-constexpr std::int32_t
-wrapDeltaY(std::int32_t dy) noexcept
+constexpr i32
+wrapDeltaY(i32 dy) noexcept
 {
 	if (dy < 0)
 		return (-dy <= kLogSpaceHeight / 2) ? dy : kLogSpaceHeight + dy;

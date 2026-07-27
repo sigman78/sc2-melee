@@ -2,6 +2,8 @@
 
 #include "Platform.hpp"
 
+#include "engine/core/Types.hpp"
+
 #include <SDL3/SDL.h>
 
 #include <array>
@@ -99,12 +101,12 @@ Platform::~Platform()
 Ticks
 Platform::now() const noexcept
 {
-	const std::uint64_t ns = SDL_GetTicksNS() - startNs_;
+	const u64 ns = SDL_GetTicksNS() - startNs_;
 
 	// Split rather than multiplying first. ns * 840 overflows a signed 64-bit
 	// value after about three hours of uptime, which is well inside a long
 	// session -- sdltime.c:26-27 splits for the same reason.
-	constexpr std::uint64_t kNsPerSecond = 1000000000;
+	constexpr u64 kNsPerSecond = 1000000000;
 	return static_cast<Ticks>((ns / kNsPerSecond) * kOneSecond
 			+ (ns % kNsPerSecond) * kOneSecond / kNsPerSecond);
 }
@@ -140,14 +142,14 @@ Platform::pump(std::span<input::InputAccumulator> players,
 					if (b.scancode != static_cast<int>(e.key.scancode))
 						continue;
 					if (b.player < 0
-							|| static_cast<std::size_t>(b.player)
+							|| static_cast<usize>(b.player)
 									>= players.size())
 						continue;
 					if (down)
-						players[static_cast<std::size_t>(b.player)].press(
+						players[static_cast<usize>(b.player)].press(
 								b.button);
 					else
-						players[static_cast<std::size_t>(b.player)].release(
+						players[static_cast<usize>(b.player)].release(
 								b.button);
 				}
 				break;
@@ -161,15 +163,15 @@ Platform::pump(std::span<input::InputAccumulator> players,
 }
 
 void
-Platform::clear(std::uint8_t r, std::uint8_t g, std::uint8_t b) noexcept
+Platform::clear(u8 r, u8 g, u8 b) noexcept
 {
 	SDL_SetRenderDrawColor(renderer_, r, g, b, SDL_ALPHA_OPAQUE);
 	SDL_RenderClear(renderer_);
 }
 
 void
-Platform::fillRect(Vec2i topLeft, Extent2u size, std::uint8_t r,
-		std::uint8_t g, std::uint8_t b) noexcept
+Platform::fillRect(Vec2i topLeft, Extent2u size, u8 r,
+		u8 g, u8 b) noexcept
 {
 	SDL_SetRenderDrawColor(renderer_, r, g, b, SDL_ALPHA_OPAQUE);
 	const SDL_FRect rect{static_cast<float>(topLeft.x),
@@ -207,10 +209,10 @@ Texture::operator=(Texture &&other) noexcept
 }
 
 Texture
-Platform::upload(Extent2u size, std::span<const std::uint8_t> rgba) noexcept
+Platform::upload(Extent2u size, std::span<const u8> rgba) noexcept
 {
 	Texture t;
-	const std::size_t need = static_cast<std::size_t>(size.w) * size.h * 4;
+	const usize need = static_cast<usize>(size.w) * size.h * 4;
 	if (size.empty() || rgba.size() < need)
 		return t;
 
@@ -233,7 +235,7 @@ Platform::upload(Extent2u size, std::span<const std::uint8_t> rgba) noexcept
 
 void
 Platform::draw(const Texture &t, Vec2i topLeft, Extent2u dest,
-		std::uint8_t alpha) noexcept
+		u8 alpha) noexcept
 {
 	if (!t.valid() || dest.empty())
 		return;
@@ -251,7 +253,7 @@ Platform::draw(const Texture &t, Vec2i topLeft, Extent2u dest,
 
 void
 Platform::drawTinted(const Texture &t, Vec2i topLeft, Extent2u dest,
-		std::uint8_t r, std::uint8_t g, std::uint8_t b) noexcept
+		u8 r, u8 g, u8 b) noexcept
 {
 	if (!t.valid() || dest.empty())
 		return;
@@ -265,8 +267,8 @@ Platform::drawTinted(const Texture &t, Vec2i topLeft, Extent2u dest,
 }
 
 void
-Platform::drawLine(Vec2i from, Vec2i to, std::uint8_t r, std::uint8_t g,
-		std::uint8_t b) noexcept
+Platform::drawLine(Vec2i from, Vec2i to, u8 r, u8 g,
+		u8 b) noexcept
 {
 	SDL_SetRenderDrawColor(renderer_, r, g, b, SDL_ALPHA_OPAQUE);
 	SDL_RenderLine(renderer_, static_cast<float>(from.x),

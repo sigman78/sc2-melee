@@ -3,10 +3,9 @@
 #ifndef UQM2_SIM_THRUST_HPP
 #define UQM2_SIM_THRUST_HPP
 
+#include "engine/core/Types.hpp"
 #include "sim/Velocity.hpp"
 #include "sim/World.hpp"
-
-#include <cstdint>
 
 namespace uqm::sim {
 
@@ -21,8 +20,8 @@ namespace uqm::sim {
 struct ThrustProfile
 {
 	// Both in world units per frame.
-	std::int32_t max = 0;
-	std::int32_t increment = 0;
+	i32 max = 0;
+	i32 increment = 0;
 
 	// thrust_increment == max_thrust is the Arilou Skiff: it reaches full
 	// speed in one frame and has no inertia at all. The C tests for this
@@ -44,10 +43,9 @@ struct ThrustState
 // The hard ceiling a gravity whip can throw a ship to: 18 display pixels a
 // frame (ship.c:58). Above the ship's own max but below this, a gravity well
 // is allowed to keep accelerating it.
-inline constexpr std::int32_t kMaxAllowedSpeed =
-		worldToVelocity(displayToWorld(18));
-inline constexpr std::int64_t kMaxAllowedSpeedSqr =
-		std::int64_t{kMaxAllowedSpeed} * kMaxAllowedSpeed;
+inline constexpr i32 kMaxAllowedSpeed = worldToVelocity(displayToWorld(18));
+inline constexpr i64 kMaxAllowedSpeedSqr =
+		i64{kMaxAllowedSpeed} * kMaxAllowedSpeed;
 
 // Applies one frame of thrust along `facing`, returning the new speed state.
 // `velocity` is updated in place.

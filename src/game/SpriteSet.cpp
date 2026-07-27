@@ -7,9 +7,9 @@
 #include "engine/content/ColorTable.hpp"
 #include "engine/content/PngImage.hpp"
 #include "engine/content/Sprite.hpp"
+#include "engine/core/Types.hpp"
 #include "platform/File.hpp"
 
-#include <cstdint>
 #include <map>
 #include <string>
 #include <utility>
@@ -37,13 +37,13 @@ loadColormaps(const fs::path &ct)
 	if (!table)
 		return slots;
 
-	for (std::size_t i = 0; i < table->size(); ++i)
+	for (usize i = 0; i < table->size(); ++i)
 	{
 		const auto entry = content::parseColorTableEntry(
 				(*table)[i], content::ColorTableShape::Palettes);
 		if (!entry)
 			continue;  // a partial-palette table; nothing a sprite can use
-		for (std::size_t p = 0; p < entry->paletteCount(); ++p)
+		for (usize p = 0; p < entry->paletteCount(); ++p)
 			slots[entry->range().first + static_cast<int>(p)] =
 					entry->palette(p);
 	}
@@ -91,15 +91,15 @@ loadSprites(platform::Platform &window, const fs::path &ani,
 		const auto slot = slots.find(cel.colormapIndex);
 		const content::Palette *palette =
 				slot != slots.end() ? &slot->second : nullptr;
-		const std::vector<std::uint8_t> rgba = content::toRgba(*img, palette);
+		const std::vector<u8> rgba = content::toRgba(*img, palette);
 
 		platform::Texture tex = window.upload(img->size(), rgba);
 		if (!tex.valid())
 			return SpriteSet{};
 
 		// The fill version: same alpha, every visible pixel white.
-		std::vector<std::uint8_t> white = rgba;
-		for (std::size_t i = 0; i + 3 < white.size(); i += 4)
+		std::vector<u8> white = rgba;
+		for (usize i = 0; i + 3 < white.size(); i += 4)
 		{
 			if (white[i + 3] == 0)
 				continue;

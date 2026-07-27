@@ -3,11 +3,10 @@
 #include "app/melee/Sound.hpp"
 #include "app/melee/Game.hpp"
 
+#include "engine/core/Types.hpp"
 #include "game/Melee.hpp"
 
 #include <algorithm>
-#include <cstddef>
-#include <cstdint>
 #include <span>
 
 namespace uqm::melee {
@@ -17,13 +16,13 @@ namespace {
 // The owner's sound set, by definition. A lookup, not a load: Resources
 // caches by id and loadAssets already warmed it.
 [[nodiscard]] std::span<const platform::Sound>
-shipSounds(Game &g, std::int32_t playerNr)
+shipSounds(Game &g, i32 playerNr)
 {
-	if (playerNr < 0 || static_cast<std::size_t>(playerNr) >= g.roster.size()
-			|| g.roster[static_cast<std::size_t>(playerNr)] == nullptr)
+	if (playerNr < 0 || static_cast<usize>(playerNr) >= g.roster.size()
+			|| g.roster[static_cast<usize>(playerNr)] == nullptr)
 		return {};
 	return g.content.sounds(g.audio,
-			g.roster[static_cast<std::size_t>(playerNr)]->art.sounds);
+			g.roster[static_cast<usize>(playerNr)]->art.sounds);
 }
 
 }  // namespace
@@ -38,14 +37,14 @@ playStepSounds(Game &g)
 	// capped at Damaged6Plus (weapon.c:168-172, ship.c:369-371).
 	for (const sim::CollisionEvent &c : g.battle.collisions())
 	{
-		std::int32_t damage = 0;
+		i32 damage = 0;
 		for (const sim::EntityId side : {c.a, c.b})
 			if (const auto el = g.battle.get(side); el != nullptr)
 				damage = std::max(damage, el->damage);
 
-		const std::size_t boom = std::min(
+		const usize boom = std::min(
 				slot(game::BattleSound::Damaged1)
-						+ static_cast<std::size_t>(damage >> 1),
+						+ static_cast<usize>(damage >> 1),
 				slot(game::BattleSound::Damaged6Plus));
 		if (battleSnd.size() > boom)
 			g.audio.play(battleSnd[boom], kEffectGain);
@@ -78,7 +77,7 @@ playStepSounds(Game &g)
 	// The explosion sound plays when it starts, not when the wreck is
 	// reaped: StartShipExplosion fires SHIP_EXPLODES as it starts burning
 	// (tactrans.c:722-727), 36 frames before the wreck disappears.
-	for (std::size_t p = 0; p < g.ships.size(); ++p)
+	for (usize p = 0; p < g.ships.size(); ++p)
 	{
 		if (g.deathAnnounced[p])
 			continue;

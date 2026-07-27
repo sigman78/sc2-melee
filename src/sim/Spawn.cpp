@@ -2,11 +2,11 @@
 
 #include "Spawn.hpp"
 
+#include "engine/core/Types.hpp"
 #include "sim/Trig.hpp"
 #include "sim/World.hpp"
 
 #include <cassert>
-#include <cstddef>
 
 namespace uqm::sim {
 
@@ -17,12 +17,12 @@ muzzlePosition(const ShipView &ship) noexcept
 	// initialize_missile, which places the projectile that many *display*
 	// pixels along the facing from the ship's next position.
 	const Angle angle = ship.facing.angle();
-	const std::int32_t offset = displayToWorld(ship.muzzleOffset);
+	const i32 offset = displayToWorld(ship.muzzleOffset);
 	return Vec2i{ship.position.x + cosine(angle, offset),
 		ship.position.y + sine(angle, offset)};
 }
 
-std::size_t
+usize
 spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 {
 	assert(!out.empty() && "spawn buffer must have room");
@@ -39,14 +39,14 @@ spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 
 	// human.c:281 -- `face = index = ShipFacing`. The nuke sprite is
 	// directional, so its frame follows the facing.
-	s.frameIndex = static_cast<std::uint16_t>(s.facing.raw());
+	s.frameIndex = static_cast<u16>(s.facing.raw());
 
 	// human.c:283 -- flags = 0. Cruiser missiles collide with each other.
 	s.ignoreSimilar = false;
 	return 1;
 }
 
-std::size_t
+usize
 spawnAvengerPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 {
 	assert(!out.empty() && "spawn buffer must have room");

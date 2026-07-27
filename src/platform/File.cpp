@@ -2,6 +2,8 @@
 
 #include "File.hpp"
 
+#include "engine/core/Types.hpp"
+
 #include <array>
 #include <cassert>
 #include <limits>
@@ -28,7 +30,7 @@ constexpr std::array<std::string_view, 6> kFileErrorText{
 std::string_view
 describe(FileError e) noexcept
 {
-	const auto i = static_cast<std::size_t>(e);
+	const auto i = static_cast<usize>(e);
 	assert(i < kFileErrorText.size());
 	return kFileErrorText[i];
 }
@@ -79,27 +81,27 @@ File::open(const std::filesystem::path &path, Mode mode)
 	return File(fp);
 }
 
-std::expected<std::size_t, FileError>
+std::expected<usize, FileError>
 File::read(std::span<std::byte> into)
 {
 	assert(isOpen() && "read from a closed File");
 	if (into.empty())
-		return std::size_t{0};
+		return usize{0};
 
-	const std::size_t got = std::fread(into.data(), 1, into.size(), fp_);
+	const usize got = std::fread(into.data(), 1, into.size(), fp_);
 	if (got != into.size() && std::ferror(fp_) != 0)
 		return std::unexpected(FileError::ReadFailed);
 	return got;
 }
 
-std::expected<std::size_t, FileError>
+std::expected<usize, FileError>
 File::write(std::span<const std::byte> from)
 {
 	assert(isOpen() && "write to a closed File");
 	if (from.empty())
-		return std::size_t{0};
+		return usize{0};
 
-	const std::size_t put = std::fwrite(from.data(), 1, from.size(), fp_);
+	const usize put = std::fwrite(from.data(), 1, from.size(), fp_);
 	if (put != from.size())
 		return std::unexpected(FileError::WriteFailed);
 	return put;
@@ -123,7 +125,7 @@ sizeOnDisk(const std::filesystem::path &path)
 	const std::uintmax_t bytes = std::filesystem::file_size(path, ec);
 	if (ec)
 		return std::unexpected(FileError::ReadFailed);
-	if (bytes > std::numeric_limits<std::size_t>::max() / 2)
+	if (bytes > std::numeric_limits<usize>::max() / 2)
 		return std::unexpected(FileError::TooLarge);
 	return bytes;
 }
@@ -141,7 +143,7 @@ readFileInto(const std::filesystem::path &path, std::vector<std::byte> &buffer)
 	if (!file)
 		return std::unexpected(file.error());
 
-	buffer.resize(static_cast<std::size_t>(*bytes));
+	buffer.resize(static_cast<usize>(*bytes));
 	const auto got = file->read(buffer);
 	if (!got)
 		return std::unexpected(got.error());

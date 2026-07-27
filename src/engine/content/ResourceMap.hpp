@@ -4,8 +4,8 @@
 #define UQM2_ENGINE_CONTENT_RESOURCEMAP_HPP
 
 #include "ContentError.hpp"
+#include "engine/core/Types.hpp"
 
-#include <cstddef>
 #include <string_view>
 #include <vector>
 
@@ -45,7 +45,7 @@ public:
 
 	[[nodiscard]] const Resource *find(std::string_view key) const noexcept;
 
-	[[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
+	[[nodiscard]] usize size() const noexcept { return entries_.size(); }
 	[[nodiscard]] bool empty() const noexcept { return entries_.empty(); }
 
 	[[nodiscard]] auto begin() const noexcept { return entries_.begin(); }

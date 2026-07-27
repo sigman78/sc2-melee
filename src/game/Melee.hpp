@@ -3,7 +3,8 @@
 #ifndef UQM2_GAME_MELEE_HPP
 #define UQM2_GAME_MELEE_HPP
 
-#include <cstddef>
+#include "engine/core/Types.hpp"
+
 #include <string_view>
 
 namespace uqm::game {
@@ -26,7 +27,7 @@ struct MeleeArt
 
 // battle.snd, by line -- the C's BATTLE_SOUND_EFFECTS (sounds.h:31-38).
 // The order is a content contract, written down once.
-enum class BattleSound : std::size_t
+enum class BattleSound : usize
 {
 	GrabCrew = 0,      // unused until crew pickup exists
 	ShipExplodes = 1,
@@ -36,10 +37,10 @@ enum class BattleSound : std::size_t
 	Damaged6Plus = 5,  // ... and _6_PLUS_PT, the loudest and the cap
 };
 
-[[nodiscard]] constexpr std::size_t
+[[nodiscard]] constexpr usize
 slot(BattleSound s) noexcept
 {
-	return static_cast<std::size_t>(s);
+	return static_cast<usize>(s);
 }
 
 inline constexpr MeleeArt kMeleeArt{

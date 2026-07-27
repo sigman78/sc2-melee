@@ -3,6 +3,7 @@
 #include "ResourceMap.hpp"
 
 #include "engine/core/Text.hpp"
+#include "engine/core/Types.hpp"
 
 #include <algorithm>
 
@@ -18,17 +19,17 @@ ResourceMap::parse(std::string_view text, std::vector<ContentError> *problems)
 	// as many lines, so this is close and never grows more than once.
 	map.entries_.reserve(1024);
 
-	const auto note = [problems](ContentErrorCode code, std::size_t line) {
+	const auto note = [problems](ContentErrorCode code, usize line) {
 		if (problems != nullptr)
-			problems->emplace_back(code, static_cast<std::uint32_t>(line));
+			problems->emplace_back(code, static_cast<u32>(line));
 	};
 
-	forEachLine(text, [&](std::string_view raw, std::size_t lineNo) {
+	forEachLine(text, [&](std::string_view raw, usize lineNo) {
 		const std::string_view line = trim(raw);
 		if (line.empty() || line.front() == '#')
 			return;
 
-		const std::size_t eq = line.find('=');
+		const usize eq = line.find('=');
 		if (eq == std::string_view::npos)
 		{
 			note(BadFieldCount, lineNo);
@@ -42,7 +43,7 @@ ResourceMap::parse(std::string_view text, std::vector<ContentError> *problems)
 		// TYPE:path. The colon is required -- a value without one names no
 		// loader, and silently treating it as a bare path is how a typo turns
 		// into a missing texture three months later.
-		const std::size_t colon = value.find(':');
+		const usize colon = value.find(':');
 		if (colon == std::string_view::npos)
 		{
 			note(BadFieldCount, lineNo);

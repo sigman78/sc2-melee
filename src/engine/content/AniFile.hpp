@@ -5,8 +5,8 @@
 
 #include "ContentError.hpp"
 #include "engine/core/Geometry.hpp"
+#include "engine/core/Types.hpp"
 
-#include <cstdint>
 #include <string_view>
 #include <vector>
 
@@ -15,7 +15,7 @@ namespace uqm::content {
 // How a cel's transparency is decided (gfxload.c:54-75). The C packs all four
 // cases into one int, which is why a plain `int transparentColour` reads as a
 // colour index when two of its values are not one.
-enum class Transparency : std::uint8_t
+enum class Transparency : u8
 {
 	None,          // -1: no transparency at all
 	PaletteIndex,  // >= 0: that index is transparent
@@ -29,8 +29,8 @@ struct Cel
 	std::string_view file;
 
 	Transparency transparency = Transparency::None;
-	std::int32_t transparentIndex = -1;  // when PaletteIndex or BlackIsClear
-	std::int32_t colormapIndex = -1;     // a colormap slot; see ColorTable.hpp
+	i32 transparentIndex = -1;  // when PaletteIndex or BlackIsClear
+	i32 colormapIndex = -1;     // a colormap slot; see ColorTable.hpp
 	Vec2i hotspot;
 };
 

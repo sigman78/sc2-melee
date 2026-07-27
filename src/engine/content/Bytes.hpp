@@ -3,11 +3,12 @@
 #ifndef UQM2_ENGINE_CONTENT_BYTES_HPP
 #define UQM2_ENGINE_CONTENT_BYTES_HPP
 
+#include "engine/core/Types.hpp"
+
 #include <bit>
 #include <cassert>
 #include <concepts>
 #include <cstddef>
-#include <cstdint>
 #include <cstring>
 #include <span>
 
@@ -27,7 +28,7 @@ using Bytes = std::span<const std::byte>;
 template <class T>
 	requires std::unsigned_integral<T>
 [[nodiscard]] inline T
-readBE(Bytes b, std::size_t at) noexcept
+readBE(Bytes b, usize at) noexcept
 {
 	assert(at + sizeof(T) <= b.size() && "readBE past the end of the buffer");
 	T v;
@@ -41,30 +42,30 @@ readBE(Bytes b, std::size_t at) noexcept
 // Named for the widths the formats actually use. A single byte needs no
 // swap and no memcpy, and staying constexpr lets the palette accessors in
 // ColorTable.hpp stay constexpr too.
-[[nodiscard]] constexpr std::uint8_t
-readU8(Bytes b, std::size_t at) noexcept
+[[nodiscard]] constexpr u8
+readU8(Bytes b, usize at) noexcept
 {
 	assert(at < b.size() && "readU8 past the end of the buffer");
-	return std::to_integer<std::uint8_t>(b[at]);
+	return std::to_integer<u8>(b[at]);
 }
 
-[[nodiscard]] inline std::uint16_t
-readU16BE(Bytes b, std::size_t at) noexcept
+[[nodiscard]] inline u16
+readU16BE(Bytes b, usize at) noexcept
 {
-	return readBE<std::uint16_t>(b, at);
+	return readBE<u16>(b, at);
 }
 
-[[nodiscard]] inline std::uint32_t
-readU32BE(Bytes b, std::size_t at) noexcept
+[[nodiscard]] inline u32
+readU32BE(Bytes b, usize at) noexcept
 {
-	return readBE<std::uint32_t>(b, at);
+	return readBE<u32>(b, at);
 }
 
 // Does a range of `len` bytes starting at `at` fit? Written to be immune to
 // the overflow that the obvious `at + len <= size` invites, since both
 // operands come from file data.
 [[nodiscard]] constexpr bool
-fits(Bytes b, std::size_t at, std::size_t len) noexcept
+fits(Bytes b, usize at, usize len) noexcept
 {
 	return at <= b.size() && len <= b.size() - at;
 }

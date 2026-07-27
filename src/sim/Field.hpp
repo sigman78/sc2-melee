@@ -3,9 +3,8 @@
 #ifndef UQM2_SIM_FIELD_HPP
 #define UQM2_SIM_FIELD_HPP
 
+#include "engine/core/Types.hpp"
 #include "sim/Entity.hpp"
-
-#include <cstdint>
 
 namespace uqm::sim {
 
@@ -30,8 +29,8 @@ inline constexpr int kNumAsteroids = 5;
 struct Spin
 {
 	bool backwards = false;
-	std::int32_t period = 0;
-	std::int32_t countdown = 0;
+	i32 period = 0;
+	i32 countdown = 0;
 };
 
 EntityId spawnPlanet(Battle &b, const CollisionMask *mask);
@@ -44,7 +43,7 @@ EntityId spawnAsteroid(Battle &b, const CollisionMask *mask);
 // Drop an already-spawned ship somewhere random and legal: rejection loop
 // vs. gravity wells/overlaps, random facing -- caller must set facing/mask
 // first (ship.c:473-481, ship.c:456). minSeparation floor: design-notes V7.
-void placeShipAtRandom(Battle &b, EntityId ship, std::int32_t minSeparation);
+void placeShipAtRandom(Battle &b, EntityId ship, i32 minSeparation);
 
 // The rubble an asteroid leaves; its own death spawns a replacement,
 // keeping the field's population constant (misc.c:80-105). The field's

@@ -14,6 +14,7 @@
 #include "engine/content/PngImage.hpp"
 #include "engine/content/ResourceMap.hpp"
 #include "engine/content/Sprite.hpp"
+#include "engine/core/Types.hpp"
 #include "platform/File.hpp"
 
 #include <algorithm>
@@ -70,12 +71,12 @@ class Canvas
 {
 public:
 	explicit Canvas(Extent2u size)
-		: size_(size), px_(static_cast<std::size_t>(size.area()) * 4, 0)
+		: size_(size), px_(static_cast<usize>(size.area()) * 4, 0)
 	{
 	}
 
 	[[nodiscard]] Extent2u size() const noexcept { return size_; }
-	[[nodiscard]] std::span<const std::uint8_t> pixels() const noexcept
+	[[nodiscard]] std::span<const u8> pixels() const noexcept
 	{
 		return px_;
 	}
@@ -84,12 +85,11 @@ public:
 	// outside its cell, and "the hotspot is off the cel" is a property worth
 	// seeing rather than a bug to trap.
 	void
-	set(Vec2u at, Rgb c, std::uint8_t a = 255) noexcept
+	set(Vec2u at, Rgb c, u8 a = 255) noexcept
 	{
 		if (!size_.contains(at))
 			return;
-		const std::size_t i =
-				(static_cast<std::size_t>(at.y) * size_.w + at.x) * 4;
+		const usize i = (static_cast<usize>(at.y) * size_.w + at.x) * 4;
 		px_[i + 0] = c.r;
 		px_[i + 1] = c.g;
 		px_[i + 2] = c.b;
@@ -99,18 +99,18 @@ public:
 	void
 	fill(Rgb c) noexcept
 	{
-		for (std::uint32_t y = 0; y < size_.h; ++y)
-			for (std::uint32_t x = 0; x < size_.w; ++x)
+		for (u32 y = 0; y < size_.h; ++y)
+			for (u32 x = 0; x < size_.w; ++x)
 				set({x, y}, c);
 	}
 
 	// Transparency has to be visible, not merely absent -- "this cel has a
 	// hole in it" and "this cel failed to load" look identical on black.
 	void
-	checkerboard(std::uint32_t cell = 8) noexcept
+	checkerboard(u32 cell = 8) noexcept
 	{
-		for (std::uint32_t y = 0; y < size_.h; ++y)
-			for (std::uint32_t x = 0; x < size_.w; ++x)
+		for (u32 y = 0; y < size_.h; ++y)
+			for (u32 x = 0; x < size_.w; ++x)
 				set({x, y},
 						((x / cell) + (y / cell)) % 2 == 0 ? Rgb{40, 40, 46}
 														   : Rgb{58, 58, 66});
@@ -119,12 +119,12 @@ public:
 	void
 	rect(Vec2u at, Extent2u extent, Rgb c) noexcept
 	{
-		for (std::uint32_t x = 0; x < extent.w; ++x)
+		for (u32 x = 0; x < extent.w; ++x)
 		{
 			set({at.x + x, at.y}, c);
 			set({at.x + x, at.y + extent.h - 1}, c);
 		}
-		for (std::uint32_t y = 0; y < extent.h; ++y)
+		for (u32 y = 0; y < extent.h; ++y)
 		{
 			set({at.x, at.y + y}, c);
 			set({at.x + extent.w - 1, at.y + y}, c);
@@ -132,20 +132,20 @@ public:
 	}
 
 	void
-	crosshair(Vec2i at, Rgb c, std::int32_t arm = 3) noexcept
+	crosshair(Vec2i at, Rgb c, i32 arm = 3) noexcept
 	{
-		for (std::int32_t d = -arm; d <= arm; ++d)
+		for (i32 d = -arm; d <= arm; ++d)
 		{
 			if (at.x + d >= 0 && at.y >= 0)
-				set(Vec2i{at.x + d, at.y}.as<std::uint32_t>(), c);
+				set(Vec2i{at.x + d, at.y}.as<u32>(), c);
 			if (at.x >= 0 && at.y + d >= 0)
-				set(Vec2i{at.x, at.y + d}.as<std::uint32_t>(), c);
+				set(Vec2i{at.x, at.y + d}.as<u32>(), c);
 		}
 	}
 
 private:
 	Extent2u size_;
-	std::vector<std::uint8_t> px_;
+	std::vector<u8> px_;
 };
 
 bool
@@ -195,7 +195,7 @@ loadColormaps(const fs::path &ct)
 		return slots;
 	}
 
-	for (std::size_t i = 0; i < table->size(); ++i)
+	for (usize i = 0; i < table->size(); ++i)
 	{
 		const auto entry =
 				parseColorTableEntry((*table)[i], ColorTableShape::Palettes);
@@ -208,7 +208,7 @@ loadColormaps(const fs::path &ct)
 					describeError(entry.error()).c_str());
 			continue;
 		}
-		for (std::size_t p = 0; p < entry->paletteCount(); ++p)
+		for (usize p = 0; p < entry->paletteCount(); ++p)
 			slots[entry->range().first + static_cast<int>(p)] =
 					entry->palette(p);
 	}
@@ -225,14 +225,13 @@ void
 blit(Canvas &c, const PngImage &img, Vec2u origin, const Palette *palette)
 {
 	const Extent2u size = img.size();
-	const std::vector<std::uint8_t> rgba = toRgba(img, palette);
+	const std::vector<u8> rgba = toRgba(img, palette);
 
-	for (std::uint32_t y = 0; y < size.h; ++y)
+	for (u32 y = 0; y < size.h; ++y)
 	{
-		for (std::uint32_t x = 0; x < size.w; ++x)
+		for (u32 x = 0; x < size.w; ++x)
 		{
-			const std::size_t i =
-					(static_cast<std::size_t>(y) * size.w + x) * 4;
+			const usize i = (static_cast<usize>(y) * size.w + x) * 4;
 			if (rgba[i + 3] == 0)
 				continue;
 			c.set(Vec2u{origin.x + x, origin.y + y},
@@ -245,18 +244,18 @@ struct Sheet
 {
 	Canvas canvas;
 	Extent2u cell;
-	std::uint32_t cols = 0;
+	u32 cols = 0;
 };
 
 Sheet
-makeSheet(std::size_t count, Extent2u largest)
+makeSheet(usize count, Extent2u largest)
 {
-	constexpr std::uint32_t kPad = 4;
+	constexpr u32 kPad = 4;
 	const Extent2u cell{largest.w + kPad * 2, largest.h + kPad * 2};
-	const auto cols = static_cast<std::uint32_t>(std::max<std::size_t>(1,
-			static_cast<std::size_t>(
+	const auto cols = static_cast<u32>(std::max<usize>(1,
+			static_cast<usize>(
 					std::ceil(std::sqrt(static_cast<double>(count))))));
-	const auto rows = static_cast<std::uint32_t>((count + cols - 1) / cols);
+	const auto rows = static_cast<u32>((count + cols - 1) / cols);
 
 	Sheet s{Canvas(Extent2u{cols * cell.w, std::max(rows, 1u) * cell.h}), cell,
 		cols};
@@ -319,8 +318,8 @@ cmdInventory(const fs::path &content)
 	const ResourceMap map =
 			ResourceMap::parse(platform::asText(*text), &problems);
 
-	std::map<std::string_view, std::size_t> byType;
-	std::size_t missing = 0;
+	std::map<std::string_view, usize> byType;
+	usize missing = 0;
 	for (const Resource &res : map)
 	{
 		++byType[res.type];
@@ -346,7 +345,7 @@ cmdInventory(const fs::path &content)
 				type.data(), n);
 	std::printf("  %zu dangling\n", missing);
 
-	std::size_t files = 0;
+	usize files = 0;
 	for (const auto &e : fs::recursive_directory_iterator(content))
 		if (e.is_regular_file())
 			++files;
@@ -386,12 +385,12 @@ cmdAni(const fs::path &aniPath, const fs::path &out, const fs::path &ctPath)
 	auto [images, largest] = decodeAll(paths);
 	Sheet sheet = makeSheet(images.size(), largest);
 
-	std::size_t missingSlots = 0;
-	for (std::size_t i = 0; i < images.size(); ++i)
+	usize missingSlots = 0;
+	for (usize i = 0; i < images.size(); ++i)
 	{
 		const Vec2u cellAt{
-			static_cast<std::uint32_t>(i % sheet.cols) * sheet.cell.w,
-			static_cast<std::uint32_t>(i / sheet.cols) * sheet.cell.h};
+			static_cast<u32>(i % sheet.cols) * sheet.cell.w,
+			static_cast<u32>(i / sheet.cols) * sheet.cell.h};
 		const Vec2u origin{cellAt.x + 4, cellAt.y + 4};
 
 		const Palette *pal = nullptr;
@@ -409,7 +408,7 @@ cmdAni(const fs::path &aniPath, const fs::path &out, const fs::path &ctPath)
 		// The hotspot is the cel's origin, and it is routinely negative --
 		// supox-001 is at (-81, -30).
 		sheet.canvas.crosshair(
-				origin.as<std::int32_t>() - ani.cels[i].hotspot,
+				origin.as<i32>() - ani.cels[i].hotspot,
 				Rgb{255, 220, 0});
 		sheet.canvas.rect(cellAt, sheet.cell, Rgb{90, 90, 100});
 	}
@@ -460,12 +459,12 @@ cmdCt(const fs::path &ctPath, const fs::path &out)
 	};
 	std::vector<Row> rows;
 
-	for (std::size_t i = 0; i < table->size(); ++i)
+	for (usize i = 0; i < table->size(); ++i)
 	{
 		if (const auto a =
 						parseColorTableEntry((*table)[i], ColorTableShape::Palettes))
 		{
-			for (std::size_t p = 0; p < a->paletteCount(); ++p)
+			for (usize p = 0; p < a->paletteCount(); ++p)
 			{
 				const Palette pal = a->palette(p);
 				rows.push_back(Row{{pal.begin(), pal.end()},
@@ -478,7 +477,7 @@ cmdCt(const fs::path &ctPath, const fs::path &out)
 		{
 			Row row;
 			row.colors.reserve(b->colorCount());
-			for (std::size_t k = 0; k < b->colorCount(); ++k)
+			for (usize k = 0; k < b->colorCount(); ++k)
 				row.colors.push_back(b->color(k));
 			row.label = std::format("entry {} indices {}..{}", i,
 					b->range().first, b->range().last);
@@ -493,21 +492,21 @@ cmdCt(const fs::path &ctPath, const fs::path &out)
 	if (rows.empty())
 		return 1;
 
-	constexpr std::uint32_t kSwatch = 8;
-	std::uint32_t widest = 0;
+	constexpr u32 kSwatch = 8;
+	u32 widest = 0;
 	for (const Row &r : rows)
-		widest = std::max(widest, static_cast<std::uint32_t>(r.colors.size()));
+		widest = std::max(widest, static_cast<u32>(r.colors.size()));
 
 	Canvas canvas(Extent2u{
-		widest * kSwatch, static_cast<std::uint32_t>(rows.size()) * kSwatch});
+		widest * kSwatch, static_cast<u32>(rows.size()) * kSwatch});
 	canvas.fill(Rgb{20, 20, 24});
-	for (std::size_t r = 0; r < rows.size(); ++r)
+	for (usize r = 0; r < rows.size(); ++r)
 	{
-		for (std::size_t c = 0; c < rows[r].colors.size(); ++c)
-			for (std::uint32_t dy = 0; dy < kSwatch; ++dy)
-				for (std::uint32_t dx = 0; dx < kSwatch; ++dx)
-					canvas.set({static_cast<std::uint32_t>(c) * kSwatch + dx,
-									   static_cast<std::uint32_t>(r) * kSwatch
+		for (usize c = 0; c < rows[r].colors.size(); ++c)
+			for (u32 dy = 0; dy < kSwatch; ++dy)
+				for (u32 dx = 0; dx < kSwatch; ++dx)
+					canvas.set({static_cast<u32>(c) * kSwatch + dx,
+									   static_cast<u32>(r) * kSwatch
 											   + dy},
 							rows[r].colors[c]);
 		std::printf("  %s (%zu colours)\n", rows[r].label.c_str(),
@@ -542,11 +541,11 @@ cmdFon(const fs::path &dir, const fs::path &out)
 
 	auto [images, largest] = decodeAll(paths);
 	Sheet sheet = makeSheet(images.size(), largest);
-	for (std::size_t i = 0; i < images.size(); ++i)
+	for (usize i = 0; i < images.size(); ++i)
 	{
 		const Vec2u cellAt{
-			static_cast<std::uint32_t>(i % sheet.cols) * sheet.cell.w,
-			static_cast<std::uint32_t>(i / sheet.cols) * sheet.cell.h};
+			static_cast<u32>(i % sheet.cols) * sheet.cell.w,
+			static_cast<u32>(i / sheet.cols) * sheet.cell.h};
 		blit(sheet.canvas, images[i], {cellAt.x + 4, cellAt.y + 4}, nullptr);
 		sheet.canvas.rect(cellAt, sheet.cell, Rgb{90, 90, 100});
 	}
