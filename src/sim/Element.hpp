@@ -134,6 +134,12 @@ struct Element
 	std::int32_t mass = 0;
 	std::int32_t damage = 0;
 
+	// Frames until the ship may turn or thrust again. A collision adds to
+	// both, which is the stagger you feel after hitting something
+	// (collide.c:113-116).
+	std::int32_t turnWait = 0;
+	std::int32_t thrustWait = 0;
+
 	// Not owned: masks live with the content and outlive the battle.
 	const CollisionMask *mask = nullptr;
 

@@ -9,6 +9,7 @@
 #include "sim/Battle.hpp"
 #include "sim/Collision.hpp"
 #include "sim/EntityList.hpp"
+#include "sim/Impulse.hpp"
 #include "sim/Random.hpp"
 #include "sim/Spawn.hpp"
 #include "sim/Thrust.hpp"
@@ -1026,11 +1027,137 @@ testCollisionPairsAreVisitedOnce()
 	CHECK(!b2.get(if2)->collidedWith.valid(), "either way round");
 }
 
+// --------------------------------------------------------------------------
+// Collision response
+
+void
+testIsqrtIsFloorSqrt()
+{
+	CHECK(isqrt(0) == 0, "isqrt(0)");
+	CHECK(isqrt(1) == 1, "isqrt(1)");
+	CHECK(isqrt(3) == 1, "isqrt floors");
+	CHECK(isqrt(4) == 2, "isqrt(4)");
+	CHECK(isqrt(0xFFFFFFFFu) == 65535, "isqrt at the top of the range");
+	for (std::uint32_t r = 1; r < 1000; ++r)
+	{
+		CHECK(isqrt(r * r) == r, "isqrt of a perfect square %u", r);
+		CHECK(isqrt(r * r - 1) == r - 1, "and just below one");
+	}
+}
+
+void
+testHeadOnCollisionExchangesMomentum()
+{
+	Element a;
+	a.mass = 5;
+	a.current = Vec2i{0, 0};
+	a.next = Vec2i{100, 0};
+	a.velocity.setComponents(worldToVelocity(20), 0);
+	a.flags = ElementFlags::PlayerShip;
+	a.kind = ElementKind::Ship;
+
+	Element b;
+	b.mass = 5;
+	b.current = Vec2i{200, 0};
+	b.next = Vec2i{110, 0};
+	b.velocity.setComponents(-worldToVelocity(20), 0);
+	b.flags = ElementFlags::PlayerShip;
+	b.kind = ElementKind::Ship;
+
+	const Vec2i beforeA = a.velocity.current();
+	applyImpulse(a, b);
+	const Vec2i afterA = a.velocity.current();
+
+	CHECK(afterA.x < beforeA.x,
+			"a head-on hit should reverse the mover, %ld -> %ld",
+			static_cast<long>(beforeA.x), static_cast<long>(afterA.x));
+
+	// Ships are staggered by a collision -- that is the recoil you feel.
+	CHECK(a.turnWait == kCollisionTurnWait && a.thrustWait == kCollisionThrustWait,
+			"a collision should stagger the ship's controls");
+}
+
+void
+testGravityMassIsNotPushed()
+{
+	// A planet pushes; it is not pushed (element.h:198).
+	CHECK(isGravityMass(101), "mass above 100 is a gravity mass");
+	CHECK(!isGravityMass(10), "a ship is not");
+
+	Element ship;
+	ship.mass = 5;
+	ship.current = Vec2i{0, 0};
+	ship.next = Vec2i{100, 0};
+	ship.velocity.setComponents(worldToVelocity(20), 0);
+	ship.kind = ElementKind::Ship;
+
+	Element planet;
+	planet.mass = 200;
+	planet.current = Vec2i{200, 0};
+	planet.next = Vec2i{200, 0};
+	planet.kind = ElementKind::Planet;
+
+	applyImpulse(ship, planet);
+	CHECK(planet.velocity.isZero(), "the planet must not move");
+	CHECK(!ship.velocity.isZero(), "the ship must");
+}
+
+void
+testStuckPairIsWorkedApart()
+{
+	// Two elements that did not move cannot exchange momentum, so the C marks
+	// them DefyPhysics instead. If they were *already* defying, it zeroes
+	// them and skews the impact axis by an octant, which is what eventually
+	// separates two stuck objects rather than leaving them welded.
+	Element a;
+	a.mass = 5;
+	a.current = a.next = Vec2i{100, 100};
+	a.kind = ElementKind::Ship;
+
+	Element b = a;
+	b.current = b.next = Vec2i{100, 100};
+
+	applyImpulse(a, b);
+	CHECK(any(a.flags & ElementFlags::DefyPhysics),
+			"a stationary pair should defy physics rather than exchange nothing");
+	CHECK(any(b.flags & ElementFlags::DefyPhysics), "both of them");
+
+	// Second time round, already defying: velocities are zeroed and the pair
+	// gets pushed apart along a skewed axis.
+	applyImpulse(a, b);
+	CHECK(!a.velocity.isZero() || !b.velocity.isZero(),
+			"an already-stuck pair should be given a way out");
+}
+
+void
+testDeriveSpeedStateFromVelocity()
+{
+	// The mechanism the plan wants instead of hand-patched flags. Not yet
+	// wired into applyImpulse -- see the note in Impulse.hpp -- but available
+	// so the switch is a one-liner.
+	constexpr ThrustProfile cruiser{24, 3};
+
+	Velocity slow;
+	slow.setComponents(worldToVelocity(5), 0);
+	CHECK(deriveSpeedState(slow, cruiser) == SpeedState::Normal,
+			"below max is Normal");
+
+	Velocity fast;
+	fast.setComponents(worldToVelocity(100), 0);
+	CHECK(deriveSpeedState(fast, cruiser) == SpeedState::BeyondMax,
+			"well above max is BeyondMax");
+}
+
 }  // namespace
 
 int
 main()
 {
+	testIsqrtIsFloorSqrt();
+	testHeadOnCollisionExchangesMomentum();
+	testGravityMassIsNotPushed();
+	testStuckPairIsWorkedApart();
+	testDeriveSpeedStateFromVelocity();
 	testStepVisitsInListOrder();
 	testMidFrameSpawnIsCaughtUpSameFrame();
 	testFiniteLifeExpiresAndCallsDeath();

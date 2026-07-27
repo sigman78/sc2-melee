@@ -25,6 +25,7 @@ add_library(uqm2_content STATIC
 	platform/File.cpp
 	sim/Battle.cpp
 	sim/Collision.cpp
+	sim/Impulse.cpp
 	sim/Spawn.cpp
 	sim/Thrust.cpp
 	sim/Velocity.cpp

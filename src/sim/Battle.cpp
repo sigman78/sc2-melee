@@ -2,6 +2,7 @@
 
 #include "Battle.hpp"
 
+#include "sim/Impulse.hpp"
 #include "sim/World.hpp"
 
 namespace uqm::sim {
@@ -80,6 +81,11 @@ Battle::testPair(EntityId aId, EntityId bId)
 	b->collidedWith = aId;
 	a->flags |= ElementFlags::Collided;
 	b->flags |= ElementFlags::Collided;
+
+	// Momentum exchange. Weapons do not bounce -- they are resolved by
+	// whoever owns them, from the collidedWith they were just given.
+	if (a->kind != ElementKind::Weapon && b->kind != ElementKind::Weapon)
+		applyImpulse(*a, *b);
 	return true;
 }
 
