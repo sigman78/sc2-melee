@@ -245,6 +245,9 @@ struct Game
 	sim::Battle battle{0x2A5B};
 	game::Camera camera;
 
+	// Whether each ship's death has been announced, so it is announced once.
+	std::array<bool, 2> deathAnnounced{};
+
 	// The starfield, three planes deep (galaxy.c:37-44). Positions are in
 	// display pixels on a screen-sized torus, one per plane -- see drawStars.
 	std::array<Vec2i, kStarCount> stars{};
@@ -1088,6 +1091,24 @@ iterate(Game &g)
 	// step loop reaps it. Deciding this from the element rather than from a
 	// crew count means a ship destroyed by any means counts, not just one shot
 	// to death.
+	// The explosion is announced when it *starts*, not when the wreck is
+	// finally reaped. StartShipExplosion plays SHIP_EXPLODES as it sets the
+	// element burning (tactrans.c:722-727), and the burn lasts 36 frames -- so
+	// keying the sound off the element disappearing put it a second and a half
+	// late, after the sparks had already gone out.
+	for (std::size_t p = 0; p < g.ships.size(); ++p)
+	{
+		if (g.deathAnnounced[p])
+			continue;
+		auto s = g.battle.get(g.ships[p]);
+		if (s == nullptr || s->ship.crew > 0)
+			continue;
+		g.deathAnnounced[p] = true;
+		// battle.snd slot 1: shipdies.wav (tactrans.c:723-726).
+		if (g.battleSounds.size() > 1)
+			g.audio.play(g.battleSounds[1], kEffectGain);
+	}
+
 	if (g.winner < 0)
 	{
 		const bool alive0 = g.battle.get(g.ships[0]) != nullptr;
@@ -1095,9 +1116,6 @@ iterate(Game &g)
 		if (!alive0 || !alive1)
 		{
 			g.winner = alive0 ? 0 : (alive1 ? 1 : 2);
-			// battle.snd slot 1: shipdies.wav (tactrans.c:723-726).
-			if (g.battleSounds.size() > 1)
-				g.audio.play(g.battleSounds[1], kEffectGain);
 			g.endedAtFrame = static_cast<std::int64_t>(g.battle.frame());
 			if (g.winner == 2)
 				std::printf("mutual destruction\n");
