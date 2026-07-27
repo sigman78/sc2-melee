@@ -36,6 +36,9 @@ add_library(uqm2_content STATIC
 	sim/Spawn.cpp
 	sim/Thrust.cpp
 	sim/Velocity.cpp
+	# game/'s headless half: pure data (the ship catalog), no SDL. Resources
+	# and SpriteSet stay in uqm2_platform, which owns the window and device.
+	game/Ships.cpp
 )
 
 target_include_directories(uqm2_content PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -55,7 +58,11 @@ target_compile_features(uqm2_content PUBLIC cxx_std_23)
 if(MSVC)
 	target_compile_options(uqm2_content PRIVATE /W4 /utf-8)
 else()
-	target_compile_options(uqm2_content PRIVATE -W -Wall -Wextra)
+	# missing-field-initializers is off because a spec is a partial
+	# designated-initializer literal over meaningful defaults (sim/Ship.hpp
+	# ShipSpec, review-002 §3) -- the omissions are the idiom, not a bug.
+	target_compile_options(uqm2_content PRIVATE -W -Wall -Wextra
+		-Wno-missing-field-initializers)
 endif()
 
 if(UQM_WERROR)

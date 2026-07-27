@@ -80,6 +80,23 @@ endif()
 
 add_test(NAME engine COMMAND engine_test)
 
+# game/'s data definitions. Every resource id the ship catalog and the melee
+# table name must resolve in uqm.rmp -- with browse_inventory below this
+# closes the chain definition -> rmp -> file.
+add_executable(game_test game_test.cpp)
+target_link_libraries(game_test PRIVATE uqm2_content)
+if(MSVC)
+	target_compile_options(game_test PRIVATE /W4 /utf-8)
+else()
+	target_compile_options(game_test PRIVATE -W -Wall -Wextra)
+endif()
+if(UQM_WERROR)
+	target_compile_options(game_test PRIVATE ${_uqm_werror})
+endif()
+
+add_test(NAME game COMMAND game_test
+	"${CMAKE_CURRENT_SOURCE_DIR}/../sc2/content")
+
 # The browser, end to end. Its inventory pass is also the resource-graph
 # dangling check the plan asks for (docs/game-rewrite-plan.md, "Verification"
 # 2): it fails if any resource key names a file that is not there.

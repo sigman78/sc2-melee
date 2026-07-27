@@ -3,11 +3,14 @@
 #include "app/melee/Assets.hpp"
 #include "app/melee/Game.hpp"
 
+#include "game/Melee.hpp"
+#include "game/Ships.hpp"
 #include "platform/Platform.hpp"
-#include "sim/Ship.hpp"
 
+#include <cassert>
 #include <cstdio>
 #include <filesystem>
+#include <string_view>
 
 namespace uqm::melee {
 
@@ -70,49 +73,54 @@ loadAssets(Game &g, const std::filesystem::path &content)
 				content.string().c_str());
 	}
 
+	// Today's fixed roster, by catalog key. What ships exist and what they
+	// load is game/Ships.cpp's business; only the match-up is decided here.
+	const game::ShipDef *cru = game::findShip("earthling.cruiser");
+	const game::ShipDef *ave = game::findShip("ilwrath.avenger");
+	assert(cru != nullptr && ave != nullptr);
+
 	// Addressed by resource id, not by path. uqm.rmp is the only link between
 	// a name and a file, and it is what an addon overrides -- see
 	// game/Resources.hpp.
-	const auto load = [&](const char *id) -> const game::SpriteSet * {
+	const auto load = [&](std::string_view id) -> const game::SpriteSet * {
 		const game::SpriteSet &set = g.content.sprites(g.window, id);
 		if (!set.valid() && g.content.valid())
-			std::fprintf(stderr, "content: could not load %s\n", id);
+			std::fprintf(stderr, "content: could not load %.*s\n",
+					static_cast<int>(id.size()), id.data());
 		return &set;
 	};
 
-	g.cruiser = load("ship.earthling.graphics.human.large");
-	g.avenger = load("ship.ilwrath.graphics.avenger.large");
-	g.nuke = load("ship.earthling.graphics.saturn.large");
-	g.flame = load("ship.ilwrath.graphics.fire.large");
-	g.rock = load("graphics.asteroid.large");
-	g.blast = load("graphics.blast.large");
-	g.boom = load("graphics.boom.large");
-	// The C picks a planet type at random per battle (load_gravity_well,
-	// cons_res.c:52-82). One fixed type until melee setup exists to choose.
-	g.world = load("planet.acid.large");
-	g.starArt = load("graphics.stars");
+	g.cruiser = load(cru->art.ship);
+	g.avenger = load(ave->art.ship);
+	g.nuke = load(cru->art.weapon);
+	g.flame = load(ave->art.weapon);
+	g.rock = load(game::kMeleeArt.asteroid);
+	g.blast = load(game::kMeleeArt.blast);
+	g.boom = load(game::kMeleeArt.boom);
+	g.world = load(game::kMeleeArt.planet);
+	g.starArt = load(game::kMeleeArt.stars);
 
-	const auto loadSounds = [&](const char *id) {
+	const auto loadSounds = [&](std::string_view id) {
 		const std::span<const platform::Sound> set =
 				g.content.sounds(g.audio, id);
 		std::size_t ok = 0;
 		for (const platform::Sound &snd : set)
 			ok += snd.valid() ? 1 : 0;
-		std::fprintf(stderr, "audio: %s -> %zu/%zu loaded\n", id, ok,
-				set.size());
+		std::fprintf(stderr, "audio: %.*s -> %zu/%zu loaded\n",
+				static_cast<int>(id.size()), id.data(), ok, set.size());
 		return set;
 	};
-	g.cruiserSounds = loadSounds("ship.earthling.sounds");
-	g.avengerSounds = loadSounds("ship.ilwrath.sounds");
-	g.battleSounds = loadSounds("sounds.battle");
+	g.cruiserSounds = loadSounds(cru->art.sounds);
+	g.avengerSounds = loadSounds(ave->art.sounds);
+	g.battleSounds = loadSounds(game::kMeleeArt.battleSounds);
 	if (!g.audio.valid())
 		std::fprintf(stderr, "audio: no device; the game runs silent\n");
 
 	// Descriptors first, then the content-derived masks on top: skipping
 	// these leaves a default ShipSpec with thrust.max = 0 and turnWait = 0,
 	// a ship that cannot accelerate and spins every frame.
-	g.cruiserData = sim::earthlingCruiser();
-	g.avengerData = sim::ilwrathAvenger();
+	g.cruiserData = *cru->spec;
+	g.avengerData = *ave->spec;
 
 	g.cruiserData.facingMasks = g.cruiser->masks;
 	g.avengerData.facingMasks = g.avenger->masks;
