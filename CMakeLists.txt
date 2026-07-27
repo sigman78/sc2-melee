@@ -214,7 +214,7 @@ foreach(_target ${UQM_VENDORED_TARGETS})
 	target_compile_options(${_target} PRIVATE ${_uqm_quiet})
 endforeach()
 
-if(UQM_WERROR)
+if(UQM_WERROR AND UQM_LEGACY)
 	target_compile_options(uqm PRIVATE ${_uqm_werror})
 endif()
 
