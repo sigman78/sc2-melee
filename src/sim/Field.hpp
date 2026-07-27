@@ -24,6 +24,16 @@ inline constexpr int kNumAsteroids = 5;
 // Places the planet (misc.c:40-76): rejected/redrawn while in a gravity well
 // or overlapping (two RNG draws/attempt). init.c:228-233 spawns asteroids
 // first, planet second -- order matters or the RNG stream diverges.
+// The asteroid's tumble (misc.c:107-128): direction and period used to be
+// bit-packed into Element::thrustWait -- the C's field-repurposing habit,
+// reproduced here until review-005 Y1 gave the spin its own component.
+struct Spin
+{
+	bool backwards = false;
+	std::int32_t period = 0;
+	std::int32_t countdown = 0;
+};
+
 EntityId spawnPlanet(Battle &b, const CollisionMask *mask);
 
 // Places one asteroid on an arena edge (misc.c:131-201). Consumes exactly

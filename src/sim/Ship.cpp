@@ -207,10 +207,6 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 					: weaponCollision;
 			w.preProcess = sp.preProcess != nullptr ? sp.preProcess
 													: spec.weapon.preProcess;
-			// A guided shot starts with its tracking clock already wound:
-			// initialize_nuke seeds turn_wait = TRACK_WAIT (human.c:297-299), so the
-			// first steer lands on the fourth hook frame. Zero for anything unguided.
-			w.turnWait = spec.weapon.trackWait;
 			w.flags = ElementFlags::FiniteLife;
 			if (sp.ignoreSimilar)
 				w.flags |= ElementFlags::IgnoreSimilar;
@@ -244,6 +240,18 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			// still moves and can hit on the frame it was fired.
 			const EntityId wid = b.spawnBack(std::move(w));
 			b.attachWeaponSpec(wid, &spec.weapon);
+
+			// A guided shot starts with its tracking clock already wound:
+			// initialize_nuke seeds TRACK_WAIT (human.c:297-299), so the
+			// first steer lands on the fourth hook frame. The spec declares
+			// guidance by having any of the numbers; the component carries
+			// them plus the shot's own clock (review-005 Y1).
+			if (spec.weapon.trackWait > 0 || spec.weapon.thrustScale > 0)
+			{
+				b.registry().emplace<Guided>(wid,
+						Guided{spec.weapon.trackWait, spec.weapon.maxSpeed,
+							spec.weapon.thrustScale, spec.weapon.trackWait});
+			}
 		}
 
 		s.weaponCounter = spec.weapon.wait;
@@ -349,14 +357,16 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 	if (e == nullptr)
 		return;
 	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
-	if (ws == nullptr)
+	Guided *g = b.registry().try_get<Guided>(id);
+	if (ws == nullptr || g == nullptr)
 		return;
 
-	// Steer, but only every TRACK_WAIT frames (human.c:133-146).
+	// Steer, but only every TRACK_WAIT frames (human.c:133-146). The clock
+	// is the component's own, not a repurposed Element::turnWait.
 	Facing facing = e->facing;
-	if (e->turnWait > 0)
+	if (g->clock > 0)
 	{
-		--e->turnWait;
+		--g->clock;
 	}
 	else
 	{
@@ -365,7 +375,7 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 		if (e == nullptr)
 			return;
 		e->facing = facing;
-		e->turnWait = ws->trackWait;
+		g->clock = g->trackWait;
 
 		// The mask follows the facing too, or a steering nuke's rect keeps the
 		// launch cel's size while the sprite changes cel. colorCycle is the cel
@@ -380,9 +390,9 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 	// capped -- a nuke chasing you a while is much harder to outrun than one
 	// just launched.
 	std::int32_t speed =
-			ws->speed + (ws->life - e->lifeSpan) * ws->thrustScale;
-	if (speed > ws->maxSpeed)
-		speed = ws->maxSpeed;
+			ws->speed + (ws->life - e->lifeSpan) * g->thrustScale;
+	if (speed > g->maxSpeed)
+		speed = g->maxSpeed;
 	e->velocity.setVector(speed, e->facing);
 }
 

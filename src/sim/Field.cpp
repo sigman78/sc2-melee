@@ -30,25 +30,27 @@ displayAlignY(std::uint32_t r) noexcept
 			(static_cast<std::uint16_t>(r) % kLogSpaceHeight) & ~(kScaledOne - 1));
 }
 
-// asteroid_preprocess (misc.c:107-128): tumbles only. `thrustWait` isn't a
-// thrust delay -- bit 7 is spin direction, low seven bits the period. The
-// C's rotation lives in the sprite frame; here, with no sprite, in `facing`.
+// asteroid_preprocess (misc.c:107-128): tumbles only, by its Spin
+// component. The C's rotation lives in the sprite frame; here, with no
+// sprite, in `facing`.
 void
 asteroidPreProcess(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
 	if (e == nullptr)
 		return;
+	Spin *spin = b.registry().try_get<Spin>(id);
+	if (spin == nullptr)
+		return;
 
-	if (e->turnWait > 0)
+	if (spin->countdown > 0)
 	{
-		--e->turnWait;
+		--spin->countdown;
 		return;
 	}
 
-	const bool backwards = (e->thrustWait & (1 << 7)) != 0;
-	e->facing += backwards ? -1 : 1;
-	e->turnWait = e->thrustWait & ((1 << 7) - 1);
+	e->facing += spin->backwards ? -1 : 1;
+	spin->countdown = spin->period;
 }
 
 // The rubble's own death hook: put a fresh asteroid back into the field.
@@ -208,15 +210,20 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	a.velocity.setVector(magnitude, Facing(static_cast<int>(b.rng().next())));
 
 	a.facing = Facing(static_cast<int>(b.rng().next()));
-	a.turnWait = static_cast<std::int32_t>(b.rng().next() & 3);
-	a.thrustWait = a.turnWait;
 
-	// The seventh draw is the spin *direction*: bit 7 ORed into thrust_wait
-	// and only there (misc.c:192-193) -- turn_wait keeps just the period.
-	a.thrustWait |= static_cast<std::int32_t>(b.rng().next() & (1u << 7));
+	// Draws six and seven, in the C's order and truncations (misc.c:156-193):
+	// the period, then the direction bit. They used to be bit-packed into
+	// Element::thrustWait; the values and their draw order are pinned, the
+	// packing is not.
+	Spin spin;
+	spin.period = static_cast<std::int32_t>(b.rng().next() & 3);
+	spin.countdown = spin.period;
+	spin.backwards = (b.rng().next() & (1u << 7)) != 0;
 
 	a.next = a.current;
-	return b.spawnBack(std::move(a));
+	const EntityId id = b.spawnBack(std::move(a));
+	b.registry().emplace<Spin>(id, spin);
+	return id;
 }
 
 void

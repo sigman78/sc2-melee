@@ -180,6 +180,19 @@ struct WeaponGuidance
 	Borrowed<const WeaponSpec> spec = nullptr;
 };
 
+// GuidedShot, the census's first library component (review-002 §4): the
+// guidance parameters copied from the spec at fire time, plus the shot's
+// own tracking clock -- which lived in a repurposed Element::turnWait
+// until review-005 Y1. Attached by the fire block to any weapon whose
+// spec declares guidance; nukePreProcess is its system function.
+struct Guided
+{
+	std::int32_t trackWait = 0;
+	std::int32_t maxSpeed = 0;
+	std::int32_t thrustScale = 0;
+	std::int32_t clock = 0;
+};
+
 // The cloak walk: five visible fill colours (levels 1..5), then black.
 inline constexpr std::int32_t kCloakVisibleColours = 5;
 inline constexpr std::int32_t kCloakFullLevel = kCloakVisibleColours + 1;

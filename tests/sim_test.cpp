@@ -1606,10 +1606,16 @@ testAsteroidsSpawnOnAnEdgeAndRepeatably()
 				static_cast<long>(e->current.y));
 		CHECK(!e->velocity.isZero(), "and should be moving");
 
-		// Same seed, same asteroid: the six draws happen in a fixed order.
+		// Same seed, same asteroid: the seven draws happen in a fixed order.
+		// The spin rides its own component now (review-005 Y1), so the pin
+		// compares it there -- not a vacuous 0 == 0 on the retired field.
 		auto e2 = c.get(a2);
+		const Spin &s1 = b.registry().get<Spin>(a);
+		const Spin &s2 = c.registry().get<Spin>(a2);
 		CHECK(e->current == e2->current && e->facing == e2->facing
-						&& e->thrustWait == e2->thrustWait,
+						&& s1.period == s2.period
+						&& s1.backwards == s2.backwards
+						&& s1.countdown == s2.countdown,
 				"asteroid %d should be identical from the same seed", i);
 	}
 }
@@ -1621,9 +1627,9 @@ testAsteroidTumbles()
 	Battle b(3);
 	const EntityId a = spawnAsteroid(b, &m);
 
-	// thrust_wait is the spin period, not a thrust delay (misc.c:117-126), and
-	// like turn_wait it means "every N+1 frames".
-	const int period = static_cast<int>(b.get(a)->thrustWait);
+	// The spin period means "every N+1 frames", like turn_wait
+	// (misc.c:117-126); it lives in the Spin component.
+	const int period = static_cast<int>(b.registry().get<Spin>(a).period);
 	const Facing start = b.get(a)->facing;
 
 	// period + 1 frames of stillness, not period: the first step is the
