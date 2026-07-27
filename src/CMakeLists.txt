@@ -48,6 +48,10 @@ target_include_directories(uqm2_content PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 # leak into the library's own headers.
 target_link_libraries(uqm2_content PRIVATE uqm_spng)
 
+# PUBLIC, unlike spng: EntityId IS entt::entity and the registry sits in
+# sim/ headers -- the storage experiment, src/docs/review-004-entt.md.
+target_link_libraries(uqm2_content PUBLIC uqm::entt)
+
 # C++23 for std::expected and std::byteswap, both of which remove code rather
 # than add it (docs/cpp-conventions.md rules 1 and 2): expected replaces the
 # optional-plus-out-parameter idiom at every parser boundary, and byteswap

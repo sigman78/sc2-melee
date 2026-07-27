@@ -44,6 +44,23 @@ add_library(uqm_sdl INTERFACE)
 target_link_libraries(uqm_sdl INTERFACE SDL3::SDL3)
 add_library(uqm::SDL ALIAS uqm_sdl)
 
+# --- EnTT --------------------------------------------------------------------
+# The rewrite's entity storage (src/docs/review-004-entt.md). Header-only;
+# the interface target exists so nothing else names EnTT::EnTT directly and
+# the pin lives in exactly one place.
+set(ENTT_INSTALL OFF)
+FetchContent_Declare(EnTT
+	GIT_REPOSITORY https://github.com/skypjack/entt.git
+	GIT_TAG v3.16.0
+	GIT_SHALLOW TRUE
+	FIND_PACKAGE_ARGS NAMES EnTT CONFIG
+)
+FetchContent_MakeAvailable(EnTT)
+
+add_library(uqm_entt INTERFACE)
+target_link_libraries(uqm_entt INTERFACE EnTT::EnTT)
+add_library(uqm::entt ALIAS uqm_entt)
+
 # --- zlib / libpng -----------------------------------------------------------
 # Nothing to fetch. zlib went first: uio's zip backend inflates through the
 # vendored miniz in sc2/src/libs/vendor/miniz. libpng followed once png2sdl.c
