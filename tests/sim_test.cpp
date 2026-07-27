@@ -10,6 +10,7 @@
 #include "sim/Collision.hpp"
 #include "sim/EntityList.hpp"
 #include "sim/Impulse.hpp"
+#include "sim/Ship.hpp"
 #include "sim/Random.hpp"
 #include "sim/Spawn.hpp"
 #include "sim/Thrust.hpp"
@@ -284,6 +285,40 @@ testRemovalDuringTraversal()
 	CHECK(order(list) == std::vector<int>({1, 3, 5}),
 			"removing while walking should leave the odd ones in order");
 	CHECK(list.size() == 3, "size should track removals, got %zu", list.size());
+}
+
+void
+testEntityAddressesAreStable()
+{
+	// Ship code holds a pointer to itself across a spawn -- fire a weapon,
+	// then write the cooldown back. If allocating could move entities that
+	// write would land in moved-from memory, which is exactly the bug this
+	// caught: the cooldown silently never took, and the ship fired every
+	// frame. Growth must not relocate anyone.
+	EntityList<int> list;
+	std::vector<int *> addresses;
+	std::vector<EntityId> ids;
+	for (int i = 0; i < 500; ++i)
+	{
+		ids.push_back(list.pushBack(i));
+		addresses.push_back(list.get(ids.back()));
+	}
+
+	for (std::size_t i = 0; i < ids.size(); ++i)
+	{
+		CHECK(list.get(ids[i]) == addresses[i],
+				"entity %zu moved when the arena grew", i);
+		CHECK(*addresses[i] == static_cast<int>(i),
+				"entity %zu holds the wrong value after growth", i);
+	}
+
+	// And a slot recycled through the free list is still addressable, with a
+	// generation that retires the old handle.
+	const EntityId old = ids[10];
+	list.remove(old);
+	const EntityId reused = list.pushBack(-1);
+	CHECK(list.get(old) == nullptr, "the stale handle must not resolve");
+	CHECK(list.get(reused) != nullptr, "the recycled slot should be live");
 }
 
 // --------------------------------------------------------------------------
@@ -861,7 +896,11 @@ spawnOnce(Battle &b, EntityId id) noexcept
 	Element child;
 	child.mass = 99;
 	child.preProcess = recordPre;
-	child.flags = ElementFlags::FiniteLife;
+	// PlayerShip so the hook runs on the appearing frame -- what is under test
+	// is the catch-up pass, and without the flag the hook would be skipped for
+	// the unrelated (and correct) reason that projectiles do not preprocess on
+	// the frame they are born.
+	child.flags = ElementFlags::FiniteLife | ElementFlags::PlayerShip;
 	child.lifeSpan = 5;
 	if (g_trace.spawnAtHead)
 		g_trace.spawnFrom = b.spawnFront(std::move(child));
@@ -875,6 +914,10 @@ plain(int label)
 	Element e;
 	e.mass = label;
 	e.preProcess = recordPre;
+	// PlayerShip, because that is the flag that makes the preprocess hook run
+	// on the appearing frame (process.c:150-151). A projectile's hook is
+	// skipped on its first frame; these tests are about ordering, not that.
+	e.flags = ElementFlags::PlayerShip;
 	return e;
 }
 
@@ -939,18 +982,22 @@ testFiniteLifeExpiresAndCallsDeath()
 	Battle b(1);
 
 	Element shot = plain(7);
-	shot.flags = ElementFlags::FiniteLife;
+	shot.flags = ElementFlags::FiniteLife | ElementFlags::PlayerShip;
 	shot.lifeSpan = 3;
 	shot.onDeath = recordDeath;
 	b.spawnBack(std::move(shot));
 
+	// Life is spent in the pre pass and death is decided at the *start* of
+	// the frame after it reaches zero (process.c:133-141, 180-181). A
+	// 3-frame life therefore survives three steps and dies on the fourth.
 	b.step();
-	CHECK(b.elements().size() == 1, "alive after one step");
 	b.step();
 	b.step();
-	CHECK(b.elements().empty(), "a 3-frame life should be gone after 3 steps");
+	CHECK(b.elements().size() == 1, "a 3-frame life survives three steps");
+	b.step();
+	CHECK(b.elements().empty(), "and is gone on the fourth");
 	CHECK(g_trace.deaths == std::vector<int>({7}),
-			"and its death hook should have run exactly once");
+			"its death hook should have run exactly once");
 }
 
 void
@@ -962,14 +1009,17 @@ testMotionIntegratesAndWraps()
 	e.velocity.setComponents(worldToVelocity(10), 0);
 	const EntityId id = b.spawnBack(std::move(e));
 
-	// The first step only seeds `next` -- an Appearing element has a position
-	// but no motion yet, matching process.c:379.
+	// A newly spawned element *does* move on its first step. Appearing
+	// suppresses the preprocess hook, not the motion -- process.c:163 gates
+	// movement on IGNORE_VELOCITY alone. Getting this wrong costs every
+	// projectile its first frame of flight.
 	b.step();
-	CHECK(b.get(id)->current == Vec2i({100, 100}),
-			"a newly spawned element does not move on its first step");
+	CHECK(b.get(id)->current.x == 110,
+			"it should move 10 on its very first step, got %ld",
+			static_cast<long>(b.get(id)->current.x));
 
 	b.step();
-	CHECK(b.get(id)->current.x == 110, "then it moves 10 a frame, got %ld",
+	CHECK(b.get(id)->current.x == 120, "and 10 a frame after, got %ld",
 			static_cast<long>(b.get(id)->current.x));
 
 	// And the arena is a torus.
@@ -1148,11 +1198,174 @@ testDeriveSpeedStateFromVelocity()
 			"well above max is BeyondMax");
 }
 
+// --------------------------------------------------------------------------
+// Ships
+
+EntityId
+addShip(Battle &b, const ShipData &data, Vec2i at, int facing, int player)
+{
+	Element e;
+	e.kind = ElementKind::Ship;
+	e.flags = ElementFlags::PlayerShip;
+	e.current = at;
+	e.next = at;
+	e.facing = facing;
+	e.playerNr = player;
+	e.mass = data.mass;
+	e.ship.data = &data;
+	return b.spawnBack(std::move(e));
+}
+
+void
+testShipInitialisesFromItsDescriptor()
+{
+	Battle b(1);
+	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{1000, 1000}, 0, 0);
+	b.get(id)->preProcess = shipPreProcess;
+	b.get(id)->postProcess = shipPostProcess;
+
+	b.step();
+	const Element *e = b.get(id);
+	CHECK(e->ship.crew == 18, "the cruiser starts with 18 crew, got %ld",
+			static_cast<long>(e->ship.crew));
+	CHECK(e->ship.energy == 18, "and 18 energy, got %ld",
+			static_cast<long>(e->ship.energy));
+}
+
+void
+testTurningIsGatedByTurnWait()
+{
+	Battle b(1);
+	// The Avenger turns every 2 frames; the Cruiser every 1.
+	const EntityId slow = addShip(b, ilwrathAvenger(), Vec2i{1000, 1000}, 0, 0);
+	b.get(slow)->preProcess = shipPreProcess;
+	b.get(slow)->postProcess = shipPostProcess;
+
+	b.step();  // Appearing frame: input is not latched
+	b.get(slow)->ship.input = ShipInput::Right;
+
+	// turnWait N means a turn every N+1 frames, not every N: the counter is
+	// set to N *after* a turn and has to reach zero again (ship.c:238-253).
+	// The Avenger's 2 therefore turns on frames 1, 4, 7...
+	const int start = b.get(slow)->facing;
+	b.step();
+	CHECK(b.get(slow)->facing == normalizeFacing(start + 1),
+			"the first turn should happen immediately");
+	b.step();
+	b.step();
+	CHECK(b.get(slow)->facing == normalizeFacing(start + 1),
+			"and the next two frames should be spent waiting");
+	b.step();
+	CHECK(b.get(slow)->facing == normalizeFacing(start + 2),
+			"then turn again on the fourth");
+}
+
+void
+testFiringSpendsEnergyAndRespectsCooldown()
+{
+	Battle b(1);
+	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{2000, 2000}, 0, 0);
+	b.get(id)->preProcess = shipPreProcess;
+	b.get(id)->postProcess = shipPostProcess;
+
+	b.step();
+	CHECK(b.elements().size() == 1, "just the ship so far");
+
+	b.get(id)->ship.input = ShipInput::Weapon;
+	b.step();
+	CHECK(b.elements().size() == 2, "firing should have spawned a missile");
+	CHECK(b.get(id)->ship.energy == 18 - 9,
+			"and spent 9 energy, got %ld",
+			static_cast<long>(b.get(id)->ship.energy));
+
+	// weaponWait is 10, so holding the trigger must not fire again yet.
+	b.step();
+	CHECK(b.elements().size() == 2,
+			"the cooldown should block a second shot, got %d elements and "
+			"weaponCounter %ld",
+			static_cast<int>(b.elements().size()),
+			static_cast<long>(b.get(id)->ship.weaponCounter));
+
+	// With the energy drained below the cost, it must not fire at all -- and
+	// must not start a cooldown either.
+	Battle c(1);
+	const EntityId poor = addShip(c, earthlingCruiser(), Vec2i{2000, 2000}, 0, 0);
+	c.get(poor)->preProcess = shipPreProcess;
+	c.get(poor)->postProcess = shipPostProcess;
+	c.step();
+	c.get(poor)->ship.energy = 8;   // one short of the 9-point cost
+	c.get(poor)->ship.energyCounter = 5;  // ...and hold off regen, which
+										  // would otherwise top it up first
+	c.get(poor)->ship.input = ShipInput::Weapon;
+	c.step();
+	CHECK(c.elements().size() == 1, "a ship that cannot afford the shot "
+									"must not fire");
+	CHECK(c.get(poor)->ship.energy == 8,
+			"and must not be charged for it, got %ld",
+			static_cast<long>(c.get(poor)->ship.energy));
+}
+
+void
+testMissileFliesAndExpires()
+{
+	Battle b(1);
+	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
+	b.get(id)->preProcess = shipPreProcess;
+	b.get(id)->postProcess = shipPostProcess;
+	b.step();
+
+	b.get(id)->ship.input = ShipInput::Weapon;
+	b.step();
+	b.get(id)->ship.input = ShipInput::None;
+	CHECK(b.elements().size() == 2, "one missile");
+
+	// Find it and watch it move.
+	EntityId shot;
+	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+		if (b.get(e)->kind == ElementKind::Weapon)
+			shot = e;
+	CHECK(shot.valid(), "the missile should be in the list");
+
+	const Vec2i first = b.get(shot)->current;
+	b.step();
+	const Vec2i second = b.get(shot)->current;
+	CHECK(!(first == second), "the missile should move");
+	CHECK(second.y < first.y, "and facing 0 is up, so it goes -y");
+
+	// MISSILE_LIFE is 60, so it is gone well before 100 frames.
+	for (int i = 0; i < 100 && b.elements().size() > 1; ++i)
+		b.step();
+	CHECK(b.elements().size() == 1, "the missile should expire");
+}
+
+void
+testTheTwoShipsFeelDifferent()
+{
+	// Not a rendering claim -- these are the numbers that make the Avenger
+	// play nothing like the Cruiser, and they come straight from the C.
+	const ShipData &cruiser = earthlingCruiser();
+	const ShipData &avenger = ilwrathAvenger();
+
+	CHECK(cruiser.thrustWait == 4 && avenger.thrustWait == 0,
+			"the Avenger accelerates every frame, the Cruiser every fourth");
+	CHECK(cruiser.weaponWait == 10 && avenger.weaponWait == 0,
+			"the Avenger's flame is continuous, the Cruiser's missiles are not");
+	CHECK(cruiser.turnWait == 1 && avenger.turnWait == 2,
+			"but the Cruiser turns twice as fast");
+	CHECK(cruiser.weaponEnergyCost == 9 && avenger.weaponEnergyCost == 1,
+			"and pays 9 a shot against the Avenger's 1");
+}
+
 }  // namespace
 
 int
 main()
 {
+	testShipInitialisesFromItsDescriptor();
+	testTurningIsGatedByTurnWait();
+	testFiringSpendsEnergyAndRespectsCooldown();
+	testMissileFliesAndExpires();
+	testTheTwoShipsFeelDifferent();
 	testIsqrtIsFloorSqrt();
 	testHeadOnCollisionExchangesMomentum();
 	testGravityMassIsNotPushed();
@@ -1189,6 +1402,7 @@ main()
 	testSlotReuseDoesNotReorder();
 	testStaleHandlesAreDetectable();
 	testRemovalDuringTraversal();
+	testEntityAddressesAreStable();
 
 	if (failures != 0)
 		std::printf("%d check(s) failed\n", failures);

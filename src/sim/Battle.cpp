@@ -21,32 +21,83 @@ Battle::spawnBack(Element e)
 	return elements_.pushBack(std::move(e));
 }
 
+// PreProcess (process.c:128-186), which is more than "call the hook".
+//
+// The ordering here was got wrong once and the tests caught it, so it is
+// worth spelling out. A newly spawned element is seeded with next = current
+// (SetUpElement, process.c:117-126) and then **still has its velocity
+// applied** -- process.c:163 gates motion on IGNORE_VELOCITY and nothing
+// else. Appearing suppresses the preprocess *hook*, not the movement. Getting
+// that wrong costs every projectile its first frame of flight, which at 24 Hz
+// is a visible stutter at the muzzle.
+//
+// Appearing is cleared here only for player ships (process.c:150-151, "want
+// to preprocess ship"). A weapon keeps it through its first frame, so its
+// hook does not run until the second.
 void
-Battle::integrate(EntityId id) noexcept
+Battle::preProcessOne(EntityId id) noexcept
 {
 	Element *e = elements_.get(id);
 	if (e == nullptr)
 		return;
 
-	if (any(e->flags & ElementFlags::Appearing))
+	// Death is decided at the *start* of the frame after life reached zero,
+	// and the hook runs while the element is still in the list
+	// (process.c:133-141).
+	if (any(e->flags & ElementFlags::FiniteLife) && e->lifeSpan == 0)
 	{
-		// Newly spawned: it has a position but no motion yet, so `next` is
-		// seeded rather than advanced. process.c:379 does the same
-		// (`EPtr->next = EPtr->current`).
-		e->next = e->current;
-		return;
+		e->flags |= ElementFlags::Disappearing;
+		if (e->onDeath != nullptr)
+			e->onDeath(*this, id);
+		e = elements_.get(id);
+		if (e == nullptr)
+			return;
 	}
 
-	if (any(e->flags & ElementFlags::DefyPhysics))
+	if (!any(e->flags & ElementFlags::Disappearing))
 	{
-		// Something else is placing it this frame -- a tractor beam, a
-		// turret following its ship. The flag is cleared in the post pass.
-		e->next = e->current;
-		return;
+		const bool appearing = any(e->flags & ElementFlags::Appearing);
+		if (appearing)
+		{
+			e->next = e->current;  // SetUpElement
+			if (any(e->flags & ElementFlags::PlayerShip))
+				e->flags &= ~ElementFlags::Appearing;
+		}
+
+		if (e->preProcess != nullptr && !appearing)
+		{
+			e->preProcess(*this, id);
+			e = elements_.get(id);
+			if (e == nullptr)
+				return;
+		}
+		else if (appearing && any(e->flags & ElementFlags::PlayerShip)
+				&& e->preProcess != nullptr)
+		{
+			// A ship's hook *does* run on its appearing frame -- the C clears
+			// the flag in a local before calling, so ship_preprocess still
+			// sees APPEARING on the element and takes its init branch.
+			e->flags |= ElementFlags::Appearing;
+			e->preProcess(*this, id);
+			e = elements_.get(id);
+			if (e == nullptr)
+				return;
+			e->flags &= ~ElementFlags::Appearing;
+		}
+
+		if (!any(e->flags & ElementFlags::IgnoreVelocity))
+		{
+			const Vec2i delta = e->velocity.advance(1);
+			e->next = wrap(
+					Vec2i{e->current.x + delta.x, e->current.y + delta.y});
+		}
+
+		if (any(e->flags & ElementFlags::FiniteLife) && e->lifeSpan > 0)
+			--e->lifeSpan;
 	}
 
-	const Vec2i delta = e->velocity.advance(1);
-	e->next = wrap(Vec2i{e->current.x + delta.x, e->current.y + delta.y});
+	e->flags &= ~ElementFlags::Collided;
+	e->flags |= ElementFlags::PreProcessed;
 }
 
 bool
@@ -135,16 +186,7 @@ Battle::preProcessPass()
 			continue;
 
 		if (!any(e->flags & ElementFlags::PreProcessed))
-		{
-			if (e->preProcess != nullptr)
-				e->preProcess(*this, id);
-
-			e = elements_.get(id);
-			if (e == nullptr)
-				continue;
-			e->flags |= ElementFlags::PreProcessed;
-			integrate(id);
-		}
+			preProcessOne(id);
 
 		e = elements_.get(id);
 		if (e != nullptr && e->collidable()
@@ -169,13 +211,7 @@ Battle::postProcessPass()
 		if (e == nullptr || any(e->flags & ElementFlags::PreProcessed))
 			continue;
 
-		if (e->preProcess != nullptr)
-			e->preProcess(*this, id);
-		e = elements_.get(id);
-		if (e == nullptr)
-			continue;
-		e->flags |= ElementFlags::PreProcessed;
-		integrate(id);
+		preProcessOne(id);
 
 		e = elements_.get(id);
 		if (e != nullptr && e->collidable()
@@ -202,22 +238,15 @@ Battle::postProcessPass()
 				continue;
 		}
 
+		// PostProcess (process.c:189-193): the hook, then commit.
 		e->current = e->next;
 
-		if (any(e->flags & ElementFlags::FiniteLife)
-				&& !any(e->flags & ElementFlags::Disappearing))
-		{
-			if (e->lifeSpan > 0)
-				--e->lifeSpan;
-			if (e->lifeSpan == 0)
-				e->flags |= ElementFlags::Disappearing;
-		}
-
-		// Per-frame flags reset here, not at the top of the next step, so a
-		// hook that inspects them after the fact sees this frame's values.
-		e->flags &= ~(ElementFlags::Appearing | ElementFlags::Collided
-				| ElementFlags::PreProcessed | ElementFlags::PostProcessed
-				| ElementFlags::DefyPhysics);
+		// Ageing and the death decision both live in the pre pass, matching
+		// process.c:133-141 and 180-181, so an element dies at the start of
+		// the frame after its life reached zero -- not at the end of the one
+		// that spent it.
+		e->flags &= ~(ElementFlags::Appearing | ElementFlags::PreProcessed
+				| ElementFlags::PostProcessed);
 	}
 
 	scratch_.clear();
@@ -227,13 +256,10 @@ Battle::postProcessPass()
 		if (e != nullptr && any(e->flags & ElementFlags::Disappearing))
 			scratch_.push_back(id);
 	}
+	// The death hook already ran in the pre pass, while the element was still
+	// in the list and could still be looked at.
 	for (const EntityId id : scratch_)
-	{
-		Element *e = elements_.get(id);
-		if (e != nullptr && e->onDeath != nullptr)
-			e->onDeath(*this, id);
 		elements_.remove(id);
-	}
 }
 
 void

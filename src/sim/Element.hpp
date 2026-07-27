@@ -13,6 +13,59 @@
 namespace uqm::sim {
 
 class Battle;
+struct ShipData;
+
+// What the player is asking for this frame.
+enum class ShipInput : std::uint8_t
+{
+	None = 0,
+	Left = 1u << 0,
+	Right = 1u << 1,
+	Thrust = 1u << 2,
+	Weapon = 1u << 3,
+	Special = 1u << 4,
+};
+
+[[nodiscard]] constexpr ShipInput
+operator|(ShipInput a, ShipInput b) noexcept
+{
+	return static_cast<ShipInput>(
+			static_cast<std::uint8_t>(a) | static_cast<std::uint8_t>(b));
+}
+[[nodiscard]] constexpr ShipInput
+operator&(ShipInput a, ShipInput b) noexcept
+{
+	return static_cast<ShipInput>(
+			static_cast<std::uint8_t>(a) & static_cast<std::uint8_t>(b));
+}
+constexpr ShipInput &
+operator|=(ShipInput &a, ShipInput b) noexcept
+{
+	return a = a | b;
+}
+[[nodiscard]] constexpr bool
+any(ShipInput f) noexcept
+{
+	return static_cast<std::uint8_t>(f) != 0;
+}
+
+// A ship's mutable half. The C keeps this in STARSHIP beside the ELEMENT;
+// here it rides on the element, because a ship *is* an element and a second
+// lifetime to keep in step would be a second thing to get wrong.
+struct ShipState
+{
+	const ShipData *data = nullptr;
+	ShipInput input = ShipInput::None;
+
+	std::int32_t crew = 0;
+	std::int32_t energy = 0;
+
+	std::int32_t energyCounter = 0;
+	std::int32_t weaponCounter = 0;
+	std::int32_t specialCounter = 0;
+
+	SpeedState speed = SpeedState::Normal;
+};
 
 // What an element is doing this frame. The C keeps these in one
 // ELEMENT_FLAGS word (element.h); the ones the step loop itself reasons about
@@ -49,8 +102,14 @@ enum class ElementFlags : std::uint32_t
 	// Already postprocessed this frame.
 	PostProcessed = 1u << 7,
 
-	// Skips position integration for one frame: something else is placing it.
+	// Collision bookkeeping, not motion: set when two elements met with no
+	// relative motion to exchange (collide.c:84-85). DEFY_PHYSICS in the C.
 	DefyPhysics = 1u << 8,
+
+	// Skips velocity integration. IGNORE_VELOCITY in the C, and distinct
+	// from DefyPhysics -- process.c:163 tests this one and nothing else when
+	// deciding whether an element moves.
+	IgnoreVelocity = 1u << 10,
 
 	// A player's ship, as opposed to a projectile or a rock.
 	PlayerShip = 1u << 9,
@@ -149,6 +208,9 @@ struct Element
 
 	// What this element hit, valid only inside a collision hook.
 	EntityId collidedWith;
+
+	// Only meaningful when kind == Ship; `ship.data` is null otherwise.
+	ShipState ship;
 
 	[[nodiscard]] bool
 	collidable() const noexcept

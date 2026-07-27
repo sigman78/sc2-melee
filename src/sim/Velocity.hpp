@@ -10,6 +10,22 @@
 
 namespace uqm::sim {
 
+// How a ship's speed stands against its own maximum. Lives here rather than
+// in Thrust.hpp because an Element carries one and should not have to drag in
+// the thrust machinery to do so (docs/cpp-conventions.md rule 2 on the
+// engine's error/state surfaces staying small).
+enum class SpeedState : std::uint8_t
+{
+	// Under the ship's own maximum: normal acceleration applies.
+	Normal,
+	// At it. Thrusting along the travel vector does nothing more; thrusting
+	// across it turns the vector without adding speed.
+	AtMax,
+	// Above it -- only reachable through a gravity well, and only
+	// deceleration is allowed until it drops back.
+	BeyondMax,
+};
+
 // velocity.c, reproduced. Everything here is fixed point: a velocity
 // component is in 1/32 world units (VELOCITY_SHIFT is 5), and the sub-unit
 // remainder is carried frame to frame in a Bresenham error term so that a

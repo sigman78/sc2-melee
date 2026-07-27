@@ -26,20 +26,9 @@ namespace uqm::sim {
 // value out. Supox's special becomes: pick a facing delta, call thrust with
 // it. Nothing to save, nothing to restore.
 
-// The plan's primitive #2: speed flags derived from |v| against max_thrust,
-// not hand-patched by each ship. chmmr.c:398-409, druuge.c:266 and
-// mmrnmhrm.c:436-450 all patch these by hand today.
-enum class SpeedState : std::uint8_t
-{
-	// Under the ship's own maximum: normal acceleration applies.
-	Normal,
-	// At the maximum. Thrusting along the travel vector does nothing more;
-	// thrusting across it turns the vector without adding speed.
-	AtMax,
-	// Above the maximum -- only reachable through a gravity well, and only
-	// deceleration is allowed until it drops back.
-	BeyondMax,
-};
+// SpeedState is in Velocity.hpp -- the plan's primitive #2, flags derived
+// from |v| against max_thrust rather than hand-patched by each ship
+// (chmmr.c:398-409, druuge.c:266, mmrnmhrm.c:436-450 all patch them today).
 
 struct ThrustProfile
 {

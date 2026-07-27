@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace uqm::sim {
@@ -44,6 +45,17 @@ inline constexpr EntityId kNoEntity{};
 // list reuses anything, and it would silently reorder the phoenix. Hence
 // pushFront/insertAfter, and iteration that follows the links rather than the
 // slots.
+//
+// **Entity addresses are stable.** Storage is chunked rather than one flat
+// vector, so allocating never moves a live entity. This is not an
+// optimisation, it is a correctness requirement: hooks spawn while holding a
+// pointer to themselves -- a ship fires and then writes its own weapon
+// cooldown -- and with a reallocating vector that write lands in moved-from
+// memory. The C has the property for free (element.c allocates from a fixed
+// pool, so an ELEMENT* is good for the element's whole life) and every ship in
+// ships/ is written assuming it. Handles are still the currency across a hook
+// call, because `remove` can happen underneath you; stability only means the
+// address does not move while the entity is alive.
 template <class T>
 class EntityList
 {
@@ -56,22 +68,22 @@ public:
 
 	[[nodiscard]] T *get(EntityId id) noexcept
 	{
-		return alive(id) ? &slots_[id.index].value : nullptr;
+		return alive(id) ? &slot(id.index).value : nullptr;
 	}
 	[[nodiscard]] const T *get(EntityId id) const noexcept
 	{
-		return alive(id) ? &slots_[id.index].value : nullptr;
+		return alive(id) ? &slot(id.index).value : nullptr;
 	}
 
 	[[nodiscard]] EntityId next(EntityId id) const noexcept
 	{
 		assert(alive(id) && "next() of a dead entity");
-		return slots_[id.index].next;
+		return slot(id.index).next;
 	}
 	[[nodiscard]] EntityId prev(EntityId id) const noexcept
 	{
 		assert(alive(id) && "prev() of a dead entity");
-		return slots_[id.index].prev;
+		return slot(id.index).prev;
 	}
 
 	EntityId
@@ -107,24 +119,24 @@ public:
 		if (!alive(id))
 			return;
 
-		Slot &slot = slots_[id.index];
-		if (slot.prev.valid())
-			slots_[slot.prev.index].next = slot.next;
+		Slot &s = slot(id.index);
+		if (s.prev.valid())
+			slot(s.prev.index).next = s.next;
 		else
-			head_ = slot.next;
+			head_ = s.next;
 
-		if (slot.next.valid())
-			slots_[slot.next.index].prev = slot.prev;
+		if (s.next.valid())
+			slot(s.next.index).prev = s.prev;
 		else
-			tail_ = slot.prev;
+			tail_ = s.prev;
 
-		slot.value = T{};
-		slot.prev = kNoEntity;
-		slot.next = kNoEntity;
+		s.value = T{};
+		s.prev = kNoEntity;
+		s.next = kNoEntity;
 		// Bumping the generation is what turns a surviving handle into a
 		// detectable mistake instead of a read of the next tenant.
-		++slot.generation;
-		slot.live = false;
+		++s.generation;
+		s.live = false;
 		free_.push_back(id.index);
 		--count_;
 	}
@@ -132,13 +144,14 @@ public:
 	void
 	clear() noexcept
 	{
-		for (std::uint32_t i = 0; i < slots_.size(); ++i)
+		for (std::uint32_t i = 0; i < used_; ++i)
 		{
-			if (slots_[i].live)
+			Slot &s = slot(i);
+			if (s.live)
 			{
-				slots_[i].value = T{};
-				slots_[i].live = false;
-				++slots_[i].generation;
+				s.value = T{};
+				s.live = false;
+				++s.generation;
 				free_.push_back(i);
 			}
 		}
@@ -152,16 +165,18 @@ public:
 	void
 	reserve(std::size_t n)
 	{
-		slots_.reserve(n);
+		while (capacity_ < n)
+			grow();
 		free_.reserve(n);
 	}
 
 	[[nodiscard]] bool
 	alive(EntityId id) const noexcept
 	{
-		return id.valid() && id.index < slots_.size()
-				&& slots_[id.index].live
-				&& slots_[id.index].generation == id.generation;
+		if (!id.valid() || id.index >= used_)
+			return false;
+		const Slot &s = slot(id.index);
+		return s.live && s.generation == id.generation;
 	}
 
 private:
@@ -176,6 +191,30 @@ private:
 		bool live = false;
 	};
 
+	// Chunk size is a tradeoff between a wasted tail chunk and how often we
+	// allocate. A melee is a few dozen entities, so one chunk is the whole
+	// battle and the free list serves every spawn after that.
+	static constexpr std::uint32_t kChunkShift = 6;
+	static constexpr std::uint32_t kChunkSize = 1u << kChunkShift;
+
+	[[nodiscard]] Slot &
+	slot(std::uint32_t i) noexcept
+	{
+		return chunks_[i >> kChunkShift][i & (kChunkSize - 1)];
+	}
+	[[nodiscard]] const Slot &
+	slot(std::uint32_t i) const noexcept
+	{
+		return chunks_[i >> kChunkShift][i & (kChunkSize - 1)];
+	}
+
+	void
+	grow()
+	{
+		chunks_.push_back(std::make_unique<Slot[]>(kChunkSize));
+		capacity_ += kChunkSize;
+	}
+
 	EntityId
 	allocate(T value)
 	{
@@ -187,45 +226,50 @@ private:
 		}
 		else
 		{
-			index = static_cast<std::uint32_t>(slots_.size());
-			slots_.emplace_back();
+			if (used_ == capacity_)
+				grow();
+			index = used_++;
 		}
 
-		Slot &slot = slots_[index];
-		slot.value = std::move(value);
-		slot.live = true;
+		Slot &s = slot(index);
+		s.value = std::move(value);
+		s.live = true;
 		++count_;
-		return EntityId{index, slot.generation};
+		return EntityId{index, s.generation};
 	}
 
 	void
 	linkAfter(EntityId after, EntityId id)
 	{
-		Slot &slot = slots_[id.index];
+		Slot &s = slot(id.index);
 		if (!after.valid())
 		{
-			slot.prev = kNoEntity;
-			slot.next = head_;
+			s.prev = kNoEntity;
+			s.next = head_;
 			if (head_.valid())
-				slots_[head_.index].prev = id;
+				slot(head_.index).prev = id;
 			head_ = id;
 			if (!tail_.valid())
 				tail_ = id;
 			return;
 		}
 
-		Slot &prevSlot = slots_[after.index];
-		slot.prev = after;
-		slot.next = prevSlot.next;
+		Slot &prevSlot = slot(after.index);
+		s.prev = after;
+		s.next = prevSlot.next;
 		if (prevSlot.next.valid())
-			slots_[prevSlot.next.index].prev = id;
+			slot(prevSlot.next.index).prev = id;
 		else
 			tail_ = id;
 		prevSlot.next = id;
 	}
 
-	std::vector<Slot> slots_;
+	std::vector<std::unique_ptr<Slot[]>> chunks_;
 	std::vector<std::uint32_t> free_;
+	// Slots ever handed out, and slots constructed. Everything at or past
+	// `used_` has never been touched, so `clear` need not walk it.
+	std::uint32_t used_ = 0;
+	std::uint32_t capacity_ = 0;
 	EntityId head_ = kNoEntity;
 	EntityId tail_ = kNoEntity;
 	std::size_t count_ = 0;

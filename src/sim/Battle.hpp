@@ -59,7 +59,7 @@ public:
 private:
 	void preProcessPass();
 	void postProcessPass();
-	void integrate(EntityId id) noexcept;
+	void preProcessOne(EntityId id) noexcept;
 	void collideAgainstSuccessors(EntityId id);
 	void collideAgainstAll(EntityId id);
 	bool testPair(EntityId a, EntityId b);
