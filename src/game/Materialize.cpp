@@ -10,8 +10,8 @@ materialize(const ShipDef &def, Resources &content,
 		platform::Platform &window)
 {
 	sim::ShipSpec spec = *def.spec;
-	// When the art is missing the spans stay empty, and the spawn sites
-	// fall back to their block masks -- the ship still flies, as a shape.
+	// Never empty: missing art yields Resources' placeholder, whose one
+	// block mask serves every facing -- the ship still flies, as a shape.
 	spec.facingMasks = content.sprites(window, def.art.ship).masks;
 	spec.weapon.masks = content.sprites(window, def.art.weapon).masks;
 	return spec;

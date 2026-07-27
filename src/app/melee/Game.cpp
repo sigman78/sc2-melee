@@ -47,16 +47,6 @@ toShipInput(input::Buttons b) noexcept
 
 }  // namespace
 
-sim::CollisionMask
-block(std::uint32_t w, std::uint32_t h)
-{
-	const std::vector<std::uint8_t> bits(static_cast<std::size_t>(w) * h, 1);
-	return sim::CollisionMask(Extent2u{w, h},
-			Vec2i{static_cast<std::int32_t>(w / 2),
-				static_cast<std::int32_t>(h / 2)},
-			bits);
-}
-
 std::uint32_t
 battleSeed()
 {
@@ -84,13 +74,13 @@ setUpBattle(Game &g)
 		e.playerNr = player;
 		e.mass = data.mass;
 
-		// The real silhouette when the art loaded, a block when it did not.
-		// Per-pixel collision against a 12x12 square is not per-pixel
-		// collision, so this changes how the ships actually touch.
+		// The real silhouette when the art loaded, Resources' placeholder
+		// block when it did not -- either way maskFor cannot miss. Per-pixel
+		// collision against a square is not per-pixel collision, so a
+		// missing mask changes how the ships actually touch.
 		const game::SpriteSet &set = g.content.sprites(g.window,
 				g.roster[static_cast<std::size_t>(player)]->art.ship);
-		const sim::CollisionMask *m = set.maskFor(facing.raw());
-		e.mask = m != nullptr ? m : &g.shipMask;
+		e.mask = set.maskFor(facing.raw());
 		// Warping in, not simply present. shipTransition hands over to
 		// shipPreProcess once the ship has arrived.
 		e.preProcess = sim::shipTransition;
@@ -121,15 +111,10 @@ setUpBattle(Game &g)
 	// The field spawns after the ships: spawnPlanet rejects any position
 	// overlapping something or in a gravity well (misc.c:63-70), and can
 	// only reject what already exists to avoid.
-	const game::SpriteSet &worldArt =
-			g.content.sprites(g.window, game::kMeleeArt.planet);
-	const game::SpriteSet &rockArt =
-			g.content.sprites(g.window, game::kMeleeArt.asteroid);
 	const sim::CollisionMask *planetMask =
-			worldArt.maskFor(0) != nullptr ? worldArt.maskFor(0)
-										   : &g.planetMask;
+			g.content.sprites(g.window, game::kMeleeArt.planet).maskFor(0);
 	const sim::CollisionMask *rockMask =
-			rockArt.maskFor(0) != nullptr ? rockArt.maskFor(0) : &g.rockMask;
+			g.content.sprites(g.window, game::kMeleeArt.asteroid).maskFor(0);
 
 	// Spread over the arena, in display pixels. See kStarFieldWidth.
 	for (Vec2i &s : g.stars)

@@ -5,11 +5,37 @@
 #include "engine/core/Text.hpp"
 #include "platform/File.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <utility>
 
 namespace uqm::game {
 
 namespace fs = std::filesystem;
+
+namespace {
+
+// The stand-in for art that did not load: no frames, so the draw side's
+// Rect fallback stays deliberately ugly, but one solid block mask, so a
+// maskless element cannot exist and no caller carries its own fallback.
+// One size for everything -- the block stands in for a silhouette, it does
+// not try to be one; per-kind sizing died with the Game's mask members
+// (review-003 R4).
+[[nodiscard]] SpriteSet
+placeholder()
+{
+	constexpr std::uint32_t kSide = 12;
+	const std::vector<std::uint8_t> bits(
+			static_cast<std::size_t>(kSide) * kSide, 1);
+	SpriteSet set;
+	set.masks.emplace_back(Extent2u{kSide, kSide},
+			Vec2i{static_cast<std::int32_t>(kSide / 2),
+				static_cast<std::int32_t>(kSide / 2)},
+			bits);
+	return set;
+}
+
+}  // namespace
 
 Resources
 Resources::open(fs::path root, std::vector<content::ContentError> *problems)
@@ -54,6 +80,11 @@ Resources::sprites(platform::Platform &window, std::string_view id)
 		// base/uqm.ct, which is the whole point of this class.
 		set = loadSprites(window, path, pathOf("colortable.main"));
 	}
+
+	// The invariant every consumer leans on: a set from here is either the
+	// art or the placeholder -- never frameless *and* maskless.
+	if (!set.valid())
+		set = placeholder();
 
 	const auto [it, inserted] = sprites_.emplace(std::string(id), std::move(set));
 	(void)inserted;

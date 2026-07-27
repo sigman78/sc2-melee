@@ -28,9 +28,6 @@
 
 namespace uqm::melee {
 
-// A solid rectangular collision mask, standing in for a sprite's real one.
-[[nodiscard]] sim::CollisionMask block(std::uint32_t w, std::uint32_t h);
-
 // Randomness enters the simulation here or not at all: the sim never reads
 // a clock, so a battle is exactly as random as its seed. Printed so a
 // battle can be replayed from the logged value.
@@ -72,13 +69,6 @@ struct Game
 	// sounds resolve through the owner's definition (visualFor, Sound.cpp);
 	// no other app code names a resource id.
 	std::array<Borrowed<const game::ShipDef>, 2> roster{};
-
-	// Fallbacks for anything without art yet -- ships, shots, rocks, the
-	// planet.
-	sim::CollisionMask shipMask = block(12, 12);
-	sim::CollisionMask shotMask = block(3, 3);
-	sim::CollisionMask rockMask = block(8, 8);
-	sim::CollisionMask planetMask = block(28, 28);
 
 	// Per-battle copies, so their weapons can carry the mask cut from the
 	// projectile art. sim/'s shared descriptors stay content-free by
