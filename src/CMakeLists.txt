@@ -22,6 +22,7 @@ add_library(uqm2_content STATIC
 	engine/content/PhraseFile.cpp
 	engine/content/PngImage.cpp
 	engine/content/ResourceMap.cpp
+	engine/content/Sprite.cpp
 	platform/File.cpp
 	# Platform.cpp is deliberately NOT here: it pulls in SDL, and everything
 	# that links this library today is a headless test.

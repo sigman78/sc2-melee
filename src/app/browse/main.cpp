@@ -27,6 +27,7 @@
 #include "engine/content/FontDir.hpp"
 #include "engine/content/PngImage.hpp"
 #include "engine/content/ResourceMap.hpp"
+#include "engine/content/Sprite.hpp"
 #include "platform/File.hpp"
 
 #include <algorithm>
@@ -231,41 +232,26 @@ loadColormaps(const fs::path &ct)
 // --------------------------------------------------------------------------
 // Drawing content
 
-// Indexed images are coloured through `palette` when one is supplied -- that
-// is the whole point of the sheet -- and fall back to the PNG's own PLTE when
-// it is not.
+// Expansion lives in the content library now (engine/content/Sprite.hpp), so
+// the browser and the game colour a cel the same way. That matters more than
+// it sounds: a `.ct` colormap and a PNG's own PLTE disagree by construction,
+// so a second copy of this would be a second place for the two to drift.
 void
 blit(Canvas &c, const PngImage &img, Vec2u origin, const Palette *palette)
 {
 	const Extent2u size = img.size();
-	const std::span<const std::uint8_t> px = img.pixels();
+	const std::vector<std::uint8_t> rgba = toRgba(img, palette);
 
 	for (std::uint32_t y = 0; y < size.h; ++y)
 	{
 		for (std::uint32_t x = 0; x < size.w; ++x)
 		{
-			const Vec2u to{origin.x + x, origin.y + y};
-			if (img.format() == PixelFormat::Rgba8)
-			{
-				const std::size_t i =
-						(static_cast<std::size_t>(y) * size.w + x) * 4;
-				if (px[i + 3] == 0)
-					continue;
-				c.set(to, Rgb{px[i], px[i + 1], px[i + 2]}, px[i + 3]);
-			}
-			else
-			{
-				const std::uint8_t idx = img.indexAt({x, y});
-				if (img.transparentIndex() >= 0
-						&& idx == img.transparentIndex())
-					continue;
-				Rgb col{255, 0, 255};  // magenta: an index with no colour
-				if (palette != nullptr)
-					col = (*palette)[idx];
-				else if (idx < img.paletteSize())
-					col = img.palette()[idx];
-				c.set(to, col);
-			}
+			const std::size_t i =
+					(static_cast<std::size_t>(y) * size.w + x) * 4;
+			if (rgba[i + 3] == 0)
+				continue;
+			c.set(Vec2u{origin.x + x, origin.y + y},
+					Rgb{rgba[i], rgba[i + 1], rgba[i + 2]}, rgba[i + 3]);
 		}
 	}
 }

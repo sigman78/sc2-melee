@@ -18,6 +18,7 @@
 #include "engine/content/PhraseFile.hpp"
 #include "engine/content/PngImage.hpp"
 #include "engine/content/ResourceMap.hpp"
+#include "engine/content/Sprite.hpp"
 #include "engine/core/Geometry.hpp"
 #include "platform/File.hpp"
 
@@ -580,9 +581,33 @@ sweepContent(const fs::path &content)
 
 }  // namespace
 
+void
+testOpacityBitsFollowAlpha()
+{
+	// The input a collision mask is built from. Per-pixel collision is only
+	// worth having if the mask follows the silhouette, so a fully transparent
+	// pixel must be clear and *any* non-zero alpha must be set -- including
+	// the partially transparent edge pixels, which the C treats as solid
+	// because its masks come from a colour-key, not a gradient.
+	constexpr std::uint32_t w = 3;
+	constexpr std::uint32_t h = 2;
+	const std::vector<std::uint8_t> rgba{
+			// row 0: opaque, clear, barely-there
+			255, 0, 0, 255, /**/ 0, 0, 0, 0, /**/ 9, 9, 9, 1,
+			// row 1: clear, opaque, clear
+			0, 0, 0, 0, /**/ 1, 2, 3, 255, /**/ 4, 5, 6, 0};
+
+	const std::vector<std::uint8_t> bits = opacityBits(rgba, Extent2u{w, h});
+	const std::vector<std::uint8_t> want{1, 0, 1, 0, 1, 0};
+	CHECK(bits == want, "opacity should follow alpha exactly");
+	CHECK(bits.size() == static_cast<std::size_t>(w) * h,
+			"one byte per pixel, got %zu", bits.size());
+}
+
 int
 main(int argc, char **argv)
 {
+	testOpacityBitsFollowAlpha();
 	testClosedRangeIsClosed();
 	testGeometry();
 	testBigEndianReads();
