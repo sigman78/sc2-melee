@@ -233,14 +233,21 @@ Platform::upload(Extent2u size, std::span<const std::uint8_t> rgba) noexcept
 }
 
 void
-Platform::draw(const Texture &t, Vec2i topLeft, Extent2u dest) noexcept
+Platform::draw(const Texture &t, Vec2i topLeft, Extent2u dest,
+		std::uint8_t alpha) noexcept
 {
 	if (!t.valid() || dest.empty())
 		return;
 	const SDL_FRect to{static_cast<float>(topLeft.x),
 			static_cast<float>(topLeft.y), static_cast<float>(dest.w),
 			static_cast<float>(dest.h)};
+	SDL_SetTextureAlphaMod(t.handle_, alpha);
 	SDL_RenderTexture(renderer_, t.handle_, nullptr, &to);
+	// Restored, because the texture is shared: every Avenger facing comes
+	// from one set, and leaving one cel dimmed would fade the ship for good
+	// the moment it turned.
+	if (alpha != 255)
+		SDL_SetTextureAlphaMod(t.handle_, 255);
 }
 
 void

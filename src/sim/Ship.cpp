@@ -206,11 +206,24 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 		s.weaponCounter = d.weaponWait;
 	}
 
-	// The engine's entire handling of SPECIAL (ship.c:342-343). Everything a
-	// special actually *does* is per-ship code -- which is the asymmetry that
-	// explains most of ships/.
+	// SPECIAL. The engine's own part is only the counter (ship.c:342-343);
+	// everything a special *does* is per-ship code, which is the asymmetry
+	// that explains most of ships/. Hence a hook rather than a switch.
 	if (s.specialCounter > 0)
+	{
 		--s.specialCounter;
+		if (s.specialCounter == 0)
+		{
+			// The cloak lasts exactly as long as the counter and nothing else
+			// clears it, so this is where it lifts.
+			if (auto self = b.get(id); self != nullptr)
+				self->flags &= ~ElementFlags::Cloaked;
+		}
+	}
+	else if (any(s.input & ShipInput::Special) && d.special != nullptr)
+	{
+		d.special(b, id);
+	}
 }
 
 int
@@ -239,6 +252,11 @@ trackShip(Battle &b, EntityId tracker, int &facing) noexcept
 			continue;
 		// Dead ships are not targets (weapon.c:352-353).
 		if (t->lifeSpan == 0 || t->ship.crew == 0)
+			continue;
+		// Nor cloaked ones (weapon.c:344-348). This is the whole tactical
+		// point of the Ilwrath cloak: not that it is hard to see, but that a
+		// guided weapon has nothing to steer toward.
+		if (any(t->flags & ElementFlags::Cloaked))
 			continue;
 
 		const Vec2i to = useNext ? t->next : t->current;
@@ -346,9 +364,29 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 			paid = true;
 		}
 
-		// The laser is a one-frame line in the C. Its only effect on the
-		// simulation is the damage, so that is what is reproduced here.
 		doDamage(*t, 1);
+
+		// The beam itself. Its only effect on the simulation is the damage
+		// above, but the *geometry* lives here rather than in the renderer:
+		// that way it is deterministic, it replays identically, and a
+		// spectator or a recording draws exactly what happened rather than
+		// something reconstructed afterwards.
+		//
+		// LASER_LIFE is 1 (weapon.c:52). `current` and `next` are its two ends
+		// rather than a position and a destination, which is how the C stores
+		// a LINE_PRIM too -- and why IgnoreVelocity is set, since those ends
+		// must not be integrated as motion.
+		const Vec2i beamTo = t->next;
+		Element beam;
+		beam.kind = ElementKind::Laser;
+		beam.playerNr = ship->playerNr;
+		beam.owner = id;
+		beam.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid
+				| ElementFlags::IgnoreVelocity;
+		beam.lifeSpan = 1;
+		beam.current = from;
+		beam.next = beamTo;
+		b.spawnFront(std::move(beam));
 
 		ship = b.get(id);
 		if (ship == nullptr)

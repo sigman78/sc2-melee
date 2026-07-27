@@ -1835,11 +1835,101 @@ testDefyPhysicsExpires()
 			"a frame without a collision sheds DefyPhysics");
 }
 
+void
+testPointDefenceBurnsIncomingFire()
+{
+	const CollisionMask m = solid(8, 8);
+	Battle b(1);
+
+	const EntityId ship =
+			addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
+	b.get(ship)->preProcess = shipPreProcess;
+	b.get(ship)->postProcess = shipPostProcess;
+	b.get(ship)->mask = &m;
+	b.step();
+
+	// An enemy shot well inside LASER_RANGE, which is 100 display pixels --
+	// 400 world units.
+	Element shot;
+	shot.kind = ElementKind::Weapon;
+	shot.playerNr = 1;
+	shot.flags = ElementFlags::FiniteLife;
+	shot.lifeSpan = 20;
+	shot.hitPoints = 1;
+	shot.damage = 1;
+	shot.mass = 1;
+	shot.mask = &m;
+	shot.current = shot.next = Vec2i{4000, 4200};
+	const EntityId incoming = b.spawnBack(std::move(shot));
+
+	b.get(ship)->ship.input = ShipInput::Special;
+	b.step();
+
+	CHECK(b.get(incoming) == nullptr || b.get(incoming)->hitPoints == 0,
+			"point defence should have burned the incoming shot");
+	CHECK(b.get(ship)->ship.specialCounter > 0, "and started its cooldown");
+
+	// The beam is a real element, so the renderer has nothing to invent and
+	// a replay draws exactly what the original did.
+	int beams = 0;
+	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+		if (b.get(e)->kind == ElementKind::Laser)
+			++beams;
+	CHECK(beams == 1, "and left a beam to draw, got %d", beams);
+}
+
+void
+testCloakHidesFromTracking()
+{
+	Battle b(1);
+	const EntityId avenger =
+			addShip(b, ilwrathAvenger(), Vec2i{4000, 4000}, 0, 1);
+	b.get(avenger)->preProcess = shipPreProcess;
+	b.get(avenger)->postProcess = shipPostProcess;
+	b.step();
+
+	const EntityId hunter =
+			addShip(b, earthlingCruiser(), Vec2i{4000, 4400}, 0, 0);
+	b.get(hunter)->preProcess = shipPreProcess;
+	b.step();
+
+	// Facing 8 is away from the target, so a step toward it is a real change.
+	// Starting already pointed at it returns 0 quite correctly -- there is
+	// nothing to turn -- which is not the same as "no target found".
+	int facing = 8;
+	CHECK(trackShip(b, hunter, facing) != 0,
+			"an uncloaked enemy should be trackable");
+
+	b.get(avenger)->ship.input = ShipInput::Special;
+	b.step();
+	CHECK(any(b.get(avenger)->flags & ElementFlags::Cloaked),
+			"the special should have cloaked it");
+
+	int cloakedFacing = 8;
+	CHECK(trackShip(b, hunter, cloakedFacing) == 0,
+			"a cloaked ship must not be trackable (weapon.c:344-348)");
+
+	// It lifts on its own when the counter runs out; there is no second press
+	// to switch it off. SPECIAL_WAIT is 13 for the Avenger.
+	//
+	// The input has to be released first. Holding the button re-cloaks the
+	// moment the counter reaches zero -- which is correct, and is how the C
+	// behaves too as long as the energy lasts, but it means a test that never
+	// lets go can never observe the ship uncloaked.
+	b.get(avenger)->ship.input = ShipInput::None;
+	for (int i = 0; i < 20; ++i)
+		b.step();
+	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
+			"and should uncloak when the counter expires");
+}
+
 }  // namespace
 
 int
 main()
 {
+	testPointDefenceBurnsIncomingFire();
+	testCloakHidesFromTracking();
 	testDeltaCrewReportsDeathOnTheExactHit();
 	testPlanetsTakeNoDamage();
 	testMissileDamagesAndSpendsItself();

@@ -112,7 +112,10 @@ public:
 
 	// Draws `t` scaled into `dest` pixels at `topLeft`. Nearest-neighbour, set
 	// at upload: this is pixel art and smoothing it looks wrong.
-	void draw(const Texture &t, Vec2i topLeft, Extent2u dest) noexcept;
+	// `alpha` is 255 for opaque. Used for the Ilwrath cloak, which is the only
+	// thing so far that is drawn as partly there.
+	void draw(const Texture &t, Vec2i topLeft, Extent2u dest,
+			std::uint8_t alpha = 255) noexcept;
 
 	// A one-pixel line. Only the debug overlay uses this -- the game draws
 	// sprites -- but drawing a vector is how you see a vector.

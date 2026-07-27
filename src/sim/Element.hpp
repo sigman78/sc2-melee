@@ -210,6 +210,12 @@ enum class ElementKind : std::uint8_t
 	Planet,
 	Blast,
 	Turret,
+
+	// A beam. Unlike everything else its `current` and `next` are the two
+	// *ends* of the thing rather than where it was and where it is going --
+	// which is exactly what the C does with a LINE_PRIM (weapon.c:44-85), and
+	// why it can reuse the same element for it.
+	Laser,
 };
 
 // Hooks. Free functions taking the battle and the element's own id, so they

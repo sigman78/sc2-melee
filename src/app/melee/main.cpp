@@ -256,6 +256,8 @@ spritesFor(const Game &g, const sim::Element &e) noexcept
 		case sim::ElementKind::Planet:
 			set = g.world;
 			break;
+		case sim::ElementKind::Laser:
+			return nullptr;  // drawn as a line, not a sprite
 		case sim::ElementKind::Blast:
 			// Weapon blasts and asteroid debris share a kind but not art. The
 			// rubble an asteroid leaves is unowned; a blast belongs to the
@@ -452,6 +454,15 @@ draw(Game &g)
 		if (e == nullptr)
 			continue;
 
+		// A beam is a line between two points, not a sprite at one. Drawn
+		// before the width/height work below, none of which applies.
+		if (e->kind == sim::ElementKind::Laser)
+		{
+			g.window.drawLine(g.camera.toScreen(e->current),
+					g.camera.toScreen(e->next), 0xFF, 0xFF, 0xFF);
+			continue;
+		}
+
 		const Vec2i at = g.camera.toScreen(e->current);
 
 		// The sprite shrinks with the zoom along with everything else -- one
@@ -497,7 +508,15 @@ draw(Game &g)
 							/ static_cast<std::int32_t>(src.h)
 					: h / 2;
 
-			g.window.draw(set->frames[i], Vec2i{at.x - ox, at.y - oy}, dest);
+			// A cloaked ship is drawn faintly rather than not at all. The C
+			// makes it genuinely invisible, but at this stage seeing where
+			// your own cloaked ship is matters more than the tactical
+			// fidelity -- and a ship you cannot see is indistinguishable from
+			// one that has stopped being simulated.
+			const std::uint8_t alpha =
+					any(e->flags & sim::ElementFlags::Cloaked) ? 0x50 : 0xFF;
+			g.window.draw(
+					set->frames[i], Vec2i{at.x - ox, at.y - oy}, dest, alpha);
 			continue;
 		}
 
