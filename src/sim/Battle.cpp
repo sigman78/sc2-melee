@@ -69,6 +69,60 @@ Battle::recordSpawn(EntityId id, const Element &e)
 	spawns_.push_back(SpawnEvent{id, e.kind, e.playerNr});
 }
 
+ShipState *
+Battle::ship(EntityId id) noexcept
+{
+	for (auto &[key, state] : ships_)
+	{
+		if (key == id)
+			return &state;
+	}
+	return nullptr;
+}
+
+const ShipState *
+Battle::ship(EntityId id) const noexcept
+{
+	for (const auto &[key, state] : ships_)
+	{
+		if (key == id)
+			return &state;
+	}
+	return nullptr;
+}
+
+ShipState &
+Battle::attachShip(EntityId id, Borrowed<const ShipSpec> spec)
+{
+	ships_.emplace_back(id, ShipState{});
+	ships_.back().second.spec = spec;
+	return ships_.back().second;
+}
+
+Borrowed<const WeaponSpec>
+Battle::weaponSpec(EntityId id) const noexcept
+{
+	for (const auto &[key, spec] : weaponSpecs_)
+	{
+		if (key == id)
+			return spec;
+	}
+	return nullptr;
+}
+
+void
+Battle::attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec)
+{
+	weaponSpecs_.emplace_back(id, spec);
+}
+
+void
+Battle::dropComponents(EntityId id) noexcept
+{
+	std::erase_if(ships_, [id](const auto &p) { return p.first == id; });
+	std::erase_if(weaponSpecs_, [id](const auto &p) { return p.first == id; });
+}
+
 EntityId
 Battle::spawnFront(Element e)
 {
@@ -514,6 +568,7 @@ Battle::postProcessPass()
 			// The death hook already ran in the pre pass, while the element
 			// could still be looked at.
 			next = elements_.next(id);
+			dropComponents(id);
 			elements_.remove(id);
 		}
 		else
