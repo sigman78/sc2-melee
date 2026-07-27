@@ -6,7 +6,7 @@
 #include "engine/core/Borrowed.hpp"
 #include "engine/core/Geometry.hpp"
 #include "sim/Collision.hpp"
-#include "sim/EntityList.hpp"
+#include "sim/Entity.hpp"
 #include "sim/Trig.hpp"
 #include "sim/Velocity.hpp"
 
@@ -167,6 +167,11 @@ using ElementHook = void (*)(Battle &, EntityId) noexcept;
 
 struct Element
 {
+	// Stable addresses: hooks hold a pointer to their own element across
+	// spawns (Ship.cpp's weapon loop), which the old arena guaranteed and
+	// entt's default swap-and-pop storage does not.
+	static constexpr auto in_place_delete = true;
+
 	// Where it is now, and where the step is taking it.
 	Vec2i current;
 	Vec2i next;
@@ -224,12 +229,12 @@ struct Element
 	ElementHook onCollision = nullptr;
 
 	// What this element hit, valid only inside a collision hook.
-	EntityId collidedWith;
+	EntityId collidedWith = kNoEntity;
 
 	// The ship this came from: pParent in the C (element.h:192); a ship owns
 	// itself. IGNORE_SIMILAR skips a pair sharing an owner (stops a flame
 	// burning its own ship) -- owner, not player, so allied ships still collide.
-	EntityId owner;
+	EntityId owner = kNoEntity;
 
 	// CollidingElement (collide.h:31-33): NONSOLID *or* DISAPPEARING is out.
 	// Something dying this frame must not still be hit, and must not still

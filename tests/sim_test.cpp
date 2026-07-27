@@ -8,7 +8,6 @@
 #include "sim/Battle.hpp"
 #include "sim/Collision.hpp"
 #include "sim/Damage.hpp"
-#include "sim/EntityList.hpp"
 #include "sim/Field.hpp"
 #include "sim/Gravity.hpp"
 #include "sim/Impulse.hpp"
@@ -26,7 +25,7 @@
 #include <vector>
 
 using namespace uqm;       // Vec2i
-using namespace uqm::sim;  // Rng, EntityList, the world constants
+using namespace uqm::sim;  // Rng, Battle, the world constants
 
 namespace {
 
@@ -93,140 +92,162 @@ testTruncationWidthMatters()
 }
 
 // --------------------------------------------------------------------------
-// Entity list
+// Battle storage
+//
+// EntityList<int> is gone -- Battle+Element is the only ordered store now,
+// with entt::registry underneath and an explicit OrderLink spine on top
+// (Entity.hpp). These tests pin the same invariants the old ones did,
+// against the new shape.
 
+// A minimal, marked element for the tests below: NonSolid so it takes no
+// part in collision math, no hooks so nothing runs even if a test steps the
+// battle, and playerNr as a bare label since Element has no dedicated tag
+// field to spare.
+Element
+marked(int playerNr)
+{
+	Element e;
+	e.playerNr = playerNr;
+	e.flags = ElementFlags::NonSolid;
+	return e;
+}
+
+// Walks the spine collecting each element's label, the way order() used to
+// read EntityList<int> straight through.
 std::vector<int>
-order(const EntityList<int> &list)
+playerNrs(Battle &b)
 {
 	std::vector<int> out;
-	for (EntityId id = list.front(); id.valid(); id = list.next(id))
-		out.push_back(*list.get(id));
+	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
+		out.push_back(b.get(id)->playerNr);
 	return out;
 }
 
 void
 testTraversalOrderIsWhatWasAskedFor()
 {
-	EntityList<int> list;
-	const EntityId a = list.pushBack(1);
-	const EntityId b = list.pushBack(2);
-	list.pushBack(3);
-	CHECK(order(list) == std::vector<int>({1, 2, 3}), "pushBack appends");
+	Battle b(1);
+	const EntityId a = b.spawnBack(marked(1));
+	b.spawnBack(marked(2));
+	b.spawnBack(marked(3));
+	CHECK(playerNrs(b) == std::vector<int>({1, 2, 3}), "spawnBack appends");
 
 	// The pkunk.c:498-512 case: head insertion so the phoenix preprocesses
 	// before the dead Pkunk's death_func runs.
-	list.pushFront(0);
-	CHECK(order(list) == std::vector<int>({0, 1, 2, 3}), "pushFront prepends");
+	b.spawnFront(marked(0));
+	CHECK(playerNrs(b) == std::vector<int>({0, 1, 2, 3}),
+			"spawnFront prepends");
 
-	// Splicing into the middle, which 20 InsertElement sites do.
-	list.insertAfter(a, 99);
-	CHECK(order(list) == std::vector<int>({0, 1, 99, 2, 3}),
+	// Splicing into the middle, which 20 InsertElement sites do. `a` is now
+	// the list's second entry (spawnFront put 0 ahead of it).
+	b.insertAfter(a, marked(99));
+	CHECK(playerNrs(b) == std::vector<int>({0, 1, 99, 2, 3}),
 			"insertAfter splices");
-
-	list.remove(b);
-	CHECK(order(list) == std::vector<int>({0, 1, 99, 3}),
-			"removal keeps the rest in order");
 }
 
 void
 testSlotReuseDoesNotReorder()
 {
-	// The reason an arena alone will not do: once the free list hands a slot
-	// back, slot order and traversal order disagree. A new entity must land
-	// where it was asked to, not where its storage happens to be.
-	EntityList<int> list;
-	list.pushBack(1);
-	const EntityId second = list.pushBack(2);
-	list.pushBack(3);
+	// The reason an arena alone will not do: once entt hands a slot back,
+	// storage order and traversal order can disagree if traversal depended
+	// on storage. The OrderLink spine is what keeps a new entity landing
+	// where it was asked to go, not where its recycled slot happens to sit.
+	Battle b(1);
+	b.spawnBack(marked(1));
+	const EntityId second = b.spawnBack(marked(2));
+	b.spawnBack(marked(3));
 
-	list.remove(second);              // frees the middle slot
-	list.pushBack(4);                 // which this reuses
-	CHECK(order(list) == std::vector<int>({1, 3, 4}),
-			"a reused slot must not drag the entity back to its old position");
+	b.get(second)->lifeSpan = 0;
+	b.step();  // reaps the middle entry, freeing its slot for reuse
 
-	list.pushFront(5);
-	CHECK(order(list) == std::vector<int>({5, 1, 3, 4}),
-			"and pushFront still prepends after reuse");
+	b.spawnBack(marked(4));  // which this respawn reuses
+	CHECK(playerNrs(b) == std::vector<int>({1, 3, 4}),
+			"a reused slot must not drag the new entity back to the old "
+			"position");
+	CHECK(b.size() == 3, "size should track the reap and the respawn, "
+			"got %zu", b.size());
 }
 
 void
 testStaleHandlesAreDetectable()
 {
-	EntityList<int> list;
-	const EntityId id = list.pushBack(7);
-	CHECK(list.alive(id) && list.get(id) != nullptr, "a live handle resolves");
+	// The slot comes straight back; the generation is what stops a stale
+	// handle from reading its new tenant. entt's versioned entity id carries
+	// that promise now, in place of EntityList's own {index, generation}.
+	Battle b(1);
+	const EntityId id = b.spawnBack(marked(7));
+	CHECK(b.alive(id) && b.get(id) != nullptr, "a live handle resolves");
 
-	list.remove(id);
-	CHECK(!list.alive(id), "a removed handle is not alive");
-	CHECK(list.get(id) == nullptr, "and does not resolve");
+	b.get(id)->lifeSpan = 0;
+	b.step();
+	CHECK(!b.alive(id), "a reaped handle is not alive");
+	CHECK(b.get(id) == nullptr, "and does not resolve");
 
-	// The slot comes straight back; the generation is what stops the stale
-	// handle reading its new tenant.
-	const EntityId reused = list.pushBack(8);
-	CHECK(reused.index == id.index, "the test needs the slot to be reused");
-	CHECK(!list.alive(id), "the stale handle must not resolve to the new one");
-	CHECK(list.get(id) == nullptr, "still nullptr after reuse");
-	CHECK(*list.get(reused) == 8, "the new handle works");
+	// The slot the reap just freed comes straight back.
+	const EntityId reused = b.spawnBack(marked(8));
+	CHECK(reused != id, "the test needs a fresh handle, even if the slot "
+			"is the same one");
+	CHECK(!b.alive(id), "the stale handle must not resolve to the new one");
+	CHECK(b.get(id) == nullptr, "still nullptr after reuse");
+	CHECK(b.get(reused) != nullptr && b.get(reused)->playerNr == 8,
+			"the new handle works");
 
-	CHECK(!list.alive(kNoEntity), "a default handle is never alive");
-	CHECK(list.get(kNoEntity) == nullptr, "and never resolves");
+	CHECK(!b.alive(kNoEntity), "a default handle is never alive");
+	CHECK(b.get(kNoEntity) == nullptr, "and never resolves");
 }
 
 void
-testRemovalDuringTraversal()
+testTheReapKeepsTheWalkIntact()
 {
-	// Stepping removes entities while walking the list -- a projectile
-	// expiring mid-frame -- so the successor has to be read before the
-	// removal, and that has to keep working.
-	EntityList<int> list;
-	for (int i = 0; i < 6; ++i)
-		list.pushBack(i);
+	// The reap -- Battle's only removal, driven by lifeSpan and run inside
+	// step() -- has to leave the survivors exactly where they were, the same
+	// promise EntityList::remove made while a caller was mid-walk (a
+	// projectile expiring mid-frame is the ordinary case).
+	Battle b(1);
+	std::vector<EntityId> ids;
+	for (int i = 0; i < 5; ++i)
+		ids.push_back(b.spawnBack(marked(i)));
 
-	EntityId id = list.front();
-	while (id.valid())
-	{
-		const EntityId nextId = list.next(id);
-		if (*list.get(id) % 2 == 0)
-			list.remove(id);
-		id = nextId;
-	}
-	CHECK(order(list) == std::vector<int>({1, 3, 5}),
-			"removing while walking should leave the odd ones in order");
-	CHECK(list.size() == 3, "size should track removals, got %zu", list.size());
+	b.get(ids[1])->lifeSpan = 0;
+	b.get(ids[3])->lifeSpan = 0;
+	b.step();
+
+	CHECK(playerNrs(b) == std::vector<int>({0, 2, 4}),
+			"the reap should leave the survivors in their original order");
+	CHECK(b.size() == 3, "size should track the reap, got %zu", b.size());
 }
 
 void
 testEntityAddressesAreStable()
 {
 	// Ship code holds a pointer to itself across a spawn -- fire a weapon,
-	// then write the cooldown back. If allocating could move entities that
-	// write would land in moved-from memory, which is exactly the bug this
-	// caught: the cooldown silently never took, and the ship fired every
-	// frame. Growth must not relocate anyone.
-	EntityList<int> list;
-	std::vector<int *> addresses;
-	std::vector<EntityId> ids;
-	for (int i = 0; i < 500; ++i)
-	{
-		ids.push_back(list.pushBack(i));
-		addresses.push_back(list.get(ids.back()).raw());
-	}
+	// then write the cooldown back -- and Element::in_place_delete
+	// (Element.hpp) is what keeps that address good under entt: a deletion
+	// tombstones the slot rather than swap-and-popping a neighbour into it,
+	// and growth extends the pool rather than relocating it. This pins that
+	// policy directly, across both a reap and a forced growth, since a
+	// regression here would silently corrupt whichever unrelated element got
+	// moved into the freed or reallocated slot.
+	Battle b(1);
+	const EntityId A = b.spawnBack(marked(1));
+	// B sits between the two under test, so its reap has somewhere to
+	// disturb the layout if in_place_delete were not honoured.
+	const EntityId B = b.spawnBack(marked(2));
+	const EntityId C = b.spawnBack(marked(3));
 
-	for (std::size_t i = 0; i < ids.size(); ++i)
-	{
-		CHECK(list.get(ids[i]).raw() == addresses[i],
-				"entity %zu moved when the arena grew", i);
-		CHECK(*addresses[i] == static_cast<int>(i),
-				"entity %zu holds the wrong value after growth", i);
-	}
+	Element *pa = b.get(A);
+	Element *pc = b.get(C);
 
-	// And a slot recycled through the free list is still addressable, with a
-	// generation that retires the old handle.
-	const EntityId old = ids[10];
-	list.remove(old);
-	const EntityId reused = list.pushBack(-1);
-	CHECK(list.get(old) == nullptr, "the stale handle must not resolve");
-	CHECK(list.get(reused) != nullptr, "the recycled slot should be live");
+	b.get(B)->lifeSpan = 0;
+	b.step();  // reaps B -- a tombstone, not a compaction
+
+	for (int i = 0; i < 100; ++i)
+		b.spawnBack(marked(100 + i));  // forces the pool to grow
+
+	CHECK(b.get(A) == pa, "A's address must survive B's reap and the growth");
+	CHECK(b.get(C) == pc, "and so must C's");
+	CHECK(b.get(A)->playerNr == 1, "and A's data must still be A's");
+	CHECK(b.get(C)->playerNr == 3, "and C's still C's");
 }
 
 // --------------------------------------------------------------------------
@@ -848,7 +869,7 @@ testStepVisitsInListOrder()
 	// Head insertion puts the newcomer first next frame -- the pkunk.c
 	// phoenix ordering.
 	g_trace.preOrder.clear();
-	b.elements().pushFront(plain(0));
+	b.spawnFront(plain(0));
 	b.step();
 	CHECK(g_trace.preOrder == std::vector<int>({0, 1, 2, 3}),
 			"a head-inserted element preprocesses first");
@@ -882,7 +903,7 @@ testMidFrameSpawnIsCaughtUpSameFrame()
 		CHECK(count == 1,
 				"%s: the mid-frame spawn should preprocess exactly once, got %d",
 				atHead ? "head" : "tail", count);
-		CHECK(b.elements().size() == 3, "%s: all three should be alive",
+		CHECK(b.size() == 3, "%s: all three should be alive",
 				atHead ? "head" : "tail");
 	}
 }
@@ -905,9 +926,9 @@ testFiniteLifeExpiresAndCallsDeath()
 	b.step();
 	b.step();
 	b.step();
-	CHECK(b.elements().size() == 1, "a 3-frame life survives three steps");
+	CHECK(b.size() == 1, "a 3-frame life survives three steps");
 	b.step();
-	CHECK(b.elements().empty(), "and is gone on the fourth");
+	CHECK(b.size() == 0, "and is gone on the fourth");
 	CHECK(g_trace.deaths == std::vector<int>({7}),
 			"its death hook should have run exactly once");
 }
@@ -988,7 +1009,6 @@ testCollisionPairsAreVisitedOnce()
 	// flame must not burn the Avenger that breathed it, and those are
 	// different kinds.
 	Battle b2(1);
-	const EntityId shipId{1, 1};
 
 	Element f1;
 	f1.current = Vec2i{500, 500};
@@ -996,9 +1016,12 @@ testCollisionPairsAreVisitedOnce()
 	f1.kind = ElementKind::Weapon;
 	f1.playerNr = 0;
 	f1.mass = 4;
-	f1.owner = shipId;
 	f1.flags = ElementFlags::IgnoreSimilar;
 	const EntityId if1 = b2.spawnBack(std::move(f1));
+	// A synthesized EntityId{index, generation} literal no longer compiles
+	// -- entt's handle has no such constructor -- so f1 stands in as its own
+	// owner, a real spawned id the second projectile below can share.
+	b2.get(if1)->owner = if1;
 
 	Element f2 = *b2.get(if1);
 	f2.flags = ElementFlags::IgnoreSimilar;
@@ -1009,14 +1032,13 @@ testCollisionPairsAreVisitedOnce()
 	const EntityId if2 = b2.spawnBack(std::move(f2));
 
 	b2.step();
-	CHECK(!b2.get(if1)->collidedWith.valid(),
+	CHECK(b2.get(if1)->collidedWith == kNoEntity,
 			"a flame must not hit the ship that fired it");
-	CHECK(!b2.get(if2)->collidedWith.valid(), "either way round");
+	CHECK(b2.get(if2)->collidedWith == kNoEntity, "either way round");
 
 	// ...but a different ship's flame, same player or not, does hit.
 	Battle b3(1);
 	Element g1 = *b2.get(if1);
-	g1.owner = EntityId{7, 1};
 	g1.collidedWith = kNoEntity;
 	// Transient for the same reason as above: the target is solid, so the
 	// flame must be finite-life for a stationary overlap to be a hit.
@@ -1025,9 +1047,14 @@ testCollisionPairsAreVisitedOnce()
 	const EntityId ig1 = b3.spawnBack(std::move(g1));
 
 	Element g2 = *b2.get(if2);
-	g2.owner = EntityId{9, 1};
 	g2.collidedWith = kNoEntity;
 	const EntityId ig2 = b3.spawnBack(std::move(g2));
+
+	// Two distinct real owners, in place of the old EntityId{7,1} /
+	// EntityId{9,1} literals: each element owning itself is enough, since
+	// what IgnoreSimilar keys on is only that the owners differ.
+	b3.get(ig1)->owner = ig1;
+	b3.get(ig2)->owner = ig2;
 
 	b3.step();
 	CHECK(b3.get(ig1)->collidedWith == ig2,
@@ -1227,21 +1254,21 @@ testFiringSpendsEnergyAndRespectsCooldown()
 	b.get(id)->postProcess = shipPostProcess;
 
 	b.step();
-	CHECK(b.elements().size() == 1, "just the ship so far");
+	CHECK(b.size() == 1, "just the ship so far");
 
 	b.ship(id)->input = ShipInput::Weapon;
 	b.step();
-	CHECK(b.elements().size() == 2, "firing should have spawned a missile");
+	CHECK(b.size() == 2, "firing should have spawned a missile");
 	CHECK(b.ship(id)->energy == 18 - 9,
 			"and spent 9 energy, got %ld",
 			static_cast<long>(b.ship(id)->energy));
 
 	// weapon.wait is 10, so holding the trigger must not fire again yet.
 	b.step();
-	CHECK(b.elements().size() == 2,
+	CHECK(b.size() == 2,
 			"the cooldown should block a second shot, got %d elements and "
 			"weaponCounter %ld",
-			static_cast<int>(b.elements().size()),
+			static_cast<int>(b.size()),
 			static_cast<long>(b.ship(id)->weaponCounter));
 
 	// With the energy drained below the cost, it must not fire at all -- and
@@ -1256,8 +1283,8 @@ testFiringSpendsEnergyAndRespectsCooldown()
 									  // would otherwise top it up first
 	c.ship(poor)->input = ShipInput::Weapon;
 	c.step();
-	CHECK(c.elements().size() == 1, "a ship that cannot afford the shot "
-									"must not fire");
+	CHECK(c.size() == 1,
+			"a ship that cannot afford the shot must not fire");
 	CHECK(c.ship(poor)->energy == 8,
 			"and must not be charged for it, got %ld",
 			static_cast<long>(c.ship(poor)->energy));
@@ -1275,14 +1302,14 @@ testMissileFliesAndExpires()
 	b.ship(id)->input = ShipInput::Weapon;
 	b.step();
 	b.ship(id)->input = ShipInput::None;
-	CHECK(b.elements().size() == 2, "one missile");
+	CHECK(b.size() == 2, "one missile");
 
 	// Find it and watch it move.
-	EntityId shot;
-	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+	EntityId shot = kNoEntity;
+	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
 		if (b.get(e)->kind == ElementKind::Weapon)
 			shot = e;
-	CHECK(shot.valid(), "the missile should be in the list");
+	CHECK(shot != kNoEntity, "the missile should be in the list");
 
 	const Vec2i first = b.get(shot)->current;
 	b.step();
@@ -1291,9 +1318,9 @@ testMissileFliesAndExpires()
 	CHECK(second.y < first.y, "and facing 0 is up, so it goes -y");
 
 	// MISSILE_LIFE is 60, so it is gone well before 100 frames.
-	for (int i = 0; i < 100 && b.elements().size() > 1; ++i)
+	for (int i = 0; i < 100 && b.size() > 1; ++i)
 		b.step();
-	CHECK(b.elements().size() == 1, "the missile should expire");
+	CHECK(b.size() == 1, "the missile should expire");
 }
 
 void
@@ -1400,7 +1427,7 @@ testOpposingMissilesDestroyEachOther()
 	b.ship(c)->input = ShipInput::None;
 
 	std::size_t weapons = 0;
-	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
 	CHECK(weapons == 2, "both ships should have fired, got %zu", weapons);
@@ -1412,7 +1439,7 @@ testOpposingMissilesDestroyEachOther()
 		b.step();
 
 	weapons = 0;
-	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
 	CHECK(weapons == 0,
@@ -1612,10 +1639,10 @@ testDestroyedAsteroidIsReplaced()
 	const CollisionMask m = solid(4, 4);
 	Battle b(11);
 	(void)spawnAsteroid(b, &m);
-	CHECK(b.elements().size() == 1, "one asteroid to start");
+	CHECK(b.size() == 1, "one asteroid to start");
 
 	// do_damage's kill (misc.c:220-222).
-	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
 	{
 		b.get(e)->hitPoints = 0;
 		b.get(e)->lifeSpan = 0;
@@ -1627,8 +1654,8 @@ testDestroyedAsteroidIsReplaced()
 	{
 		b.step();
 		asteroids = 0;
-		for (EntityId e = b.elements().front(); e.valid();
-				e = b.elements().next(e))
+		for (EntityId e = b.front(); e != kNoEntity;
+				e = b.next(e))
 			if (b.get(e)->kind == ElementKind::Asteroid)
 				++asteroids;
 		if (asteroids == 1)
@@ -1782,7 +1809,7 @@ testMissileDamagesAndSpendsItself()
 
 	int weapons = 0;
 	int blasts = 0;
-	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
 	{
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
@@ -2166,7 +2193,7 @@ testPointDefenceBurnsOwnNuke()
 	b.ship(ship)->input = ShipInput::Weapon;
 	b.step();
 	std::size_t weapons = 0;
-	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
 	CHECK(weapons == 1, "setup: one nuke in flight, got %zu", weapons);
@@ -2178,7 +2205,7 @@ testPointDefenceBurnsOwnNuke()
 	b.step();  // the burned nuke's death is seen the following frame
 
 	weapons = 0;
-	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
 	CHECK(weapons == 0, "the Cruiser's own nuke should be shot down, %zu left",
@@ -2269,7 +2296,7 @@ testPointDefenceBurnsIncomingFire()
 	// The beam is a real element, so the renderer has nothing to invent and
 	// a replay draws exactly what the original did.
 	int beams = 0;
-	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
 		if (b.get(e)->kind == ElementKind::Laser)
 			++beams;
 	CHECK(beams == 1, "and left a beam to draw, got %d", beams);
@@ -2305,19 +2332,19 @@ testShipWarpsInBeforeItIsSolid()
 	b.attachShip(shipId, &sim::earthlingCruiser());
 
 	const auto ship = [&b]() -> const sim::Element * {
-		for (sim::EntityId id = b.elements().front(); id.valid();
-				id = b.elements().next(id))
+		for (sim::EntityId id = b.front(); id != kNoEntity;
+				id = b.next(id))
 		{
 			auto p = b.get(id);
 			if (p != nullptr && p->kind == sim::ElementKind::Ship)
-				return p.raw();
+				return p;
 		}
 		return nullptr;
 	};
 	const auto shadows = [&b]() {
 		int n = 0;
-		for (sim::EntityId id = b.elements().front(); id.valid();
-				id = b.elements().next(id))
+		for (sim::EntityId id = b.front(); id != kNoEntity;
+				id = b.next(id))
 		{
 			auto p = b.get(id);
 			if (p != nullptr && p->kind == sim::ElementKind::ShipShadow)
@@ -2340,8 +2367,8 @@ testShipWarpsInBeforeItIsSolid()
 	const auto newestDistance = [&b, &arrival]() -> std::int64_t {
 		std::int32_t best = -1;
 		std::int64_t dist = -1;
-		for (sim::EntityId id = b.elements().front(); id.valid();
-				id = b.elements().next(id))
+		for (sim::EntityId id = b.front(); id != kNoEntity;
+				id = b.next(id))
 		{
 			auto p = b.get(id);
 			if (p == nullptr || p->kind != sim::ElementKind::ShipShadow)
@@ -2384,13 +2411,13 @@ testShipWarpsInBeforeItIsSolid()
 			closing, receding);
 
 	const sim::Element *s = nullptr;
-	for (sim::EntityId id = b.elements().front(); id.valid();
-			id = b.elements().next(id))
+	for (sim::EntityId id = b.front(); id != kNoEntity;
+			id = b.next(id))
 	{
 		auto p = b.get(id);
 		if (p != nullptr && p->kind == sim::ElementKind::ShipShadow)
 		{
-			s = p.raw();
+			s = p;
 			break;
 		}
 	}
@@ -2628,7 +2655,7 @@ main()
 	testTraversalOrderIsWhatWasAskedFor();
 	testSlotReuseDoesNotReorder();
 	testStaleHandlesAreDetectable();
-	testRemovalDuringTraversal();
+	testTheReapKeepsTheWalkIntact();
 	testEntityAddressesAreStable();
 	testShipWarpsInBeforeItIsSolid();
 

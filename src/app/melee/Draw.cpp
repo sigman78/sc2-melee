@@ -189,7 +189,7 @@ void
 RenderStore::purgeDead(const sim::Battle &b)
 {
 	std::erase_if(visuals_,
-			[&b](const auto &p) { return !b.elements().alive(p.first); });
+			[&b](const auto &p) { return !b.alive(p.first); });
 }
 
 Visual
@@ -336,8 +336,8 @@ draw(Game &g)
 	// Every position goes through the camera's wrapDelta: the arena is a
 	// torus eight screens across, so an element past the seam reads as a
 	// few pixels away, not eight screens -- get it wrong and it jumps.
-	for (sim::EntityId id = g.battle.elements().front(); id.valid();
-			id = g.battle.elements().next(id))
+	for (sim::EntityId id = g.battle.front(); id != sim::kNoEntity;
+			id = g.battle.next(id))
 	{
 		auto e = g.battle.get(id);
 		if (e == nullptr)
@@ -566,8 +566,8 @@ void
 drawOverlay(Game &g)
 {
 	// Mask bounds, so it is visible when a silhouette is not what you expect.
-	for (sim::EntityId id = g.battle.elements().front(); id.valid();
-			id = g.battle.elements().next(id))
+	for (sim::EntityId id = g.battle.front(); id != sim::kNoEntity;
+			id = g.battle.next(id))
 	{
 		const auto e = g.battle.get(id);
 		if (e == nullptr || e->mask == nullptr)

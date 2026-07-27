@@ -26,8 +26,8 @@ calculateGravity(Battle &b, EntityId id)
 
 	const std::int32_t pull = worldToVelocity(1);
 
-	for (EntityId other = b.elements().front(); other.valid();
-			other = b.elements().next(other))
+	for (EntityId other = b.front(); other != kNoEntity;
+			other = b.next(other))
 	{
 		if (other == id)
 			continue;

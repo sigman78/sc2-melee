@@ -6,6 +6,7 @@
 #include "sim/Impulse.hpp"
 #include "sim/World.hpp"
 
+#include <cassert>
 #include <utility>
 
 namespace uqm::sim {
@@ -23,7 +24,7 @@ collisionPossible(const Element &test, const Element &elem) noexcept
 	if (any(test.flags & elem.flags & ElementFlags::Collided))
 		return false;
 	if (any(test.flags & elem.flags & ElementFlags::IgnoreSimilar)
-			&& test.owner.valid() && test.owner == elem.owner)
+			&& test.owner != kNoEntity && test.owner == elem.owner)
 		return false;
 	if (test.mass == 0 && elem.mass == 0)
 		return false;
@@ -62,6 +63,76 @@ worldVelocityOf(const Element &e) noexcept
 }
 
 }  // namespace
+
+Battle::Battle(std::uint32_t seed) : rng_(seed)
+{
+	// One chunk was the whole battle in the old arena (EntityList's
+	// kChunkSize); the reserve keeps the steady-state step allocation-free.
+	reg_.storage<Element>().reserve(64);
+	reg_.storage<OrderLink>().reserve(64);
+}
+
+EntityId
+Battle::next(EntityId id) const noexcept
+{
+	assert(alive(id) && "next() of a dead entity");
+	return reg_.get<OrderLink>(id).next;
+}
+
+EntityId
+Battle::prev(EntityId id) const noexcept
+{
+	assert(alive(id) && "prev() of a dead entity");
+	return reg_.get<OrderLink>(id).prev;
+}
+
+void
+Battle::linkAfter(EntityId after, EntityId id) noexcept
+{
+	OrderLink &s = reg_.get<OrderLink>(id);
+	if (after == kNoEntity)
+	{
+		s.prev = kNoEntity;
+		s.next = head_;
+		if (head_ != kNoEntity)
+			reg_.get<OrderLink>(head_).prev = id;
+		head_ = id;
+		if (tail_ == kNoEntity)
+			tail_ = id;
+		return;
+	}
+
+	OrderLink &prevLink = reg_.get<OrderLink>(after);
+	s.prev = after;
+	s.next = prevLink.next;
+	if (prevLink.next != kNoEntity)
+		reg_.get<OrderLink>(prevLink.next).prev = id;
+	else
+		tail_ = id;
+	prevLink.next = id;
+}
+
+void
+Battle::removeElement(EntityId id) noexcept
+{
+	if (!alive(id))
+		return;
+
+	const OrderLink s = reg_.get<OrderLink>(id);
+	if (s.prev != kNoEntity)
+		reg_.get<OrderLink>(s.prev).next = s.next;
+	else
+		head_ = s.next;
+	if (s.next != kNoEntity)
+		reg_.get<OrderLink>(s.next).prev = s.prev;
+	else
+		tail_ = s.prev;
+
+	// Bumps the entity's version, which is what turns a surviving handle
+	// into a detectable mistake instead of a read of the next tenant.
+	reg_.destroy(id);
+	--count_;
+}
 
 void
 Battle::recordSpawn(EntityId id, const Element &e)
@@ -124,23 +195,35 @@ Battle::dropComponents(EntityId id) noexcept
 }
 
 EntityId
-Battle::spawnFront(Element e)
+Battle::spawn(EntityId after, Element e)
 {
 	e.flags |= ElementFlags::Appearing;
-	const EntityId id = elements_.pushFront(std::move(e));
-	if (auto p = elements_.get(id); p != nullptr)
-		recordSpawn(id, *p);
+	const EntityId id = reg_.create();
+	recordSpawn(id, e);
+	reg_.emplace<Element>(id, std::move(e));
+	reg_.emplace<OrderLink>(id);
+	linkAfter(after, id);
+	++count_;
 	return id;
+}
+
+EntityId
+Battle::spawnFront(Element e)
+{
+	return spawn(kNoEntity, std::move(e));
 }
 
 EntityId
 Battle::spawnBack(Element e)
 {
-	e.flags |= ElementFlags::Appearing;
-	const EntityId id = elements_.pushBack(std::move(e));
-	if (auto p = elements_.get(id); p != nullptr)
-		recordSpawn(id, *p);
-	return id;
+	return spawn(tail_, std::move(e));
+}
+
+EntityId
+Battle::insertAfter(EntityId after, Element e)
+{
+	assert((after == kNoEntity || alive(after)) && "insert after a dead entity");
+	return spawn(after, std::move(e));
 }
 
 // PreProcess (process.c:128-186): a spawned element is seeded with next =
@@ -153,7 +236,7 @@ Battle::spawnBack(Element e)
 void
 Battle::preProcessOne(EntityId id) noexcept
 {
-	auto e = elements_.get(id);
+	auto e = get(id);
 	if (e == nullptr)
 		return;
 
@@ -166,7 +249,7 @@ Battle::preProcessOne(EntityId id) noexcept
 		if (e->onDeath != nullptr)
 		{
 			e->onDeath(*this, id);
-			e = elements_.get(id);
+			e = get(id);
 			if (e == nullptr)
 				return;
 		}
@@ -198,7 +281,7 @@ Battle::preProcessOne(EntityId id) noexcept
 		if (e->preProcess != nullptr && !any(flags & ElementFlags::Appearing))
 		{
 			e->preProcess(*this, id);
-			e = elements_.get(id);
+			e = get(id);
 			if (e == nullptr)
 				return;
 			flags = e->flags;
@@ -231,13 +314,13 @@ Battle::preProcessOne(EntityId id) noexcept
 void
 Battle::killOverlapSpawn(EntityId id)
 {
-	auto e = elements_.get(id);
+	auto e = get(id);
 	if (e == nullptr)
 		return;
 
 	const ShipState *s = ship(id);
 	doDamage(*this, id, s != nullptr ? s->crew : e->hitPoints);
-	e = elements_.get(id);
+	e = get(id);
 	if (e == nullptr)
 		return;
 	e->flags |= ElementFlags::Collided | ElementFlags::Disappearing;
@@ -252,10 +335,10 @@ bool
 Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 		TimeValue maxTime, ElementFlags processedMask)
 {
-	auto e = elements_.get(elemId);
+	auto e = get(elemId);
 	if (e == nullptr)
 		return true;
-	auto t = elements_.get(testId);
+	auto t = get(testId);
 	if (t == nullptr || !collisionPossible(*t, *e))
 		return false;
 
@@ -339,8 +422,8 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 		if (!any(e->flags & ElementFlags::Collided)
 				&& processCollisions(elemId, succ, earlier, processedMask))
 			return false;
-		e = elements_.get(elemId);
-		t = elements_.get(testId);
+		e = get(elemId);
+		t = get(testId);
 		if (e == nullptr)
 			return true;
 		if (t == nullptr)
@@ -352,13 +435,13 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 			// scanner's successor -- or from the head when the test element
 			// is newly spawned (process.c:535-540).
 			const EntityId from = any(t->flags & ElementFlags::Appearing)
-					? elements_.front()
-					: elements_.next(elemId);
+					? front()
+					: next(elemId);
 			if (processCollisions(testId, from, earlier, processedMask))
 				return false;
 		}
-		e = elements_.get(elemId);
-		t = elements_.get(testId);
+		e = get(elemId);
+		t = get(testId);
 		if (e == nullptr)
 			return true;
 		if (t == nullptr)
@@ -389,19 +472,19 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 	{
 		if (tHook != nullptr)
 			tHook(*this, testId);
-		if (eHook != nullptr && elements_.get(elemId) != nullptr)
+		if (eHook != nullptr && get(elemId) != nullptr)
 			eHook(*this, elemId);
 	}
 	else
 	{
 		if (eHook != nullptr)
 			eHook(*this, elemId);
-		if (tHook != nullptr && elements_.get(testId) != nullptr)
+		if (tHook != nullptr && get(testId) != nullptr)
 			tHook(*this, testId);
 	}
 
-	e = elements_.get(elemId);
-	t = elements_.get(testId);
+	e = get(elemId);
+	t = get(testId);
 
 	// Whoever NEWLY raised Collided stops at the impact point
 	// (process.c:572-596); a side that was already stopped keeps the
@@ -440,16 +523,16 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 		// Both participants immediately re-scan the whole list
 		// (process.c:603-606): a pile-up chains within this frame instead of
 		// resolving one pair per step.
-		processCollisions(elemId, elements_.front(), kMaxTimeValue,
+		processCollisions(elemId, front(), kMaxTimeValue,
 				processedMask);
-		processCollisions(testId, elements_.front(), kMaxTimeValue,
+		processCollisions(testId, front(), kMaxTimeValue,
 				processedMask);
 	}
 
 	// Keeps scanning unless out of the game for the frame (process.c:609-618):
 	// stopped, or no longer collidable -- a ship merely hit by a missile is
 	// neither, and can still bounce off another ship this frame.
-	e = elements_.get(elemId);
+	e = get(elemId);
 	if (e == nullptr || any(e->flags & ElementFlags::Collided))
 		return true;
 	if (!e->collidable())
@@ -467,13 +550,13 @@ bool
 Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime,
 		ElementFlags processedMask)
 {
-	for (EntityId testId = first; testId.valid();)
+	for (EntityId testId = first; testId != kNoEntity;)
 	{
 		{
 			// The walk preprocesses each element before testing the pair
 			// (process.c:371-373): otherwise `next` is still last frame's
 			// position and the sweep hits a ghost.
-			auto t = elements_.get(testId);
+			auto t = get(testId);
 			if (t == nullptr)
 				break;
 			if (!any(t->flags & processedMask))
@@ -482,7 +565,7 @@ Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime,
 
 		// Fetched after the preprocess, as the C fetches hSuccElement after
 		// PreProcess (process.c:374), so a spawn made there is walked into.
-		const EntityId succ = elements_.next(testId);
+		const EntityId succ = next(testId);
 
 		if (!(testId == elemId)
 				&& resolveAgainst(elemId, testId, succ, maxTime, processedMask))
@@ -491,7 +574,7 @@ Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime,
 		testId = succ;
 	}
 
-	auto e = elements_.get(elemId);
+	auto e = get(elemId);
 	return e == nullptr || any(e->flags & ElementFlags::Collided);
 }
 
@@ -501,24 +584,24 @@ Battle::preProcessPass()
 	// A LIVE walk, not a snapshot (process.c:630-746) -- see design-notes D1.
 	// Safe because nothing removes an element mid-frame: death only marks
 	// Disappearing, and the reap happens in the post pass.
-	for (EntityId id = elements_.front(); id.valid();)
+	for (EntityId id = front(); id != kNoEntity;)
 	{
-		auto e = elements_.get(id);
+		auto e = get(id);
 		if (e != nullptr && !any(e->flags & ElementFlags::PreProcessed))
 			preProcessOne(id);
 
-		e = elements_.get(id);
+		e = get(id);
 		if (e != nullptr && e->collidable()
 				&& !any(e->flags & ElementFlags::Collided))
 		{
 			// Successors only, so each pair is visited once per frame -- the
 			// C passes GetSuccElement for exactly this reason (process.c:667).
-			(void)processCollisions(id, elements_.next(id), kMaxTimeValue,
+			(void)processCollisions(id, next(id), kMaxTimeValue,
 					ElementFlags::PreProcessed);
 		}
 
 		// Fetched after the hooks so a tail insertion is walked into.
-		id = elements_.next(id);
+		id = next(id);
 	}
 }
 
@@ -531,18 +614,18 @@ Battle::catchUpFrom(EntityId first)
 	constexpr ElementFlags kDone =
 			ElementFlags::PreProcessed | ElementFlags::PostProcessed;
 
-	for (EntityId p = first; p.valid();)
+	for (EntityId p = first; p != kNoEntity;)
 	{
-		auto pe = elements_.get(p);
+		auto pe = get(p);
 		if (pe != nullptr && !any(pe->flags & kDone))
 			preProcessOne(p);
 
-		pe = elements_.get(p);
+		pe = get(p);
 		if (pe != nullptr && pe->collidable()
 				&& !any(pe->flags & ElementFlags::Collided))
-			(void)processCollisions(p, elements_.front(), kMaxTimeValue, kDone);
+			(void)processCollisions(p, front(), kMaxTimeValue, kDone);
 
-		p = elements_.next(p);
+		p = next(p);
 	}
 }
 
@@ -552,15 +635,15 @@ Battle::postProcessPass()
 	// The C's PostProcessQueue (process.c:798-983), drawing removed, a LIVE
 	// walk like PreProcessQueue -- see design-notes D1. A weapon fired by a
 	// postprocess hook is appended, reached, and committed this same walk.
-	for (EntityId id = elements_.front(); id.valid();)
+	for (EntityId id = front(); id != kNoEntity;)
 	{
-		auto e = elements_.get(id);
-		EntityId next;
+		auto e = get(id);
+		EntityId nextId = kNoEntity;
 
 		if (!any(e->flags & ElementFlags::PreProcessed))
 		{
 			catchUpFrom(id);
-			e = elements_.get(id);
+			e = get(id);
 		}
 		else if (!any(e->flags & ElementFlags::Collided))
 		{
@@ -575,9 +658,9 @@ Battle::postProcessPass()
 			// Removed with no postprocess and no commit (process.c:873-879).
 			// The death hook already ran in the pre pass, while the element
 			// could still be looked at.
-			next = elements_.next(id);
+			nextId = next(id);
 			dropComponents(id);
-			elements_.remove(id);
+			removeElement(id);
 		}
 		else
 		{
@@ -586,7 +669,7 @@ Battle::postProcessPass()
 					&& !any(e->flags & ElementFlags::PostProcessed))
 			{
 				e->postProcess(*this, id);
-				e = elements_.get(id);
+				e = get(id);
 			}
 
 			if (e != nullptr)
@@ -610,10 +693,10 @@ Battle::postProcessPass()
 			}
 
 			// Fetched after the hook, so a tail spawn is walked into.
-			next = elements_.next(id);
+			nextId = next(id);
 		}
 
-		id = next;
+		id = nextId;
 	}
 }
 

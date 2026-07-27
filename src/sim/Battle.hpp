@@ -4,10 +4,13 @@
 #define UQM2_SIM_BATTLE_HPP
 
 #include "sim/Element.hpp"
-#include "sim/EntityList.hpp"
+#include "sim/Entity.hpp"
 #include "sim/Random.hpp"
 #include "sim/Ship.hpp"
 
+#include <entt/entity/registry.hpp>
+
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -25,8 +28,8 @@ namespace uqm::sim {
 // design-notes D5.
 struct CollisionEvent
 {
-	EntityId a;
-	EntityId b;
+	EntityId a = kNoEntity;
+	EntityId b = kNoEntity;
 
 	// Where they met, in world units.
 	Vec2i at;
@@ -44,7 +47,7 @@ struct CollisionEvent
 // start effects. Observational only, like CollisionEvent -- see design-notes D5.
 struct SpawnEvent
 {
-	EntityId id;
+	EntityId id = kNoEntity;
 	ElementKind kind = ElementKind::Unknown;
 	std::int32_t playerNr = -1;
 };
@@ -52,29 +55,43 @@ struct SpawnEvent
 class Battle
 {
 public:
-	explicit Battle(std::uint32_t seed) : rng_(seed) {}
+	explicit Battle(std::uint32_t seed);
 
 	[[nodiscard]] Rng &rng() noexcept { return rng_; }
-	[[nodiscard]] EntityList<Element> &elements() noexcept { return elements_; }
-	[[nodiscard]] const EntityList<Element> &elements() const noexcept
-	{
-		return elements_;
-	}
 
-	// Returns a checked reference, not a raw pointer -- see EntityRef in
-	// EntityList.hpp. `auto e = b.get(id)` works; `Element *e = b.get(id)`
-	// deliberately does not.
-	[[nodiscard]] auto get(EntityId id) noexcept { return elements_.get(id); }
-	[[nodiscard]] auto get(EntityId id) const noexcept
+	// The ordered walk, ex-EntityList: the registry stores, the OrderLink
+	// spine orders (Entity.hpp). front/next is the walk every ordered pass
+	// makes; alive() is the generation check a stale handle fails.
+	[[nodiscard]] EntityId front() const noexcept { return head_; }
+	[[nodiscard]] EntityId back() const noexcept { return tail_; }
+	[[nodiscard]] EntityId next(EntityId id) const noexcept;
+	[[nodiscard]] EntityId prev(EntityId id) const noexcept;
+	[[nodiscard]] bool alive(EntityId id) const noexcept
 	{
-		return elements_.get(id);
+		return reg_.valid(id);
+	}
+	[[nodiscard]] std::size_t size() const noexcept { return count_; }
+
+	// The element, or null for a dead or stale id. A raw borrow: the pool
+	// is in_place_delete, so the address holds for the entity's lifetime --
+	// but the old EntityRef's removed-while-held debug check is gone with
+	// EntityList (review-004's ledger records the loss).
+	[[nodiscard]] Element *get(EntityId id) noexcept
+	{
+		return reg_.valid(id) ? reg_.try_get<Element>(id) : nullptr;
+	}
+	[[nodiscard]] const Element *get(EntityId id) const noexcept
+	{
+		return reg_.valid(id) ? reg_.try_get<Element>(id) : nullptr;
 	}
 
 	// Adds an element at the head or the tail: order is gameplay (design-notes
 	// D8). The Pkunk's phoenix is head-inserted so it preprocesses before the
 	// dead Pkunk's death hook runs (pkunk.c:498-512), which is the reincarnation.
+	// insertAfter is the C's InsertElement, kept for the ships that splice.
 	EntityId spawnFront(Element e);
 	EntityId spawnBack(Element e);
+	EntityId insertAfter(EntityId after, Element e);
 
 	// One simulation step, 1/24 second of game time.
 	void step();
@@ -128,7 +145,15 @@ private:
 	void recordSpawn(EntityId id, const Element &e);
 	void dropComponents(EntityId id) noexcept;
 
-	EntityList<Element> elements_;
+	// The spine ops, ex-EntityList::linkAfter/remove.
+	EntityId spawn(EntityId after, Element e);
+	void linkAfter(EntityId after, EntityId id) noexcept;
+	void removeElement(EntityId id) noexcept;
+
+	entt::registry reg_;
+	EntityId head_ = kNoEntity;
+	EntityId tail_ = kNoEntity;
+	std::size_t count_ = 0;
 	Rng rng_;
 	std::uint64_t frame_ = 0;
 

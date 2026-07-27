@@ -75,7 +75,8 @@ struct Game
 	// design; wiring a mask into them would make sim/ depend on content.
 	std::array<sim::ShipSpec, 2> shipData{};
 
-	std::array<sim::EntityId, 2> ships{};
+	// kNoEntity explicitly: entt's zero id is a real first entity, not null.
+	std::array<sim::EntityId, 2> ships{sim::kNoEntity, sim::kNoEntity};
 	bool running = true;
 
 	// -1 while the fight is on, then the surviving player, or 2 for a draw.

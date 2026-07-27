@@ -3,7 +3,7 @@
 #ifndef UQM2_SIM_FIELD_HPP
 #define UQM2_SIM_FIELD_HPP
 
-#include "sim/EntityList.hpp"
+#include "sim/Entity.hpp"
 
 #include <cstdint>
 

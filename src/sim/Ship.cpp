@@ -280,8 +280,8 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 	EntityId bestTarget;
 	bool found = false;
 
-	for (EntityId id = b.elements().front(); id.valid();
-			id = b.elements().next(id))
+	for (EntityId id = b.front(); id != kNoEntity;
+			id = b.next(id))
 	{
 		const auto t = b.get(id);
 		if (t == nullptr || !any(t->flags & ElementFlags::PlayerShip))
@@ -516,8 +516,8 @@ namespace {
 void
 sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 {
-	for (EntityId other = b.elements().front(); other.valid();
-			other = b.elements().next(other))
+	for (EntityId other = b.front(); other != kNoEntity;
+			other = b.next(other))
 	{
 		if (other == id)
 			continue;
@@ -633,8 +633,8 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 	// Every shot in range, not just the nearest: the C walks the whole list
 	// and fires at each, paying once for the volley (human.c:225-236) -- a
 	// Cruiser surrounded by fire clears all of it, or none if it can't afford it.
-	for (EntityId other = b.elements().front(); other.valid();
-			other = b.elements().next(other))
+	for (EntityId other = b.front(); other != kNoEntity;
+			other = b.next(other))
 	{
 		if (other == id)
 			continue;

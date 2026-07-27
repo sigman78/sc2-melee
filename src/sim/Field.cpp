@@ -71,8 +71,8 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 
 	const Body a{self->mask, self->current, self->current};
 
-	for (EntityId other = b.elements().front(); other.valid();
-			other = b.elements().next(other))
+	for (EntityId other = b.front(); other != kNoEntity;
+			other = b.next(other))
 	{
 		if (other == id)
 			continue;
@@ -108,8 +108,8 @@ placeShipAtRandom(Battle &b, EntityId id, std::int32_t minSeparation)
 		if (want <= 0)
 			return true;
 		auto self = b.get(id);
-		for (EntityId other = b.elements().front(); other.valid();
-				other = b.elements().next(other))
+		for (EntityId other = b.front(); other != kNoEntity;
+				other = b.next(other))
 		{
 			if (other == id)
 				continue;
