@@ -211,6 +211,16 @@ struct Cloak
 	std::int32_t level = 0;
 };
 
+// Presence is the phase; removal replaces the C's per-instance hook swap
+// (tactrans.c:868-886, 703-728). shipPreProcess dispatches on these.
+struct WarpingIn
+{
+};
+
+struct Exploding
+{
+};
+
 // OBJECT_CLOAKED, derived: hidden from weapon targeting (weapon.c:344) and
 // PD (human.c:202) only at full black (element.h:201-204). Computed from
 // the component, never stored beside it -- the flag this replaces violated
@@ -272,16 +282,9 @@ inline constexpr std::int32_t kExplosionLife = kExplosionFrames * 3;
 // One point of exhaust, dropped behind a thrusting ship (tactrans.c:792-840).
 void spawnIonTrail(Battle &b, EntityId ship) noexcept;
 
-// The warp-in preprocess. A ship starts under this hook and swaps itself over
-// to shipPreProcess once it has arrived (ship_transition, tactrans.c:852-890).
-void shipTransition(Battle &b, EntityId id) noexcept;
-
 // Turns a dead ship into its own explosion rather than removing it
 // (StartShipExplosion, tactrans.c:703-728).
 void startShipExplosion(Battle &b, EntityId id) noexcept;
-
-// Throws off sparks while a dying ship burns. tactrans.c:542-615.
-void explosionPreProcess(Battle &b, EntityId id) noexcept;
 
 const ShipSpec &earthlingCruiser() noexcept;
 [[nodiscard]] const ShipSpec &ilwrathAvenger() noexcept;

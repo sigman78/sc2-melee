@@ -81,13 +81,13 @@ setUpBattle(Game &g)
 		const game::SpriteSet &set = g.content.sprites(g.window,
 				g.roster[static_cast<std::size_t>(player)]->art.ship);
 		e.mask = set.maskFor(facing.raw());
-		// Warping in, not simply present. shipTransition hands over to
-		// shipPreProcess once the ship has arrived.
-		e.preProcess = sim::shipTransition;
-		e.postProcess = nullptr;
+		e.preProcess = sim::shipPreProcess;
+		e.postProcess = sim::shipPostProcess;
 		e.onCollision = sim::solidCollision;
 		const sim::EntityId id = g.battle.spawn(sim::Layer::Field, std::move(e));
 		g.battle.registry().emplace<sim::PlayerShip>(id);
+		// Warping in, not simply present; arrival removes the component.
+		g.battle.registry().emplace<sim::WarpingIn>(id);
 		g.battle.attachShip(id, &data);
 		return id;
 	};

@@ -44,6 +44,9 @@ applyFacingMask(Element &e, const ShipSpec &spec) noexcept
 	e.mask = &spec.facingMasks[i];
 }
 
+void warpInStep(Battle &b, EntityId id) noexcept;
+void explosionStep(Battle &b, EntityId id) noexcept;
+
 }  // namespace
 
 void
@@ -59,6 +62,12 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 	ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
 
+	if (b.registry().all_of<WarpingIn>(id))
+	{
+		warpInStep(b, id);
+		return;
+	}
+
 	if (any(e->flags & ElementFlags::Appearing))
 	{
 		// First frame: the crew and energy come from the descriptor
@@ -69,6 +78,14 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 		s.input = ShipInput::None;
 		e->owner = id;  // a ship is its own pParent
 		applyFacingMask(*e, spec);
+		return;
+	}
+
+	// A dead hull runs its explosion and nothing else (tactrans.c:703-728).
+	if (s.crew == 0)
+	{
+		if (b.registry().all_of<Exploding>(id))
+			explosionStep(b, id);
 		return;
 	}
 
@@ -145,6 +162,9 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 
 	ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
+
+	if (b.registry().all_of<WarpingIn>(id))
+		return;
 
 	// A dead ship does nothing further (ship.c:288-289).
 	if (s.crew == 0)
@@ -457,8 +477,10 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	b.registry().emplace<IgnoreVelocity>(trail);
 }
 
+namespace {
+
 void
-shipTransition(Battle &b, EntityId id) noexcept
+warpInStep(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
 	if (e == nullptr)
@@ -509,18 +531,14 @@ shipTransition(Battle &b, EntityId id) noexcept
 
 	if (e->lifeSpan <= 1)
 	{
-		// Arrived. Solid, visible, and under its own control from here
-		// (tactrans.c:868-886).
+		// Arrived: solid, visible, under its own control (tactrans.c:868-886).
 		e->flags &= ~(ElementFlags::NonSolid | ElementFlags::FiniteLife);
 		e->velocity.zero();
-		e->preProcess = shipPreProcess;
-		e->postProcess = shipPostProcess;
 		e->lifeSpan = 1;  // NORMAL_LIFE: persistent again
 		applyFacingMask(*e, *sp->spec);
+		b.registry().remove<WarpingIn>(id);
 	}
 }
-
-namespace {
 
 // cleanup_dead_ship (tactrans.c:307-337): when the wreck finishes burning,
 // everything the dead ship still owns -- in-flight nukes, the flame stream --
@@ -560,13 +578,15 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	e->colorCycle = 0;
 	e->flags &= ~ElementFlags::Disappearing;
 	e->flags |= ElementFlags::FiniteLife | ElementFlags::NonSolid;
-	e->preProcess = explosionPreProcess;
 	e->postProcess = nullptr;
 	e->onDeath = sweepDeadShipOrdnance;
+	b.registry().emplace_or_replace<Exploding>(id);
 }
 
+namespace {
+
 void
-explosionPreProcess(Battle &b, EntityId id) noexcept
+explosionStep(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
 	if (e == nullptr)
@@ -583,7 +603,7 @@ explosionPreProcess(Battle &b, EntityId id) noexcept
 		count = 2;
 	if (age > 25)
 	{
-		e->preProcess = nullptr;
+		b.registry().remove<Exploding>(id);
 		return;
 	}
 
@@ -623,6 +643,8 @@ explosionPreProcess(Battle &b, EntityId id) noexcept
 		b.spawn(Layer::Background, std::move(d));
 	}
 }
+
+}  // namespace
 
 void
 cruiserSpecial(Battle &b, EntityId id) noexcept

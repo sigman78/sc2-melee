@@ -2325,6 +2325,30 @@ testPointDefenceBurnsIncomingFire()
 }
 
 void
+testDeadShipBurnsAsAPhaseThenGoes()
+{
+	Battle b(1);
+	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
+	b.get(id)->preProcess = shipPreProcess;
+	b.get(id)->postProcess = shipPostProcess;
+	b.step();
+
+	doDamage(b, id, 100);
+	CHECK(b.registry().all_of<Exploding>(id),
+			"overkill starts the explosion phase");
+
+	b.step();
+	CHECK(b.get(id) != nullptr, "the wreck persists while it burns");
+	CHECK(b.size() > 1, "and throws debris sparks");
+
+	// kExplosionLife of burning, then the reap; sparks outlive by kDebrisLife.
+	for (int i = 0; i < kExplosionLife + kDebrisLife + 2; ++i)
+		b.step();
+	CHECK(b.get(id) == nullptr, "then the wreck is reaped");
+	CHECK(b.size() == 0, "and the sparks have burned out");
+}
+
+void
 testShipWarpsInBeforeItIsSolid()
 {
 	// The arrival, checked without a window.
@@ -2348,9 +2372,10 @@ testShipWarpsInBeforeItIsSolid()
 	e.facing = sim::Facing(4);
 	e.playerNr = 0;
 	e.mass = sim::earthlingCruiser().mass;
-	e.preProcess = sim::shipTransition;
+	e.preProcess = sim::shipPreProcess;
 	const sim::EntityId shipId = b.spawn(Layer::Field, std::move(e));
 	b.registry().emplace<sim::PlayerShip>(shipId);
+	b.registry().emplace<sim::WarpingIn>(shipId);
 	b.attachShip(shipId, &sim::earthlingCruiser());
 
 	const auto ship = [&b]() -> const sim::Element * {
@@ -2472,8 +2497,8 @@ testShipWarpsInBeforeItIsSolid()
 	CHECK(ship() != nullptr, "the ship should still be here once it arrives");
 	CHECK(!any(ship()->flags & sim::ElementFlags::NonSolid),
 			"an arrived ship must be solid");
-	CHECK(ship()->preProcess == sim::shipPreProcess,
-			"an arrived ship drives itself");
+	CHECK(!b.registry().all_of<sim::WarpingIn>(shipId),
+			"arrival removes the phase component");
 	CHECK(b.ship(shipId)->crew == sim::earthlingCruiser().maxCrew,
 			"arriving fills the crew, got %d", b.ship(shipId)->crew);
 }
@@ -2679,6 +2704,7 @@ main()
 	testStaleHandlesAreDetectable();
 	testTheReapKeepsTheWalkIntact();
 	testEntityAddressesAreStable();
+	testDeadShipBurnsAsAPhaseThenGoes();
 	testShipWarpsInBeforeItIsSolid();
 
 	if (failures != 0)
