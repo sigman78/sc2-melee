@@ -75,32 +75,23 @@ loadAssets(Game &g, const std::filesystem::path &content)
 
 	// Today's fixed roster, by catalog key. What ships exist and what they
 	// load is game/Ships.cpp's business; only the match-up is decided here.
-	const game::ShipDef *cru = game::findShip("earthling.cruiser");
-	const game::ShipDef *ave = game::findShip("ilwrath.avenger");
-	assert(cru != nullptr && ave != nullptr);
+	g.roster = {game::findShip("earthling.cruiser"),
+			game::findShip("ilwrath.avenger")};
+	assert(g.roster[0] != nullptr && g.roster[1] != nullptr);
 
-	// Addressed by resource id, not by path. uqm.rmp is the only link between
-	// a name and a file, and it is what an addon overrides -- see
-	// game/Resources.hpp.
-	const auto load = [&](std::string_view id) -> const game::SpriteSet * {
+	// Warm the cache and say what failed, now rather than mid-battle:
+	// consumers resolve lazily through Resources, so a missing id would
+	// otherwise first be reported the frame something tries to draw it.
+	// Addressed by resource id, not by path -- uqm.rmp is the only link
+	// between a name and a file, and it is what an addon overrides (see
+	// game/Resources.hpp).
+	const auto warm = [&](std::string_view id) {
 		const game::SpriteSet &set = g.content.sprites(g.window, id);
 		if (!set.valid() && g.content.valid())
 			std::fprintf(stderr, "content: could not load %.*s\n",
 					static_cast<int>(id.size()), id.data());
-		return &set;
 	};
-
-	g.cruiser = load(cru->art.ship);
-	g.avenger = load(ave->art.ship);
-	g.nuke = load(cru->art.weapon);
-	g.flame = load(ave->art.weapon);
-	g.rock = load(game::kMeleeArt.asteroid);
-	g.blast = load(game::kMeleeArt.blast);
-	g.boom = load(game::kMeleeArt.boom);
-	g.world = load(game::kMeleeArt.planet);
-	g.starArt = load(game::kMeleeArt.stars);
-
-	const auto loadSounds = [&](std::string_view id) {
+	const auto warmSounds = [&](std::string_view id) {
 		const std::span<const platform::Sound> set =
 				g.content.sounds(g.audio, id);
 		std::size_t ok = 0;
@@ -108,30 +99,42 @@ loadAssets(Game &g, const std::filesystem::path &content)
 			ok += snd.valid() ? 1 : 0;
 		std::fprintf(stderr, "audio: %.*s -> %zu/%zu loaded\n",
 				static_cast<int>(id.size()), id.data(), ok, set.size());
-		return set;
 	};
-	g.cruiserSounds = loadSounds(cru->art.sounds);
-	g.avengerSounds = loadSounds(ave->art.sounds);
-	g.battleSounds = loadSounds(game::kMeleeArt.battleSounds);
+
+	for (const game::ShipDef *def : g.roster)
+	{
+		warm(def->art.ship);
+		warm(def->art.weapon);
+		warmSounds(def->art.sounds);
+	}
+	warm(game::kMeleeArt.asteroid);
+	warm(game::kMeleeArt.blast);
+	warm(game::kMeleeArt.boom);
+	warm(game::kMeleeArt.planet);
+	warm(game::kMeleeArt.stars);
+	warmSounds(game::kMeleeArt.battleSounds);
 	if (!g.audio.valid())
 		std::fprintf(stderr, "audio: no device; the game runs silent\n");
 
 	// Descriptors first, then the content-derived masks on top: skipping
 	// these leaves a default ShipSpec with thrust.max = 0 and turnWait = 0,
 	// a ship that cannot accelerate and spins every frame.
-	g.cruiserData = *cru->spec;
-	g.avengerData = *ave->spec;
-
-	g.cruiserData.facingMasks = g.cruiser->masks;
-	g.avengerData.facingMasks = g.avenger->masks;
-	g.cruiserData.weapon.masks = g.nuke->masks;
-	g.avengerData.weapon.masks = g.flame->masks;
-
-	if (!g.cruiserData.valid() || !g.avengerData.valid())
+	for (std::size_t p = 0; p < g.roster.size(); ++p)
 	{
-		std::fprintf(stderr,
-				"ship: a descriptor was never filled in -- the ships will not "
-				"fly. This is a setup bug, not a control one.\n");
+		const game::ShipDef &def = *g.roster[p];
+		g.shipData[p] = *def.spec;
+		g.shipData[p].facingMasks =
+				g.content.sprites(g.window, def.art.ship).masks;
+		g.shipData[p].weapon.masks =
+				g.content.sprites(g.window, def.art.weapon).masks;
+
+		if (!g.shipData[p].valid())
+		{
+			std::fprintf(stderr,
+					"ship: %.*s's descriptor was never filled in -- it will "
+					"not fly. This is a setup bug, not a control one.\n",
+					static_cast<int>(def.key.size()), def.key.data());
+		}
 	}
 }
 

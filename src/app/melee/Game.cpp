@@ -5,6 +5,7 @@
 #include "app/melee/Draw.hpp"
 #include "app/melee/Sound.hpp"
 
+#include "game/Melee.hpp"
 #include "sim/Damage.hpp"
 #include "sim/Field.hpp"
 
@@ -86,9 +87,9 @@ setUpBattle(Game &g)
 		// The real silhouette when the art loaded, a block when it did not.
 		// Per-pixel collision against a 12x12 square is not per-pixel
 		// collision, so this changes how the ships actually touch.
-		const game::SpriteSet *set = player == 0 ? g.cruiser : g.avenger;
-		const sim::CollisionMask *m =
-				set != nullptr ? set->maskFor(facing.raw()) : nullptr;
+		const game::SpriteSet &set = g.content.sprites(g.window,
+				g.roster[static_cast<std::size_t>(player)]->art.ship);
+		const sim::CollisionMask *m = set.maskFor(facing.raw());
 		e.mask = m != nullptr ? m : &g.shipMask;
 		// Warping in, not simply present. shipTransition hands over to
 		// shipPreProcess once the ship has arrived.
@@ -112,18 +113,23 @@ setUpBattle(Game &g)
 	// other, close enough for the camera to hold both.
 	constexpr std::int32_t kMinSeparation = 1024;
 
-	g.ships[0] = addShip(g.cruiserData, Vec2i{0, 0}, randomFacing(), 0);
+	g.ships[0] = addShip(g.shipData[0], Vec2i{0, 0}, randomFacing(), 0);
 	sim::placeShipAtRandom(g.battle, g.ships[0], kMinSeparation);
-	g.ships[1] = addShip(g.avengerData, Vec2i{0, 0}, randomFacing(), 1);
+	g.ships[1] = addShip(g.shipData[1], Vec2i{0, 0}, randomFacing(), 1);
 	sim::placeShipAtRandom(g.battle, g.ships[1], kMinSeparation);
 
 	// The field spawns after the ships: spawnPlanet rejects any position
 	// overlapping something or in a gravity well (misc.c:63-70), and can
 	// only reject what already exists to avoid.
+	const game::SpriteSet &worldArt =
+			g.content.sprites(g.window, game::kMeleeArt.planet);
+	const game::SpriteSet &rockArt =
+			g.content.sprites(g.window, game::kMeleeArt.asteroid);
 	const sim::CollisionMask *planetMask =
-			g.world->maskFor(0) != nullptr ? g.world->maskFor(0) : &g.planetMask;
+			worldArt.maskFor(0) != nullptr ? worldArt.maskFor(0)
+										   : &g.planetMask;
 	const sim::CollisionMask *rockMask =
-			g.rock->maskFor(0) != nullptr ? g.rock->maskFor(0) : &g.rockMask;
+			rockArt.maskFor(0) != nullptr ? rockArt.maskFor(0) : &g.rockMask;
 
 	// Spread over the arena, in display pixels. See kStarFieldWidth.
 	for (Vec2i &s : g.stars)

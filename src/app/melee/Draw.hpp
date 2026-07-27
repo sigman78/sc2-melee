@@ -66,8 +66,10 @@ private:
 
 // THE attach-time dispatch: the only place left that switches on
 // ElementKind, besides the sound code. Built once per spawned element.
+// Art comes from the owner's roster entry or kMeleeArt, resolved through
+// Resources' cache -- which is why the Game is not const here.
 [[nodiscard]] Visual visualFor(
-		const Game &g, sim::ElementKind kind, std::int32_t playerNr);
+		Game &g, sim::ElementKind kind, std::int32_t playerNr);
 
 // Renders one frame: the starfield, every element, the HUD, and -- if
 // toggled -- the collision debug overlay.

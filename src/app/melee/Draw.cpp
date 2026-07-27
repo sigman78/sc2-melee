@@ -12,6 +12,7 @@
 #include "app/melee/Game.hpp"
 
 #include "engine/core/Geometry.hpp"
+#include "game/Melee.hpp"
 #include "game/SpriteSet.hpp"
 #include "platform/Platform.hpp"
 #include "sim/Battle.hpp"
@@ -23,6 +24,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace uqm::melee {
 
@@ -191,30 +193,38 @@ RenderStore::purgeDead(const sim::Battle &b)
 }
 
 Visual
-visualFor(const Game &g, sim::ElementKind kind, std::int32_t playerNr)
+visualFor(Game &g, sim::ElementKind kind, std::int32_t playerNr)
 {
 	const Colour fallback = colourFor(kind, playerNr);
+	const Visual rect{nullptr, CelPolicy::Rect, fallback};
 
 	// A missing or invalid set draws as Rect instead.
-	const auto sprite = [&](const game::SpriteSet *set, CelPolicy policy) {
-		return set != nullptr && set->valid()
-				? Visual{set, policy, fallback}
-				: Visual{nullptr, CelPolicy::Rect, fallback};
+	const auto sprite = [&](std::string_view id, CelPolicy policy) {
+		const game::SpriteSet &set = g.content.sprites(g.window, id);
+		return set.valid() ? Visual{&set, policy, fallback} : rect;
 	};
+
+	// The owner's definition, for the kinds whose art is the ship's own.
+	const game::ShipDef *def = playerNr >= 0
+					&& static_cast<std::size_t>(playerNr) < g.roster.size()
+			? g.roster[static_cast<std::size_t>(playerNr)]
+			: nullptr;
 
 	switch (kind)
 	{
 		case sim::ElementKind::Ship:
-			return sprite(playerNr == 0 ? g.cruiser : g.avenger,
-					CelPolicy::ByFacing);
+			return def != nullptr ? sprite(def->art.ship, CelPolicy::ByFacing)
+								  : rect;
 		case sim::ElementKind::ShipShadow:
 			// A warp-in shadow is the ship's own image, so it borrows the
 			// art, drawn tinted rather than plain.
-			return sprite(playerNr == 0 ? g.cruiser : g.avenger,
-					CelPolicy::RampSilhouette);
+			return def != nullptr
+					? sprite(def->art.ship, CelPolicy::RampSilhouette)
+					: rect;
 		case sim::ElementKind::Weapon:
-			return sprite(
-					playerNr == 0 ? g.nuke : g.flame, CelPolicy::ByFrame);
+			return def != nullptr
+					? sprite(def->art.weapon, CelPolicy::ByFrame)
+					: rect;
 		case sim::ElementKind::Laser:
 			return Visual{nullptr, CelPolicy::BeamLine, fallback};
 		case sim::ElementKind::IonTrail:
@@ -222,19 +232,21 @@ visualFor(const Game &g, sim::ElementKind kind, std::int32_t playerNr)
 		case sim::ElementKind::Debris:
 			// Not validated here: the DebrisFrames draw branch checks
 			// frames itself and falls back to its own fixed colour.
-			return Visual{g.boom, CelPolicy::DebrisFrames, fallback};
+			return Visual{&g.content.sprites(g.window, game::kMeleeArt.boom),
+					CelPolicy::DebrisFrames, fallback};
 		case sim::ElementKind::Blast:
 			// Weapon blasts and asteroid debris share a kind but not art. The
 			// rubble an asteroid leaves is unowned; a blast belongs to the
 			// shot that made it.
-			return sprite(
-					playerNr < 0 ? g.boom : g.blast, CelPolicy::ByFacing);
+			return sprite(playerNr < 0 ? game::kMeleeArt.boom
+									   : game::kMeleeArt.blast,
+					CelPolicy::ByFacing);
 		case sim::ElementKind::Asteroid:
-			return sprite(g.rock, CelPolicy::ByFacing);
+			return sprite(game::kMeleeArt.asteroid, CelPolicy::ByFacing);
 		case sim::ElementKind::Planet:
-			return sprite(g.world, CelPolicy::ByFacing);
+			return sprite(game::kMeleeArt.planet, CelPolicy::ByFacing);
 		default:
-			return Visual{nullptr, CelPolicy::Rect, fallback};
+			return rect;
 	}
 }
 
@@ -265,7 +277,8 @@ drawStars(Game &g)
 		const std::int32_t ox = centre.x >> (sim::kOneShift + plane);
 		const std::int32_t oy = centre.y >> (sim::kOneShift + plane);
 
-		const game::SpriteSet *art = g.starArt;
+		const game::SpriteSet *art =
+				&g.content.sprites(g.window, game::kMeleeArt.stars);
 		const std::size_t cel = kStarCels[p];
 		const bool haveArt = art != nullptr && cel < art->frames.size()
 				&& cel < art->masks.size();

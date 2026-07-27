@@ -3,15 +3,37 @@
 #include "app/melee/Sound.hpp"
 #include "app/melee/Game.hpp"
 
+#include "game/Melee.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace uqm::melee {
+
+namespace {
+
+// The owner's sound set, by definition. A lookup, not a load: Resources
+// caches by id and loadAssets already warmed it.
+[[nodiscard]] std::span<const platform::Sound>
+shipSounds(Game &g, std::int32_t playerNr)
+{
+	if (playerNr < 0 || static_cast<std::size_t>(playerNr) >= g.roster.size()
+			|| g.roster[static_cast<std::size_t>(playerNr)] == nullptr)
+		return {};
+	return g.content.sounds(g.audio,
+			g.roster[static_cast<std::size_t>(playerNr)]->art.sounds);
+}
+
+}  // namespace
 
 void
 playStepSounds(Game &g)
 {
+	const std::span<const platform::Sound> battleSnd =
+			g.content.sounds(g.audio, game::kMeleeArt.battleSounds);
+
 	// Which boom plays tracks hit strength: TARGET_DAMAGED_FOR_1_PT +
 	// (damage >> 1), capped at slot 6 (weapon.c:168-172, ship.c:369-371);
 	// battle.snd orders booms after getcrew/shipdies.
@@ -25,8 +47,8 @@ playStepSounds(Game &g)
 		const std::size_t slot = std::min<std::size_t>(
 				kBoomFirstSlot + static_cast<std::size_t>(damage >> 1),
 				kBoomFirstSlot + 3);
-		if (g.battleSounds.size() > slot)
-			g.audio.play(g.battleSounds[slot], kEffectGain);
+		if (battleSnd.size() > slot)
+			g.audio.play(battleSnd[slot], kEffectGain);
 	}
 
 	// Weapons fired this frame, and beams: read from step()'s own spawn
@@ -35,19 +57,19 @@ playStepSounds(Game &g)
 	{
 		if (sp.kind == sim::ElementKind::Weapon)
 		{
-			// Whose weapon: the Cruiser's nuke and the Avenger's flame are
-			// different sounds, both slot 0 of their own ship's .snd.
-			const auto &set = sp.playerNr == 0 ? g.cruiserSounds
-											   : g.avengerSounds;
+			// Whose weapon: the nuke and the flame are different sounds,
+			// both slot 0 of their owner's own .snd.
+			const auto set = shipSounds(g, sp.playerNr);
 			if (!set.empty())
 				g.audio.play(set[0], kEffectGain);
 		}
 		else if (sp.kind == sim::ElementKind::Laser)
 		{
-			// cruiser.snd slot 1: secondary.wav, the point-defence laser
-			// (human.c:232-234).
-			if (g.cruiserSounds.size() > 1)
-				g.audio.play(g.cruiserSounds[1], kEffectGain);
+			// Slot 1 of the owner's .snd: secondary.wav, the point-defence
+			// laser (human.c:232-234).
+			const auto set = shipSounds(g, sp.playerNr);
+			if (set.size() > 1)
+				g.audio.play(set[1], kEffectGain);
 		}
 	}
 
@@ -63,8 +85,8 @@ playStepSounds(Game &g)
 			continue;
 		g.deathAnnounced[p] = true;
 		// battle.snd slot 1: shipdies.wav (tactrans.c:723-726).
-		if (g.battleSounds.size() > 1)
-			g.audio.play(g.battleSounds[1], kEffectGain);
+		if (battleSnd.size() > 1)
+			g.audio.play(battleSnd[1], kEffectGain);
 	}
 }
 

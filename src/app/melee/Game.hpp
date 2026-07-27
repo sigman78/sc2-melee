@@ -7,12 +7,13 @@
 #define UQM2_APP_MELEE_GAME_HPP
 
 #include "app/melee/Draw.hpp"
+#include "engine/core/Borrowed.hpp"
 #include "engine/core/Geometry.hpp"
 #include "engine/core/Pacing.hpp"
 #include "engine/input/Input.hpp"
 #include "game/Camera.hpp"
 #include "game/Resources.hpp"
-#include "game/SpriteSet.hpp"
+#include "game/Ships.hpp"
 #include "platform/Audio.hpp"
 #include "platform/Platform.hpp"
 #include "sim/Battle.hpp"
@@ -23,7 +24,6 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
-#include <span>
 #include <vector>
 
 namespace uqm::melee {
@@ -59,7 +59,6 @@ struct Game
 	// The starfield, three planes deep (galaxy.c:37-44). Positions are in
 	// display pixels on a screen-sized torus, one per plane -- see drawStars.
 	std::array<Vec2i, kStarCount> stars{};
-	const game::SpriteSet *starArt = nullptr;
 	Pacer pacer;
 	std::array<input::InputAccumulator, 2> players;
 
@@ -69,23 +68,13 @@ struct Game
 	platform::Audio audio;
 	game::Resources content;
 
-	// Sound slots, by the index the .snd list gives them. cruiser.snd is
-	// primary then secondary; battle.snd is the shared set -- getcrew,
-	// shipdies, then the booms.
-	std::span<const platform::Sound> cruiserSounds;
-	std::span<const platform::Sound> avengerSounds;
-	std::span<const platform::Sound> battleSounds;
+	// Who is fighting, as catalog entries -- parallel to `ships`. Art and
+	// sounds resolve through the owner's definition (visualFor, Sound.cpp);
+	// no other app code names a resource id.
+	std::array<Borrowed<const game::ShipDef>, 2> roster{};
 
-	const game::SpriteSet *cruiser = nullptr;
-	const game::SpriteSet *avenger = nullptr;
-	const game::SpriteSet *nuke = nullptr;   // the Cruiser's missile
-	const game::SpriteSet *flame = nullptr;  // the Avenger's fire
-	const game::SpriteSet *rock = nullptr;
-	const game::SpriteSet *world = nullptr;  // the gravity well
-	const game::SpriteSet *blast = nullptr;  // a weapon going off
-	const game::SpriteSet *boom = nullptr;   // an asteroid coming apart
-
-	// Fallbacks for anything without art yet -- shots, rocks, the planet.
+	// Fallbacks for anything without art yet -- ships, shots, rocks, the
+	// planet.
 	sim::CollisionMask shipMask = block(12, 12);
 	sim::CollisionMask shotMask = block(3, 3);
 	sim::CollisionMask rockMask = block(8, 8);
@@ -94,8 +83,7 @@ struct Game
 	// Per-battle copies, so their weapons can carry the mask cut from the
 	// projectile art. sim/'s shared descriptors stay content-free by
 	// design; wiring a mask into them would make sim/ depend on content.
-	sim::ShipSpec cruiserData;
-	sim::ShipSpec avengerData;
+	std::array<sim::ShipSpec, 2> shipData{};
 
 	std::array<sim::EntityId, 2> ships{};
 	bool running = true;
