@@ -46,11 +46,12 @@ inline constexpr std::int32_t kCollisionThrustWait = 3;  // collide.h:29
 // available, chmmr.c:398-409, druuge.c:266 and mmrnmhrm.c:436-450 -- all of
 // which hand-set these flags -- have nothing to hand-set.
 //
-// NOTE: applyImpulse still *resets* the state the way collide.c:109-110 does,
-// rather than leaving callers to re-derive it. Switching to derivation is a
-// one-line change at the call site and a deliberate behaviour change, because
-// the C's flags can be stale by a frame. Kept separate so the switch is
-// visible rather than smuggled in with the port.
+// NOTE: applyImpulse *resets* the state the way collide.c:104-110 does
+// (to Normal, unconditionally, on any impulsed player ship), rather than
+// leaving callers to re-derive it. Switching to derivation is a one-line
+// change at the call site and a deliberate behaviour change, because the C's
+// flags can be stale by a frame. Kept separate so the switch is visible
+// rather than smuggled in with the port.
 [[nodiscard]] SpeedState deriveSpeedState(
 		const Velocity &v, const ThrustProfile &profile) noexcept;
 

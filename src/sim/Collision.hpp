@@ -102,8 +102,12 @@ struct Impact
 	// callers compare and order by -- earliest impact wins.
 	TimeValue time = 0;
 
-	// Hotspot positions at the moment of impact, which is what the C writes
-	// back through EndPoint so the caller can place the explosion.
+	// Hotspot positions one sub-step BEFORE the overlap -- the last clear
+	// positions, which is what the C writes back through EndPoint
+	// (intersec.c:218-229 updates the rects only after a failed test). The
+	// caller places bodies touching, not interpenetrating. The one exception
+	// is a pair already overlapping at time 1, where there is no clear
+	// position to report and the start positions come back instead.
 	Vec2i at0;
 	Vec2i at1;
 

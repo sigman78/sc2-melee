@@ -87,8 +87,12 @@ weaponCollision(Battle &b, EntityId id) noexcept
 			doDamage(*target, damage);
 	}
 
-	// The weapon is spent either way (weapon.c:179-181). Re-fetched because
-	// doDamage may have run a death hook that touched the list.
+	// The weapon is spent. NOT quite "either way" in the C: weapon.c:161-164
+	// keeps a weapon flying when its hit_points exceed a surviving finite
+	// target's mass_points -- a pierce rule no M1 weapon can trigger (both
+	// have 1 hit point), recorded as review-001 A16 and deferred with the
+	// collision-protocol work rather than half-ported here. Re-fetched
+	// because doDamage may have run a death hook that touched the list.
 	w = b.get(id);
 	if (w == nullptr)
 		return;
@@ -99,7 +103,11 @@ weaponCollision(Battle &b, EntityId id) noexcept
 
 	w->hitPoints = 0;
 	w->lifeSpan = 0;
-	w->flags |= ElementFlags::NonSolid;
+	// DISAPPEARING too (weapon.c:175-177): a spent missile is reaped this
+	// same frame, never drawn dead at the impact point. The flame's wrapper
+	// clears the flag again so the fireball lingers one frame
+	// (flameCollision; ilwrath.c:141-148).
+	w->flags |= ElementFlags::NonSolid | ElementFlags::Disappearing;
 
 	// The blast, offset along the direction of travel so it sits on the
 	// surface it hit rather than inside it (weapon.c:198-208).
@@ -111,7 +119,9 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	blast.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(blastOffset)),
 			at.y + sine(angle, displayToWorld(blastOffset))});
 	blast.next = blast.current;
-	b.spawnFront(std::move(blast));
+	// Tail, like every PutElement in the C: the post walk's catch-up ages it
+	// this frame, so its five frames start now rather than next step.
+	b.spawnBack(std::move(blast));
 }
 
 void
@@ -133,11 +143,19 @@ solidCollision(Battle &b, EntityId id) noexcept
 	if (!isGravityMass(other->mass))
 		return;
 
-	// ship.c:364-367. In melee this is always 1: a player ship's hit_points is
-	// never assigned, so it is zero, and an asteroid's is 1 -- either way the
-	// shift yields 0 and the floor kicks in. The arithmetic is kept because it
-	// is what the C computes, not because it has ever produced anything else.
-	std::int32_t damage = e->hitPoints >> 2;
+	// ship.c:364-367 -- `damage = hit_points >> 2`, floored at one. The trap:
+	// for a PLAYER_SHIP, `hit_points` IS `crew_level` -- they are one union
+	// field (element.h:126-133) -- so flying an 18-crew Cruiser into the
+	// planet costs 4 crew, not 1. Reading a separate hitPoints field here,
+	// which is what this did first, made every planet impact cost exactly 1
+	// because a ship's own hitPoints is never assigned.
+	//
+	// Porting rule this bought: every C `hit_points` read on a player ship
+	// is a crew read.
+	const std::int32_t own = any(e->flags & ElementFlags::PlayerShip)
+			? e->ship.crew
+			: e->hitPoints;
+	std::int32_t damage = own >> 2;
 	if (damage == 0)
 		damage = 1;
 	doDamage(*e, damage);

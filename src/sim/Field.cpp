@@ -15,9 +15,10 @@ namespace {
 
 // DISPLAY_ALIGN_X/Y (units.h:85-86). The random word is first truncated to 16
 // bits -- COUNT is an unsigned short -- then folded into the arena and snapped
-// down to a display pixel. The truncation is why an asteroid never appears in
-// the far reaches of an 8192-wide arena from a 31-bit draw: it only ever sees
-// the low half.
+// down to a display pixel. The truncation is reproduced because it changes
+// which positions a given draw produces (65536 % 8192 == 0, so on X it does
+// not even bias the distribution -- but the *value* differs from a 31-bit
+// modulo, and replays care about values).
 [[nodiscard]] std::int32_t
 displayAlignX(std::uint32_t r) noexcept
 {
@@ -215,8 +216,14 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	a.velocity.setVector(magnitude, facing);
 
 	a.facing = normalizeFacing(static_cast<int>(b.rng().next()));
-	a.thrustWait = static_cast<std::int32_t>(b.rng().next() & 3);
-	a.turnWait = a.thrustWait;
+	a.turnWait = static_cast<std::int32_t>(b.rng().next() & 3);
+	a.thrustWait = a.turnWait;
+
+	// The seventh draw is the spin *direction*: bit 7 ORed into thrust_wait
+	// and only there (misc.c:192-193) -- turn_wait keeps just the period.
+	// Dropping this draw made every asteroid spin forward and left the
+	// stream one draw short per asteroid.
+	a.thrustWait |= static_cast<std::int32_t>(b.rng().next() & (1u << 7));
 
 	a.next = a.current;
 	return b.spawnBack(std::move(a));
@@ -240,10 +247,12 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	r.onDeath = rubbleDeath;
 	r.mask = dead->mask;
 
-	// Head insertion, because spawn_rubble calls PutElement *before* filling
-	// the element in (misc.c:90) -- the rubble is in the list ahead of the
-	// asteroid that is dying, and gets its catch-up preprocess this frame.
-	(void)b.spawnFront(std::move(r));
+	// Tail insertion. An earlier comment here claimed the C head-inserts
+	// because PutElement is called before the element is filled in
+	// (misc.c:90) -- but PutElement is PutQueue, which appends at the TAIL
+	// (displist.c:142-165); the call order changes nothing about position.
+	// The pre pass's live walk still reaches it this frame.
+	(void)b.spawnBack(std::move(r));
 }
 
 }  // namespace uqm::sim

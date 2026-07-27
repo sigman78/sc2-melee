@@ -25,17 +25,19 @@ inline constexpr int kNumAsteroids = 5;
 //
 // Position is rejected and redrawn while it would either sit in another
 // element's gravity well or physically overlap something, so this consumes an
-// unbounded number of RNG draws -- two per attempt. Call it before the
-// asteroids, as init.c does, or the stream diverges.
+// unbounded number of RNG draws -- two per attempt. init.c:228-233 spawns the
+// five asteroids FIRST and the planet second; keep that order or the stream
+// diverges. (An earlier version of this comment had it backwards.)
 EntityId spawnPlanet(Battle &b, const CollisionMask *mask);
 
 // Places one asteroid on an arena edge (misc.c:131-201).
 //
-// Consumes exactly six RNG draws, in this order: the edge selector, the
+// Consumes exactly seven RNG draws, in this order: the edge selector, the
 // position along that edge, the speed, the heading, the starting sprite
-// rotation, and the spin rate. The C spells the order out in a comment
-// (misc.c:176-178) because argument evaluation order was desynchronising
-// network games, so it is reproduced literally.
+// rotation, the spin rate, and the spin direction (bit 7 into thrust_wait,
+// misc.c:192-193). The C spells the order out in a comment (misc.c:176-178)
+// because argument evaluation order was desynchronising network games, so it
+// is reproduced literally.
 EntityId spawnAsteroid(Battle &b, const CollisionMask *mask);
 
 // Drop an already-spawned ship somewhere random and legal.

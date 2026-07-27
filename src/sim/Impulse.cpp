@@ -110,8 +110,15 @@ applyImpulse(Element &a, Element &b) noexcept
 
 		if (any(self.flags & ElementFlags::PlayerShip))
 		{
-			// collide.c:109-116. The speed flags are cleared here in the C;
-			// see the note in Impulse.hpp about deriving them instead.
+			// The impulse invalidates the at-max/beyond-max bookkeeping:
+			// collide.c:104-110 clears both flags, unconditionally, before
+			// the DEFY_PHYSICS test. Without this a bounced ship keeps a
+			// stale AtMax and inertial thrust's early-out refuses to
+			// accelerate it along its own facing.
+			self.ship.speed = SpeedState::Normal;
+
+			// The turn/thrust stagger, gated on DEFY_PHYSICS
+			// (collide.c:111-116).
 			if (!any(self.flags & ElementFlags::DefyPhysics))
 			{
 				if (self.turnWait < kCollisionTurnWait)
