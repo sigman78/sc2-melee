@@ -55,7 +55,16 @@ Hooks are deliberately NOT an event bus. Every ship in `ships/` was tuned
 against direct per-entity dispatch, and M2's strategy (port `cyborg.c`
 against a stable reference frame) needs that dispatch unchanged. New
 cross-cutting behavior enters as systems; existing per-ship behavior stays in
-slots.
+slots — but after review-005 a slot value must be a thin system function
+over the entity's components: behavior state lives in components (Guided,
+Spin, Cloak), optional phases are component presence (WarpingIn,
+Exploding — the C's per-instance hook mutation has no successor), and the
+ship phases themselves are named systems called in pinned order.
+
+Traversal order is *declared*, not computed: the spine is segmented by
+`Layer{Background, Field, Ordnance}` and every spawn names its stratum,
+FIFO within it. What the C encoded by head/tail insertion tricks
+(pkunk.c:498-512's head-inserted phoenix) is a layer declaration here.
 
 ## Migration plan
 
