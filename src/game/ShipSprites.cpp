@@ -69,11 +69,14 @@ loadShipSprites(platform::Platform &window, const fs::path &ani,
 		return out;
 
 	// Ship cels name a slot in the *global* table (colortable.main =
-	// base/uqm.ct), not a .ct beside them -- there is none in any ship
-	// directory. Without it an Avenger renders entirely in the
-	// missing-colour magenta, because its own PLTE does not cover the
-	// indices it uses. A Cruiser happens to survive without one, which is
-	// exactly the sort of accident that makes this look optional.
+	// base/uqm.ct); there is no .ct in any ship directory.
+	//
+	// Both M1 ships happen to render identically with and without it -- their
+	// own PLTEs already carry the intended colours, which is why the Ilwrath
+	// Avenger is legitimately a magenta-purple crescent and not, as it first
+	// appears, a missing-colormap failure. The slot lookup is wired anyway,
+	// because ships whose art *is* a neutral ramp exist and will need it, and
+	// finding that out sprite-by-sprite later is worse than carrying it now.
 	const SlotMap slots = loadColormaps(colortable);
 
 	const fs::path dir = ani.parent_path();

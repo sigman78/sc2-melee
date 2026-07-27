@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <cstdint>
@@ -131,6 +132,12 @@ struct Game
 
 	std::array<sim::EntityId, 2> ships{};
 	bool running = true;
+
+	// -1 while the fight is on, then the surviving player, or 2 for a draw.
+	// Held rather than acted on: the battle keeps stepping so the wreck and
+	// its blast finish playing out, which is what the C does too.
+	int winner = -1;
+	std::int64_t endedAtFrame = 0;
 };
 
 // Which sprite set an element draws from. Only ships have art so far.
@@ -275,6 +282,32 @@ iterate(Game &g)
 				ship->ship.input = toShipInput(b);
 		}
 		g.battle.step();
+	}
+
+	// A ship is gone when its element is: doDamage sets life_span to 0 and the
+	// step loop reaps it. Deciding this from the element rather than from a
+	// crew count means a ship destroyed by any means counts, not just one shot
+	// to death.
+	if (g.winner < 0)
+	{
+		const bool alive0 = g.battle.get(g.ships[0]) != nullptr;
+		const bool alive1 = g.battle.get(g.ships[1]) != nullptr;
+		if (!alive0 || !alive1)
+		{
+			g.winner = alive0 ? 0 : (alive1 ? 1 : 2);
+			g.endedAtFrame = static_cast<std::int64_t>(g.battle.frame());
+			if (g.winner == 2)
+				std::printf("mutual destruction\n");
+			else
+				std::printf("player %d wins\n", g.winner);
+			std::fflush(stdout);
+		}
+	}
+	else if (static_cast<std::int64_t>(g.battle.frame()) - g.endedAtFrame
+			> kBattleHz * 2)
+	{
+		// Two seconds to watch the wreck, then out. A menu goes here in M2.
+		g.running = false;
 	}
 
 	// The camera is presentation, so it follows the simulation rather than
