@@ -12,9 +12,8 @@
 namespace uqm::sim {
 
 bool
-deltaCrew(Element &e, std::int32_t delta) noexcept
+deltaCrew(ShipState &s, std::int32_t delta) noexcept
 {
-	ShipState &s = e.ship;
 	if (delta > 0)
 	{
 		s.crew += delta;
@@ -36,33 +35,40 @@ deltaCrew(Element &e, std::int32_t delta) noexcept
 }
 
 void
-doDamage(Element &e, std::int32_t damage) noexcept
+doDamage(Battle &b, EntityId id, std::int32_t damage) noexcept
 {
-	if (any(e.flags & ElementFlags::PlayerShip))
+	auto e = b.get(id);
+	if (e == nullptr)
+		return;
+
+	if (any(e->flags & ElementFlags::PlayerShip))
 	{
-		if (!deltaCrew(e, -damage))
+		ShipState *s = b.ship(id);
+		if (s == nullptr)
+			return;
+		if (!deltaCrew(*s, -damage))
 		{
 			// Out of crew: the ship becomes its own explosion and burns for
 			// three dozen frames (ship_death -> StartShipExplosion,
 			// tactrans.c:730-750), rather than vanishing.
-			startShipExplosion(e);
+			startShipExplosion(b, id);
 		}
 		return;
 	}
 
 	// A gravity mass is not damageable. Asked without gravity.c's `+ 1`, so a
 	// planet is immune and a fleeing ship at mass 100 is not.
-	if (isGravityMass(e.mass))
+	if (isGravityMass(e->mass))
 		return;
 
-	if (damage < e.hitPoints)
+	if (damage < e->hitPoints)
 	{
-		e.hitPoints -= damage;
+		e->hitPoints -= damage;
 		return;
 	}
-	e.hitPoints = 0;
-	e.lifeSpan = 0;
-	e.flags |= ElementFlags::NonSolid;
+	e->hitPoints = 0;
+	e->lifeSpan = 0;
+	e->flags |= ElementFlags::NonSolid;
 }
 
 void
@@ -93,15 +99,17 @@ weaponCollision(Battle &b, EntityId id) noexcept
 			&& (any(target->flags & ElementFlags::FiniteLife)
 					|| target->lifeSpan == 1))
 	{
-		doDamage(*target, damage);
+		doDamage(b, targetId, damage);
 		w = b.get(id);
 		target = b.get(targetId);
 		if (w == nullptr)
 			return;
-		const std::int32_t left = target == nullptr ? 0
-				: any(target->flags & ElementFlags::PlayerShip)
-				? target->ship.crew
-				: target->hitPoints;
+		std::int32_t left = 0;
+		if (target != nullptr)
+		{
+			const ShipState *ts = b.ship(targetId);
+			left = ts != nullptr ? ts->crew : target->hitPoints;
+		}
 		if (left > 0)
 			w->flags |= ElementFlags::Collided;
 	}
@@ -169,13 +177,12 @@ solidCollision(Battle &b, EntityId id) noexcept
 	// ship.c:364-367: damage = hit_points >> 2, floored at one. For a
 	// PLAYER_SHIP, hit_points IS crew_level (one union field, element.h:126-133)
 	// -- every C hit_points read on a player ship is a crew read.
-	const std::int32_t own = any(e->flags & ElementFlags::PlayerShip)
-			? e->ship.crew
-			: e->hitPoints;
+	const ShipState *ss = b.ship(id);
+	const std::int32_t own = ss != nullptr ? ss->crew : e->hitPoints;
 	std::int32_t damage = own >> 2;
 	if (damage == 0)
 		damage = 1;
-	doDamage(*e, damage);
+	doDamage(b, id, damage);
 }
 
 }  // namespace uqm::sim

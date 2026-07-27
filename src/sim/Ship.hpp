@@ -14,6 +14,40 @@ namespace uqm::sim {
 
 class Battle;
 
+// What the player is asking for this frame.
+enum class ShipInput : std::uint8_t
+{
+	None = 0,
+	Left = 1u << 0,
+	Right = 1u << 1,
+	Thrust = 1u << 2,
+	Weapon = 1u << 3,
+	Special = 1u << 4,
+};
+
+[[nodiscard]] constexpr ShipInput
+operator|(ShipInput a, ShipInput b) noexcept
+{
+	return static_cast<ShipInput>(
+			static_cast<std::uint8_t>(a) | static_cast<std::uint8_t>(b));
+}
+[[nodiscard]] constexpr ShipInput
+operator&(ShipInput a, ShipInput b) noexcept
+{
+	return static_cast<ShipInput>(
+			static_cast<std::uint8_t>(a) & static_cast<std::uint8_t>(b));
+}
+constexpr ShipInput &
+operator|=(ShipInput &a, ShipInput b) noexcept
+{
+	return a = a | b;
+}
+[[nodiscard]] constexpr bool
+any(ShipInput f) noexcept
+{
+	return static_cast<std::uint8_t>(f) != 0;
+}
+
 // A ship's weapon: the primary-fire descriptor plus the shot's own flight
 // parameters, guidance, and per-frame/collision hooks.
 struct WeaponSpec
@@ -109,6 +143,41 @@ struct ShipSpec
 	}
 };
 
+// A ship's mutable half. The C keeps this in STARSHIP beside the ELEMENT;
+// here it rides in Battle's component sidecar instead, keyed by the same id
+// (review-002 §1), since the two lifetimes still have to move together.
+struct ShipState
+{
+	Borrowed<const ShipSpec> spec = nullptr;
+	ShipInput input = ShipInput::None;
+
+	std::int32_t crew = 0;
+	std::int32_t energy = 0;
+
+	std::int32_t energyCounter = 0;
+	std::int32_t weaponCounter = 0;
+	std::int32_t specialCounter = 0;
+
+	SpeedState speed = SpeedState::Normal;
+
+	// SHIP_IN_GRAVITY_WELL (races.h:71): orthogonal to the at-max/beyond-max
+	// pair. Lets a ship accelerate past its own max, up to kMaxAllowedSpeed
+	// (ship.c:82,106-112); gravity sets it, next thrust clears it (ship.c:263-267).
+	bool inGravityWell = false;
+
+	// Where the ship is in the cloak's colour walk, as an index:
+	//     0            STAMP -- solid, visible, machine idle
+	//     1..5         STAMPFILL fills: white, cyan-white, dark cyan, blue,
+	//                  dark blue (ilwrath.c:349-374 in, 255-273 out)
+	//     kCloakFullLevel (6)   BLACK -- fully cloaked
+	// Not a fade: walked one step per frame, reversed to uncloak (Ship.cpp).
+	std::int32_t cloakLevel = 0;
+};
+
+// The cloak walk: five visible fill colours (levels 1..5), then black.
+inline constexpr std::int32_t kCloakVisibleColours = 5;
+inline constexpr std::int32_t kCloakFullLevel = kCloakVisibleColours + 1;
+
 // The two halves of a ship's frame (ship.c:149-280, 282-347): turning and
 // thrusting in the pre pass, firing in the post pass so a spawned weapon is
 // caught up by the step loop this frame -- see design-notes D1.
@@ -170,7 +239,7 @@ void shipTransition(Battle &b, EntityId id) noexcept;
 
 // Turns a dead ship into its own explosion rather than removing it
 // (StartShipExplosion, tactrans.c:703-728).
-void startShipExplosion(Element &e) noexcept;
+void startShipExplosion(Battle &b, EntityId id) noexcept;
 
 // Throws off sparks while a dying ship burns. tactrans.c:542-615.
 void explosionPreProcess(Battle &b, EntityId id) noexcept;

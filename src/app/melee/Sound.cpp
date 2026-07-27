@@ -58,8 +58,8 @@ playStepSounds(Game &g)
 	{
 		if (g.deathAnnounced[p])
 			continue;
-		auto s = g.battle.get(g.ships[p]);
-		if (s == nullptr || s->ship.crew > 0)
+		auto s = g.battle.ship(g.ships[p]);
+		if (s == nullptr || s->crew > 0)
 			continue;
 		g.deathAnnounced[p] = true;
 		// battle.snd slot 1: shipdies.wav (tactrans.c:723-726).

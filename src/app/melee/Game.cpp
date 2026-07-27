@@ -90,13 +90,14 @@ setUpBattle(Game &g)
 		const sim::CollisionMask *m =
 				set != nullptr ? set->maskFor(facing.raw()) : nullptr;
 		e.mask = m != nullptr ? m : &g.shipMask;
-		e.ship.spec = &data;
 		// Warping in, not simply present. shipTransition hands over to
 		// shipPreProcess once the ship has arrived.
 		e.preProcess = sim::shipTransition;
 		e.postProcess = nullptr;
 		e.onCollision = sim::solidCollision;
-		return g.battle.spawnBack(std::move(e));
+		const sim::EntityId id = g.battle.spawnBack(std::move(e));
+		g.battle.attachShip(id, &data);
+		return id;
 	};
 
 	// Random facings and random positions, as the C does (ship.c:456, 473).
@@ -174,8 +175,8 @@ iterate(Game &g)
 					g.debugOverlay = !g.debugOverlay;
 				g.debugWasDown = debugDown;
 			}
-			if (auto ship = g.battle.get(g.ships[p]); ship != nullptr)
-				ship->ship.input = toShipInput(b);
+			if (sim::ShipState *s = g.battle.ship(g.ships[p]))
+				s->input = toShipInput(b);
 		}
 		g.battle.step();
 

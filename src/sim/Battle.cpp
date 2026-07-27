@@ -235,8 +235,8 @@ Battle::killOverlapSpawn(EntityId id)
 	if (e == nullptr)
 		return;
 
-	doDamage(*e, any(e->flags & ElementFlags::PlayerShip) ? e->ship.crew
-														  : e->hitPoints);
+	const ShipState *s = ship(id);
+	doDamage(*this, id, s != nullptr ? s->crew : e->hitPoints);
 	e = elements_.get(id);
 	if (e == nullptr)
 		return;
@@ -420,6 +420,14 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 		{
 			applyImpulse(*e, *t);
 			impulsed = true;
+
+			// collide.c:104-110: an impulse invalidates the at-max bookkeeping.
+			if (any(e->flags & ElementFlags::PlayerShip))
+				if (ShipState *ss = ship(elemId))
+					ss->speed = SpeedState::Normal;
+			if (any(t->flags & ElementFlags::PlayerShip))
+				if (ShipState *ss = ship(testId))
+					ss->speed = SpeedState::Normal;
 		}
 	}
 

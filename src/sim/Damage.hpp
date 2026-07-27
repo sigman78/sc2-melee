@@ -10,6 +10,7 @@
 namespace uqm::sim {
 
 class Battle;
+struct ShipState;
 
 // Who loses what when things touch. do_damage (misc.c:204-225), DeltaCrew
 // (status.c:333-370), weapon_collision (weapon.c:135-190) and collision
@@ -22,12 +23,12 @@ inline constexpr std::int32_t kBlastLife = 5;
 // Applies a crew change and reports whether the ship survived it. False means
 // this reduced the crew to zero -- which is the *only* thing the caller acts
 // on, so it is the return value rather than a count.
-bool deltaCrew(Element &e, std::int32_t delta) noexcept;
+bool deltaCrew(ShipState &s, std::int32_t delta) noexcept;
 
 // Hurts whatever this is, by whatever rule applies to it. A gravity mass
 // takes no damage: asked *without* gravity.c's `+ 1` (misc.c:214) -- see
 // Element.hpp for why the two predicates differ.
-void doDamage(Element &e, std::int32_t damage) noexcept;
+void doDamage(Battle &b, EntityId id, std::int32_t damage) noexcept;
 
 // A weapon's collision hook. `id` is the weapon; it reads its own
 // `collidedWith` for the target.

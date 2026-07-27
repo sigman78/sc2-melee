@@ -110,11 +110,6 @@ applyImpulse(Element &a, Element &b) noexcept
 
 		if (any(self.flags & ElementFlags::PlayerShip))
 		{
-			// Invalidates at-max/beyond-max bookkeeping unconditionally, before the
-			// DEFY_PHYSICS test (collide.c:104-110) -- else a bounced ship keeps a
-			// stale AtMax and refuses to accelerate along its own facing.
-			self.ship.speed = SpeedState::Normal;
-
 			// The turn/thrust stagger, gated on DEFY_PHYSICS
 			// (collide.c:111-116).
 			if (!any(self.flags & ElementFlags::DefyPhysics))

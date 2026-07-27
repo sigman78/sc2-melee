@@ -71,9 +71,12 @@ calculateGravity(Battle &b, EntityId id)
 			// gravity.c:136-137 clears SHIP_AT_MAX_SPEED but deliberately
 			// leaves SHIP_BEYOND_MAX_SPEED alone: a ship already whipped past
 			// its maximum stays flagged as such.
-			if (t->ship.speed == SpeedState::AtMax)
-				t->ship.speed = SpeedState::Normal;
-			t->ship.inGravityWell = true;
+			if (ShipState *ss = b.ship(other))
+			{
+				if (ss->speed == SpeedState::AtMax)
+					ss->speed = SpeedState::Normal;
+				ss->inGravityWell = true;
+			}
 		}
 	}
 

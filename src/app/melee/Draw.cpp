@@ -377,14 +377,16 @@ draw(Game &g)
 		// explosion, growing over the frames it burns for.
 		if (e->kind == sim::ElementKind::Ship)
 		{
-			if (any(e->flags & sim::ElementFlags::NonSolid)
-					&& e->ship.crew > 0)
+			const sim::ShipState *s = g.battle.ship(id);
+			const std::int32_t crew = s != nullptr ? s->crew : 0;
+
+			if (any(e->flags & sim::ElementFlags::NonSolid) && crew > 0)
 				continue;  // still warping in
 
 			// A dying ship keeps its own hull for the first fifteen frames,
 			// then stops drawing (tactrans.c:569-571); the explosion itself
 			// is the swarm of sparks explosionPreProcess spawns as Debris.
-			if (e->ship.crew == 0
+			if (crew == 0
 					&& sim::kExplosionLife - e->lifeSpan >= sim::kHullVanishAge)
 				continue;
 		}
@@ -428,7 +430,9 @@ draw(Game &g)
 				continue;
 			}
 
-			const std::int32_t cloak = e->ship.cloakLevel;
+			const sim::ShipState *cloakState = g.battle.ship(id);
+			const std::int32_t cloak =
+					cloakState != nullptr ? cloakState->cloakLevel : 0;
 			if (cloak > 0 && i < set->silhouettes.size())
 			{
 				// Cloak ramp (ilwrath.c:250-285): levels 1..5 are the fill
@@ -476,6 +480,9 @@ drawHud(Game &g)
 		const auto e = g.battle.get(g.ships[p]);
 		if (e == nullptr)
 			continue;
+		const sim::ShipState *s = g.battle.ship(g.ships[p]);
+		if (s == nullptr)
+			continue;
 
 		const Colour crewColour = colourFor(*e);
 		constexpr Colour energyColour{0x60, 0xFF, 0xC0};
@@ -486,9 +493,9 @@ drawHud(Game &g)
 				? kMargin + 3 * 4 * kScale
 				: sim::kSpaceWidth - kMargin;
 
-		drawNumber(g.window, e->ship.crew, Vec2i{right, kMargin}, kScale,
+		drawNumber(g.window, s->crew, Vec2i{right, kMargin}, kScale,
 				crewColour);
-		drawNumber(g.window, e->ship.energy, Vec2i{right, kMargin + kLine},
+		drawNumber(g.window, s->energy, Vec2i{right, kMargin + kLine},
 				kScale, energyColour);
 	}
 }

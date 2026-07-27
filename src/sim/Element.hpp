@@ -15,76 +15,6 @@
 namespace uqm::sim {
 
 class Battle;
-struct ShipSpec;
-
-// What the player is asking for this frame.
-enum class ShipInput : std::uint8_t
-{
-	None = 0,
-	Left = 1u << 0,
-	Right = 1u << 1,
-	Thrust = 1u << 2,
-	Weapon = 1u << 3,
-	Special = 1u << 4,
-};
-
-[[nodiscard]] constexpr ShipInput
-operator|(ShipInput a, ShipInput b) noexcept
-{
-	return static_cast<ShipInput>(
-			static_cast<std::uint8_t>(a) | static_cast<std::uint8_t>(b));
-}
-[[nodiscard]] constexpr ShipInput
-operator&(ShipInput a, ShipInput b) noexcept
-{
-	return static_cast<ShipInput>(
-			static_cast<std::uint8_t>(a) & static_cast<std::uint8_t>(b));
-}
-constexpr ShipInput &
-operator|=(ShipInput &a, ShipInput b) noexcept
-{
-	return a = a | b;
-}
-[[nodiscard]] constexpr bool
-any(ShipInput f) noexcept
-{
-	return static_cast<std::uint8_t>(f) != 0;
-}
-
-// A ship's mutable half. The C keeps this in STARSHIP beside the ELEMENT;
-// here it rides on the element, because a ship *is* an element and a second
-// lifetime to keep in step would be a second thing to get wrong.
-struct ShipState
-{
-	Borrowed<const ShipSpec> spec = nullptr;
-	ShipInput input = ShipInput::None;
-
-	std::int32_t crew = 0;
-	std::int32_t energy = 0;
-
-	std::int32_t energyCounter = 0;
-	std::int32_t weaponCounter = 0;
-	std::int32_t specialCounter = 0;
-
-	SpeedState speed = SpeedState::Normal;
-
-	// SHIP_IN_GRAVITY_WELL (races.h:71): orthogonal to the at-max/beyond-max
-	// pair. Lets a ship accelerate past its own max, up to kMaxAllowedSpeed
-	// (ship.c:82,106-112); gravity sets it, next thrust clears it (ship.c:263-267).
-	bool inGravityWell = false;
-
-	// Where the ship is in the cloak's colour walk, as an index:
-	//     0            STAMP -- solid, visible, machine idle
-	//     1..5         STAMPFILL fills: white, cyan-white, dark cyan, blue,
-	//                  dark blue (ilwrath.c:349-374 in, 255-273 out)
-	//     kCloakFullLevel (6)   BLACK -- fully cloaked
-	// Not a fade: walked one step per frame, reversed to uncloak (Ship.cpp).
-	std::int32_t cloakLevel = 0;
-};
-
-// The cloak walk: five visible fill colours (levels 1..5), then black.
-inline constexpr std::int32_t kCloakVisibleColours = 5;
-inline constexpr std::int32_t kCloakFullLevel = kCloakVisibleColours + 1;
 
 // What an element is doing this frame. The C keeps these in one
 // ELEMENT_FLAGS word (element.h); the ones the step loop itself reasons about
@@ -300,9 +230,6 @@ struct Element
 	// itself. IGNORE_SIMILAR skips a pair sharing an owner (stops a flame
 	// burning its own ship) -- owner, not player, so allied ships still collide.
 	EntityId owner;
-
-	// Only meaningful when kind == Ship; `ship.spec` is null otherwise.
-	ShipState ship;
 
 	// CollidingElement (collide.h:31-33): NONSOLID *or* DISAPPEARING is out.
 	// Something dying this frame must not still be hit, and must not still

@@ -50,10 +50,13 @@ void
 shipPreProcess(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
-	if (e == nullptr || e->ship.spec == nullptr)
+	if (e == nullptr)
+		return;
+	ShipState *sp = b.ship(id);
+	if (sp == nullptr)
 		return;
 
-	ShipState &s = e->ship;
+	ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
 
 	if (any(e->flags & ElementFlags::Appearing))
@@ -134,10 +137,13 @@ void
 shipPostProcess(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
-	if (e == nullptr || e->ship.spec == nullptr)
+	if (e == nullptr)
+		return;
+	ShipState *sp = b.ship(id);
+	if (sp == nullptr)
 		return;
 
-	ShipState &s = e->ship;
+	ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
 
 	// A dead ship does nothing further (ship.c:288-289).
@@ -205,10 +211,6 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			// initialize_nuke seeds turn_wait = TRACK_WAIT (human.c:297-299), so the
 			// first steer lands on the fourth hook frame. Zero for anything unguided.
 			w.turnWait = spec.weapon.trackWait;
-			// The shot reads its own guidance parameters from the descriptor
-			// that fired it, so it carries the pointer. It is not a ship and
-			// has no ShipState otherwise.
-			w.ship.spec = &spec;
 			w.flags = ElementFlags::FiniteLife;
 			if (sp.ignoreSimilar)
 				w.flags |= ElementFlags::IgnoreSimilar;
@@ -240,7 +242,8 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			// Tail insertion: a weapon should act *after* the ship that fired
 			// it this frame. The step loop's catch-up pass picks it up, so it
 			// still moves and can hit on the frame it was fired.
-			b.spawnBack(std::move(w));
+			const EntityId wid = b.spawnBack(std::move(w));
+			b.attachWeaponSpec(wid, &spec.weapon);
 		}
 
 		s.weaponCounter = spec.weapon.wait;
@@ -286,7 +289,8 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 		if (t->playerNr == self->playerNr)
 			continue;
 		// Dead ships are not targets (weapon.c:352-353).
-		if (t->lifeSpan == 0 || t->ship.crew == 0)
+		const ShipState *ts = b.ship(id);
+		if (t->lifeSpan == 0 || ts == nullptr || ts->crew == 0)
 			continue;
 		// Nor cloaked ones (weapon.c:344-348). This is the whole tactical
 		// point of the Ilwrath cloak: not that it is hard to see, but that a
@@ -342,10 +346,11 @@ void
 nukePreProcess(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
-	if (e == nullptr || e->ship.spec == nullptr)
+	if (e == nullptr)
 		return;
-
-	const ShipSpec &spec = *e->ship.spec;
+	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
+	if (ws == nullptr)
+		return;
 
 	// Steer, but only every TRACK_WAIT frames (human.c:133-146).
 	Facing facing = e->facing;
@@ -360,25 +365,24 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 		if (e == nullptr)
 			return;
 		e->facing = facing;
-		e->turnWait = spec.weapon.trackWait;
+		e->turnWait = ws->trackWait;
 
 		// The mask follows the facing too, or a steering nuke's rect keeps the
 		// launch cel's size while the sprite changes cel. colorCycle is the cel
 		// the renderer draws.
 		e->colorCycle = e->facing.raw();
-		if (!spec.weapon.masks.empty())
-			e->mask = &spec.weapon.masks[static_cast<std::size_t>(
-					e->facing.raw())
-					% spec.weapon.masks.size()];
+		if (!ws->masks.empty())
+			e->mask = &ws->masks[static_cast<std::size_t>(e->facing.raw())
+					% ws->masks.size()];
 	}
 
 	// Accelerates as it goes (human.c:148-157): speed climbs with life spent,
 	// capped -- a nuke chasing you a while is much harder to outrun than one
 	// just launched.
-	std::int32_t speed = spec.weapon.speed
-			+ (spec.weapon.life - e->lifeSpan) * spec.weapon.thrustScale;
-	if (speed > spec.weapon.maxSpeed)
-		speed = spec.weapon.maxSpeed;
+	std::int32_t speed =
+			ws->speed + (ws->life - e->lifeSpan) * ws->thrustScale;
+	if (speed > ws->maxSpeed)
+		speed = ws->maxSpeed;
 	e->velocity.setVector(speed, e->facing);
 }
 
@@ -393,10 +397,10 @@ flamePreProcess(Battle &b, EntityId id) noexcept
 	// lives, and the collision silhouette follows -- why the flame GROWS as it
 	// flies (mask update = the C's CHANGING re-init, process.c:159-160).
 	++e->colorCycle;
-	const ShipSpec *spec = e->ship.spec;
-	if (spec != nullptr && !spec->weapon.masks.empty())
-		e->mask = &spec->weapon.masks[static_cast<std::size_t>(e->colorCycle)
-				% spec->weapon.masks.size()];
+	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
+	if (ws != nullptr && !ws->masks.empty())
+		e->mask = &ws->masks[static_cast<std::size_t>(e->colorCycle)
+				% ws->masks.size()];
 }
 
 void
@@ -445,7 +449,10 @@ void
 shipTransition(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
-	if (e == nullptr || e->ship.spec == nullptr)
+	if (e == nullptr)
+		return;
+	ShipState *sp = b.ship(id);
+	if (sp == nullptr)
 		return;
 
 	if (any(e->flags & ElementFlags::Appearing))
@@ -453,9 +460,9 @@ shipTransition(Battle &b, EntityId id) noexcept
 		// Arriving: invisible, untouchable, on a clock (tactrans.c:858-866). The
 		// ship is in the simulation the whole time -- just not hittable or drawn --
 		// which stops two ships materialising inside each other.
-		e->ship.crew = e->ship.spec->maxCrew;
-		e->ship.energy = e->ship.spec->maxEnergy;
-		e->ship.input = ShipInput::None;
+		sp->crew = sp->spec->maxCrew;
+		sp->energy = sp->spec->maxEnergy;
+		sp->input = ShipInput::None;
 		e->owner = id;
 		e->lifeSpan = kWarpInFrames;
 		e->flags |= ElementFlags::NonSolid | ElementFlags::FiniteLife;
@@ -497,7 +504,7 @@ shipTransition(Battle &b, EntityId id) noexcept
 		e->preProcess = shipPreProcess;
 		e->postProcess = shipPostProcess;
 		e->lifeSpan = 1;  // NORMAL_LIFE: persistent again
-		applyFacingMask(*e, *e->ship.spec);
+		applyFacingMask(*e, *sp->spec);
 	}
 }
 
@@ -525,20 +532,25 @@ sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 }  // namespace
 
 void
-startShipExplosion(Element &e) noexcept
+startShipExplosion(Battle &b, EntityId id) noexcept
 {
+	auto e = b.get(id);
+	if (e == nullptr)
+		return;
+
 	// The ship becomes its own explosion rather than vanishing
 	// (tactrans.c:703-728): stops dead, loses energy, stops colliding, and
 	// burns for a fixed number of frames.
-	e.velocity.zero();
-	e.ship.energy = 0;
-	e.lifeSpan = kExplosionLife;
-	e.colorCycle = 0;
-	e.flags &= ~ElementFlags::Disappearing;
-	e.flags |= ElementFlags::FiniteLife | ElementFlags::NonSolid;
-	e.preProcess = explosionPreProcess;
-	e.postProcess = nullptr;
-	e.onDeath = sweepDeadShipOrdnance;
+	e->velocity.zero();
+	if (ShipState *sp = b.ship(id))
+		sp->energy = 0;
+	e->lifeSpan = kExplosionLife;
+	e->colorCycle = 0;
+	e->flags &= ~ElementFlags::Disappearing;
+	e->flags |= ElementFlags::FiniteLife | ElementFlags::NonSolid;
+	e->preProcess = explosionPreProcess;
+	e->postProcess = nullptr;
+	e->onDeath = sweepDeadShipOrdnance;
 }
 
 void
@@ -604,10 +616,13 @@ void
 cruiserSpecial(Battle &b, EntityId id) noexcept
 {
 	auto ship = b.get(id);
-	if (ship == nullptr || ship->ship.spec == nullptr)
+	if (ship == nullptr)
+		return;
+	ShipState *sp = b.ship(id);
+	if (sp == nullptr)
 		return;
 
-	const ShipSpec &spec = *ship->ship.spec;
+	const ShipSpec &spec = *sp->spec;
 	const std::int32_t range = spec.special.pointDefenceRange;
 	if (range <= 0)
 		return;
@@ -648,13 +663,13 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		if (!paid)
 		{
-			if (!deltaEnergy(ship->ship, -spec.special.energyCost))
+			if (!deltaEnergy(*sp, -spec.special.energyCost))
 				return;  // cannot afford it, so nothing burns
-			ship->ship.specialCounter = spec.special.wait;
+			sp->specialCounter = spec.special.wait;
 			paid = true;
 		}
 
-		doDamage(*t, 1);
+		doDamage(b, other, 1);
 
 		// The beam is decorative -- only the damage above is real -- deterministic
 		// geometry, not the renderer's (design-notes V3). LASER_LIFE is 1
@@ -726,7 +741,7 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 	if (e->turnWait == 0)
 		e->turnWait = 1;
 
-	applyFacingMask(*e, *e->ship.spec);
+	applyFacingMask(*e, *b.ship(id)->spec);
 }
 
 }  // namespace
@@ -735,10 +750,13 @@ void
 ilwrathPreProcess(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
-	if (e == nullptr || e->ship.spec == nullptr)
+	if (e == nullptr)
+		return;
+	ShipState *sp = b.ship(id);
+	if (sp == nullptr)
 		return;
 
-	ShipState &s = e->ship;
+	ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
 
 	// ilwrath_preprocess (ilwrath.c:232-394): cloakLevel stands in for the
