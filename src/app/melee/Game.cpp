@@ -147,6 +147,17 @@ setUp(Game &g, const std::filesystem::path &content)
 {
 	loadAssets(g, content);
 	setUpBattle(g);
+
+	// The initial furniture -- both ships, the asteroids, the planet -- gets
+	// its Visual now; everything spawned later is caught in iterate().
+	for (sim::EntityId id = g.battle.elements().front(); id.valid();
+			id = g.battle.elements().next(id))
+	{
+		auto e = g.battle.get(id);
+		if (e == nullptr)
+			continue;
+		g.visuals.attach(id, visualFor(g, e->kind, e->playerNr));
+	}
 }
 
 void
@@ -189,7 +200,13 @@ iterate(Game &g)
 		}
 
 		playStepSounds(g);
+
+		// Everything the sim spawned this step gets a Visual before it is
+		// ever drawn.
+		for (const sim::SpawnEvent &sp : g.battle.spawns())
+			g.visuals.attach(sp.id, visualFor(g, sp.kind, sp.playerNr));
 	}
+	g.visuals.purgeDead(g.battle);
 
 	// Drop what has aged out. Done here rather than while drawing so the list
 	// does not grow without bound when the overlay is off.

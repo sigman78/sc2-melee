@@ -14,6 +14,7 @@
 #include "engine/core/Geometry.hpp"
 #include "game/SpriteSet.hpp"
 #include "platform/Platform.hpp"
+#include "sim/Battle.hpp"
 #include "sim/Element.hpp"
 #include "sim/Ship.hpp"
 #include "sim/World.hpp"
@@ -27,11 +28,6 @@ namespace uqm::melee {
 
 namespace {
 
-struct Colour
-{
-	std::uint8_t r, g, b;
-};
-
 // A colour packed as 0xRRGGBB, the form the C's own tables are quoted in.
 constexpr Colour
 rgb(std::uint32_t c) noexcept
@@ -41,14 +37,15 @@ rgb(std::uint32_t c) noexcept
 			static_cast<std::uint8_t>(c & 0xFF)};
 }
 
+// visualFor's fallback colours, and drawHud's crew-number colour.
 [[nodiscard]] Colour
-colourFor(const sim::Element &e) noexcept
+colourFor(sim::ElementKind kind, std::int32_t playerNr) noexcept
 {
-	switch (e.kind)
+	switch (kind)
 	{
 		case sim::ElementKind::Ship:
-			return e.playerNr == 0 ? Colour{0x40, 0xC0, 0xFF}
-								   : Colour{0xFF, 0x60, 0x40};
+			return playerNr == 0 ? Colour{0x40, 0xC0, 0xFF}
+								 : Colour{0xFF, 0x60, 0x40};
 		case sim::ElementKind::Weapon:
 			return Colour{0xFF, 0xE0, 0x60};
 		case sim::ElementKind::Asteroid:
@@ -167,43 +164,81 @@ constexpr std::array<Colour, 6> kCloakRamp{{
 		rgb(0x0000A5),  // 00,00,14
 }};
 
-// Which sprite set an element draws from. Ownership decides the weapon art,
-// because a missile belongs to whoever fired it.
-const game::SpriteSet *
-spritesFor(const Game &g, const sim::Element &e) noexcept
+}  // namespace
+
+void
+RenderStore::attach(sim::EntityId id, Visual v)
 {
-	const game::SpriteSet *set = nullptr;
-	switch (e.kind)
+	visuals_.emplace_back(id, v);
+}
+
+const Visual *
+RenderStore::find(sim::EntityId id) const noexcept
+{
+	for (const auto &[key, visual] : visuals_)
 	{
-		case sim::ElementKind::Debris:
-			return e.playerNr < 0 ? g.boom : g.blast;
+		if (key == id)
+			return &visual;
+	}
+	return nullptr;
+}
+
+void
+RenderStore::purgeDead(const sim::Battle &b)
+{
+	std::erase_if(visuals_,
+			[&b](const auto &p) { return !b.elements().alive(p.first); });
+}
+
+Visual
+visualFor(const Game &g, sim::ElementKind kind, std::int32_t playerNr)
+{
+	const Colour fallback = colourFor(kind, playerNr);
+
+	// A missing or invalid set draws as Rect instead.
+	const auto sprite = [&](const game::SpriteSet *set, CelPolicy policy) {
+		return set != nullptr && set->valid()
+				? Visual{set, policy, fallback}
+				: Visual{nullptr, CelPolicy::Rect, fallback};
+	};
+
+	switch (kind)
+	{
 		case sim::ElementKind::Ship:
+			return sprite(playerNr == 0 ? g.cruiser : g.avenger,
+					CelPolicy::ByFacing);
 		case sim::ElementKind::ShipShadow:
-			// A warp-in shadow is the ship's own image, so it borrows the art.
-			set = e.playerNr == 0 ? g.cruiser : g.avenger;
-			break;
+			// A warp-in shadow is the ship's own image, so it borrows the
+			// art, drawn tinted rather than plain.
+			return sprite(playerNr == 0 ? g.cruiser : g.avenger,
+					CelPolicy::RampSilhouette);
 		case sim::ElementKind::Weapon:
-			set = e.playerNr == 0 ? g.nuke : g.flame;
-			break;
-		case sim::ElementKind::Asteroid:
-			set = g.rock;
-			break;
-		case sim::ElementKind::Planet:
-			set = g.world;
-			break;
+			return sprite(
+					playerNr == 0 ? g.nuke : g.flame, CelPolicy::ByFrame);
 		case sim::ElementKind::Laser:
-			return nullptr;  // drawn as a line, not a sprite
+			return Visual{nullptr, CelPolicy::BeamLine, fallback};
+		case sim::ElementKind::IonTrail:
+			return Visual{nullptr, CelPolicy::RampPoint, fallback};
+		case sim::ElementKind::Debris:
+			// Not validated here: the DebrisFrames draw branch checks
+			// frames itself and falls back to its own fixed colour.
+			return Visual{g.boom, CelPolicy::DebrisFrames, fallback};
 		case sim::ElementKind::Blast:
 			// Weapon blasts and asteroid debris share a kind but not art. The
 			// rubble an asteroid leaves is unowned; a blast belongs to the
 			// shot that made it.
-			set = e.playerNr < 0 ? g.boom : g.blast;
-			break;
+			return sprite(
+					playerNr < 0 ? g.boom : g.blast, CelPolicy::ByFacing);
+		case sim::ElementKind::Asteroid:
+			return sprite(g.rock, CelPolicy::ByFacing);
+		case sim::ElementKind::Planet:
+			return sprite(g.world, CelPolicy::ByFacing);
 		default:
-			return nullptr;
+			return Visual{nullptr, CelPolicy::Rect, fallback};
 	}
-	return set != nullptr && set->valid() ? set : nullptr;
 }
+
+namespace {
 
 // The background, before anything in the arena: stars do not zoom, since
 // they are meant to be at infinity. Each plane is a screen-sized torus;
@@ -295,9 +330,20 @@ draw(Game &g)
 		if (e == nullptr)
 			continue;
 
+		// Should not happen: every live element is attached in setUpBattle
+		// or from a SpawnEvent. Safe fallback if one slipped through.
+		const Visual *v = g.visuals.find(id);
+		Visual missing;
+		if (v == nullptr)
+		{
+			missing = Visual{nullptr, CelPolicy::Rect,
+					colourFor(e->kind, e->playerNr)};
+			v = &missing;
+		}
+
 		// Exhaust: a single point stepping through the colour ramp as it
 		// ages. lifeSpan counts down, so the ramp index counts up.
-		if (e->kind == sim::ElementKind::IonTrail)
+		if (v->policy == CelPolicy::RampPoint)
 		{
 			const std::size_t step = static_cast<std::size_t>(
 					sim::kIonTrailLife - e->lifeSpan);
@@ -311,9 +357,9 @@ draw(Game &g)
 
 		// A spark of a dying ship: the boom animation, stepped by its own age
 		// rather than by a facing, since it has none.
-		if (e->kind == sim::ElementKind::Debris)
+		if (v->policy == CelPolicy::DebrisFrames)
 		{
-			const game::SpriteSet *set = spritesFor(g, *e);
+			const game::SpriteSet *set = v->sprites;
 			const Vec2i at = g.camera.toScreen(e->current);
 			if (set == nullptr || set->frames.empty())
 			{
@@ -346,7 +392,7 @@ draw(Game &g)
 
 		// A beam is a line between two points, not a sprite at one. Drawn
 		// before the width/height work below, none of which applies.
-		if (e->kind == sim::ElementKind::Laser)
+		if (v->policy == CelPolicy::BeamLine)
 		{
 			g.window.drawLine(g.camera.toScreen(e->current),
 					g.camera.toScreen(e->next), 0xFF, 0xFF, 0xFF);
@@ -374,11 +420,11 @@ draw(Game &g)
 
 		// A ship that has not arrived yet is not drawn -- only the shadows it
 		// sheds are (tactrans.c:863). And a dead one is drawn as its own
-		// explosion, growing over the frames it burns for.
-		if (e->kind == sim::ElementKind::Ship)
+		// explosion, growing over the frames it burns for. Keyed off the
+		// ship component itself, since only a Ship element ever has one.
+		if (const sim::ShipState *s = g.battle.ship(id); s != nullptr)
 		{
-			const sim::ShipState *s = g.battle.ship(id);
-			const std::int32_t crew = s != nullptr ? s->crew : 0;
+			const std::int32_t crew = s->crew;
 
 			if (any(e->flags & sim::ElementFlags::NonSolid) && crew > 0)
 				continue;  // still warping in
@@ -391,11 +437,11 @@ draw(Game &g)
 				continue;
 		}
 
-		if (const game::SpriteSet *set = spritesFor(g, *e); set != nullptr)
+		if (const game::SpriteSet *set = v->sprites; set != nullptr)
 		{
 			// A weapon draws the cel colorCycle names -- the facing for a
 			// directional missile, the animation frame for the flame.
-			const std::size_t i = e->kind == sim::ElementKind::Weapon
+			const std::size_t i = v->policy == CelPolicy::ByFrame
 					? static_cast<std::size_t>(e->colorCycle)
 							% set->frames.size()
 					: static_cast<std::size_t>(e->facing.raw())
@@ -418,7 +464,7 @@ draw(Game &g)
 			// A warp-in shadow: the hull as a flat fill stepping through
 			// the exhaust ramp as it ages -- the same flat-fill technique
 			// the cloak below uses, since only the outline is wanted.
-			if (e->kind == sim::ElementKind::ShipShadow)
+			if (v->policy == CelPolicy::RampSilhouette)
 			{
 				const std::size_t step = static_cast<std::size_t>(
 						sim::kIonTrailLife - e->lifeSpan);
@@ -450,7 +496,7 @@ draw(Game &g)
 			continue;
 		}
 
-		const Colour c = colourFor(*e);
+		const Colour c = v->fallback;
 		g.window.fillRect(Vec2i{at.x - w / 2, at.y - h / 2}, dest, c.r, c.g,
 				c.b);
 	}
@@ -484,7 +530,7 @@ drawHud(Game &g)
 		if (s == nullptr)
 			continue;
 
-		const Colour crewColour = colourFor(*e);
+		const Colour crewColour = colourFor(e->kind, e->playerNr);
 		constexpr Colour energyColour{0x60, 0xFF, 0xC0};
 
 		// Player 0 hugs the left edge, player 1 the right. Both are drawn

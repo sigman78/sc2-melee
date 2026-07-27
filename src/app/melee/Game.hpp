@@ -6,6 +6,7 @@
 #ifndef UQM2_APP_MELEE_GAME_HPP
 #define UQM2_APP_MELEE_GAME_HPP
 
+#include "app/melee/Draw.hpp"
 #include "engine/core/Geometry.hpp"
 #include "engine/core/Pacing.hpp"
 #include "engine/input/Input.hpp"
@@ -48,6 +49,9 @@ struct Game
 
 	sim::Battle battle{battleSeed()};
 	game::Camera camera;
+
+	// What each live element draws as, attached at spawn -- see Draw.hpp.
+	RenderStore visuals;
 
 	// Whether each ship's death has been announced, so it is announced once.
 	std::array<bool, 2> deathAnnounced{};
