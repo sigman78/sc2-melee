@@ -63,6 +63,16 @@ struct ShipData
 	// rotation happened to be current at spawn. Empty until content is loaded;
 	// sim/ never fills this in, because sim/ does not read files.
 	std::span<const CollisionMask> facingMasks;
+
+	// A descriptor nobody filled in. Every field defaults to zero, which is
+	// not a slow ship -- it is a ship that cannot accelerate at all, turns
+	// every frame, and has no crew. That reads as a control bug rather than as
+	// missing data, so it is worth being able to ask.
+	[[nodiscard]] constexpr bool
+	valid() const noexcept
+	{
+		return maxCrew > 0 && thrust.maxThrust > 0;
+	}
 };
 
 // The two halves of a ship's frame, matching ship.c:149-280 and 282-347.

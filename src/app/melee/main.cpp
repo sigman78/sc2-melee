@@ -300,10 +300,25 @@ setUp(Game &g, const std::filesystem::path &content)
 	// cons_res.c:52-82). One fixed type until melee setup exists to choose.
 	g.world = load("planet.acid.large");
 
+	// The descriptors first, then the content-derived masks on top. Losing
+	// these two lines leaves a default-constructed ShipData, whose maxThrust
+	// is 0 and whose turnWait is 0 -- a ship that cannot accelerate and spins
+	// every frame, with no crew and no weapon. It looks like a control bug and
+	// is not.
+	g.cruiserData = sim::earthlingCruiser();
+	g.avengerData = sim::ilwrathAvenger();
+
 	g.cruiserData.facingMasks = g.cruiser->masks;
 	g.avengerData.facingMasks = g.avenger->masks;
 	g.cruiserData.weaponMasks = g.nuke->masks;
 	g.avengerData.weaponMasks = g.flame->masks;
+
+	if (!g.cruiserData.valid() || !g.avengerData.valid())
+	{
+		std::fprintf(stderr,
+				"ship: a descriptor was never filled in -- the ships will not "
+				"fly. This is a setup bug, not a control one.\n");
+	}
 
 	const auto addShip = [&g](const sim::ShipData &data, Vec2i at, int facing,
 							  int player) {
