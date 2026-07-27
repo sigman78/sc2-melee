@@ -252,6 +252,11 @@ enum class ElementKind : std::uint8_t
 	// (tactrans.c:893-930). It shares the ion trail's colour ramp but not its
 	// geometry -- and the geometry is what makes the effect visible at all.
 	ShipShadow,
+
+	// One spark of a dying ship. The explosion is a *swarm* of these thrown
+	// off over 26 frames while the hull is still there (tactrans.c:542-615),
+	// not one animation played on the wreck.
+	Debris,
 };
 
 // Hooks. Free functions taking the battle and the element's own id, so they

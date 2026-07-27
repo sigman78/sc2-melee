@@ -153,7 +153,13 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 
 		// Exhaust, only on the frames the ship actually accelerates
 		// (ship.c:274) -- not on every frame the key is held.
-		spawnIonTrail(b, id);
+		//
+		// And not at all while cloaked. A trail of bright dots pointing back
+		// at an invisible ship gives away the one thing the cloak is for, and
+		// the C cannot produce one either: the trail is drawn from the ship's
+		// own prim, which is STAMPFILL and stepping toward black.
+		if (!any(e->flags & ElementFlags::Cloaked))
+			spawnIonTrail(b, id);
 	}
 }
 
@@ -505,8 +511,64 @@ startShipExplosion(Element &e) noexcept
 	e.colorCycle = 0;
 	e.flags &= ~ElementFlags::Disappearing;
 	e.flags |= ElementFlags::FiniteLife | ElementFlags::NonSolid;
-	e.preProcess = nullptr;
+	e.preProcess = explosionPreProcess;
 	e.postProcess = nullptr;
+}
+
+void
+explosionPreProcess(Battle &b, EntityId id) noexcept
+{
+	auto e = b.get(id);
+	if (e == nullptr)
+		return;
+
+	// How many sparks this frame. The C's schedule (tactrans.c:545-575) ramps
+	// up and back down over the 26 frames it spawns for: one at the start,
+	// three through the middle, one again at the end, then nothing for the
+	// last ten frames while the sparks already thrown finish burning.
+	const std::int32_t age = kExplosionLife - e->lifeSpan;
+	int count = 3;
+	if (age <= 2 || (age >= 20 && age <= 25))
+		count = 1;
+	else if ((age >= 3 && age <= 5) || age == 18 || age == 19)
+		count = 2;
+	if (age > 25)
+	{
+		e->preProcess = nullptr;
+		return;
+	}
+
+	const Vec2i from = e->current;
+	for (int n = 0; n < count; ++n)
+	{
+		// Scattered around the hull, not on it: a random bearing and a
+		// distance of up to eight display pixels, with a third of them thrown
+		// eight further out so the cloud has an edge rather than a rim
+		// (tactrans.c:597-604).
+		const std::uint32_t r0 = b.rng().next();
+		const int spot = normalizeAngle(static_cast<int>(r0 >> 16));
+		std::int32_t dist = displayToWorld(static_cast<std::int32_t>(r0 % 8u));
+		if (((r0 >> 8) & 0xFFu) < 256u / 3u)
+			dist += displayToWorld(8);
+
+		// And drifting: its own bearing, unrelated to where it sits, at up to
+		// four display pixels a frame.
+		const std::uint32_t r1 = b.rng().next();
+		const int drift = normalizeAngle(static_cast<int>(r1));
+		const std::int32_t speed =
+				displayToWorld(static_cast<std::int32_t>((r1 >> 8) % 5u));
+
+		Element d;
+		d.kind = ElementKind::Debris;
+		d.playerNr = -1;  // NEUTRAL: wreckage belongs to nobody
+		d.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
+		d.lifeSpan = kDebrisLife;
+		d.current = wrap(Vec2i{from.x + cosine(spot, dist),
+				from.y + sine(spot, dist)});
+		d.next = d.current;
+		d.velocity.setVector(speed, angleToFacing(drift));
+		b.spawnFront(std::move(d));
+	}
 }
 
 void

@@ -133,6 +133,11 @@ inline constexpr std::int32_t kWarpInFrames = 15;
 // ship are spaced along its path.
 inline constexpr std::int32_t kTransitionSpeed = displayToWorld(40);
 
+// How long one spark of the explosion lasts, and when the hull itself stops
+// being drawn -- 15 frames into a 36-frame death (tactrans.c:569-571).
+inline constexpr std::int32_t kDebrisLife = 9;
+inline constexpr std::int32_t kHullVanishAge = 15;
+
 // NUM_EXPLOSION_FRAMES * 3 (element.h:71, tactrans.c:714).
 inline constexpr std::int32_t kExplosionFrames = 12;
 inline constexpr std::int32_t kExplosionLife = kExplosionFrames * 3;
@@ -147,6 +152,9 @@ void shipTransition(Battle &b, EntityId id) noexcept;
 // Turns a dead ship into its own explosion rather than removing it
 // (StartShipExplosion, tactrans.c:703-728).
 void startShipExplosion(Element &e) noexcept;
+
+// Throws off sparks while a dying ship burns. tactrans.c:542-615.
+void explosionPreProcess(Battle &b, EntityId id) noexcept;
 
 const ShipData &earthlingCruiser() noexcept;
 [[nodiscard]] const ShipData &ilwrathAvenger() noexcept;

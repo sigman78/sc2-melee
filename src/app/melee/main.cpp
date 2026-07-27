@@ -230,7 +230,10 @@ inline constexpr std::int32_t kStarFieldHeight = sim::kSpaceHeight * 2;
 // Which cel each plane draws: 11x11 near, 5x5 mid, a single pixel far.
 // star_frame_ofs (galaxy.c:316) picks the largest group for the nearest plane
 // and the smallest for the farthest, which is the same ordering.
-inline constexpr std::array<std::size_t, kStarPlanes> kStarCels{{1, 0, 2}};
+// Everything one size down from where it started: the 11x11 cel is simply
+// too large for a background at this resolution, so the nearest plane takes
+// what the middle one had, and the middle takes a single pixel.
+inline constexpr std::array<std::size_t, kStarPlanes> kStarCels{{0, 2, 2}};
 
 struct Game
 {
@@ -360,6 +363,8 @@ spritesFor(const Game &g, const sim::Element &e) noexcept
 	const game::SpriteSet *set = nullptr;
 	switch (e.kind)
 	{
+		case sim::ElementKind::Debris:
+			return e.playerNr < 0 ? g.boom : g.blast;
 		case sim::ElementKind::Ship:
 		case sim::ElementKind::ShipShadow:
 			// A warp-in shadow is the ship's own image, so it borrows the art.
@@ -701,6 +706,41 @@ draw(Game &g)
 			continue;
 		}
 
+		// A spark of a dying ship: the boom animation, stepped by its own age
+		// rather than by a facing, since it has none.
+		if (e->kind == sim::ElementKind::Debris)
+		{
+			const game::SpriteSet *set = spritesFor(g, *e);
+			const Vec2i at = g.camera.toScreen(e->current);
+			if (set == nullptr || set->frames.empty())
+			{
+				g.window.fillRect(at, Extent2u{2, 2}, 0xFF, 0xC0, 0x40);
+				continue;
+			}
+			const std::size_t frames = set->frames.size();
+			const std::int32_t age = sim::kDebrisLife - e->lifeSpan;
+			const std::size_t i = std::min(frames - 1,
+					static_cast<std::size_t>(std::max(0, age))
+							* frames / static_cast<std::size_t>(
+									sim::kDebrisLife));
+			const Extent2u sz = set->masks[i].size();
+			const Vec2i hs = set->masks[i].hotspot();
+			const std::int32_t dw =
+					std::max(1, g.camera.scale(sim::displayToWorld(
+											 static_cast<std::int32_t>(sz.w))));
+			const std::int32_t dh =
+					std::max(1, g.camera.scale(sim::displayToWorld(
+											 static_cast<std::int32_t>(sz.h))));
+			g.window.draw(set->frames[i],
+					Vec2i{at.x - static_cast<std::int32_t>(hs.x) * dw
+									/ std::max(1, static_cast<std::int32_t>(sz.w)),
+						at.y - static_cast<std::int32_t>(hs.y) * dh
+									/ std::max(1, static_cast<std::int32_t>(sz.h))},
+					Extent2u{static_cast<std::uint32_t>(dw),
+						static_cast<std::uint32_t>(dh)});
+			continue;
+		}
+
 		// A beam is a line between two points, not a sprite at one. Drawn
 		// before the width/height work below, none of which applies.
 		if (e->kind == sim::ElementKind::Laser)
@@ -739,21 +779,15 @@ draw(Game &g)
 					&& e->ship.crew > 0)
 				continue;  // still warping in
 
-			if (e->ship.crew == 0 && g.boom != nullptr && g.boom->valid())
-			{
-				const std::int32_t left = e->lifeSpan;
-				const std::int32_t age = sim::kExplosionLife - left;
-				const std::size_t frames = g.boom->frames.size();
-				const std::size_t i = std::min(frames - 1,
-						static_cast<std::size_t>(age) * frames
-								/ static_cast<std::size_t>(sim::kExplosionLife));
-				const std::int32_t size = std::max(1, w * 2);
-				g.window.draw(g.boom->frames[i],
-						Vec2i{at.x - size / 2, at.y - size / 2},
-						Extent2u{static_cast<std::uint32_t>(size),
-							static_cast<std::uint32_t>(size)});
+			// A dying ship keeps its own hull for the first fifteen frames
+			// and only then stops being drawn (tactrans.c:569-571). The
+			// explosion is not this element at all -- it is the swarm of
+			// sparks explosionPreProcess throws off around it, each its own
+			// Debris. Drawing one boom animation on the wreck instead, which
+			// is what this did, replaced a ship coming apart with a puff.
+			if (e->ship.crew == 0
+					&& sim::kExplosionLife - e->lifeSpan >= sim::kHullVanishAge)
 				continue;
-			}
 		}
 
 		if (const game::SpriteSet *set = spritesFor(g, *e); set != nullptr)
