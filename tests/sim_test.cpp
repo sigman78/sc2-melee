@@ -665,7 +665,11 @@ cruiserView()
 	v.position = Vec2i{1000, 1000};
 	v.facing = 3;
 	v.playerNr = 0;
-	v.weaponSpeed = 24;       // MISSILE_SPEED == MAX_THRUST (human.c:31, 44)
+	// NOT the real MISSILE_SPEED, which is 40: human.c:41-44 takes
+	// max(MAX_THRUST, DISPLAY_TO_WORLD(10)) and the floor wins. The value
+	// here is arbitrary -- spawn functions pass it through untouched, which
+	// is exactly what this section tests.
+	v.weaponSpeed = 24;
 	v.weaponLife = 60;        // MISSILE_LIFE
 	v.weaponDamage = 4;       // MISSILE_DAMAGE
 	v.weaponHitPoints = 1;    // MISSILE_HITS
@@ -930,8 +934,14 @@ testMotionIntegratesAndWraps()
 	CHECK(b.get(id)->current.x == 120, "and 10 a frame after, got %ld",
 			static_cast<long>(b.get(id)->current.x));
 
-	// And the arena is a torus.
+	// And the arena is a torus. Teleporting means moving BOTH points, the way
+	// placeShipAtRandom does: integration adds to `next` (process.c:172-173),
+	// so a `current` moved on its own is simply overwritten at the commit.
+	// The wrap itself happens at the commit too (process.c:899-916), so
+	// mid-frame coordinates may run off the edge -- what matters is what the
+	// element's position is when the frame is done.
 	b.get(id)->current = Vec2i{kLogSpaceWidth - 5, 0};
+	b.get(id)->next = b.get(id)->current;
 	b.step();
 	CHECK(b.get(id)->current.x < 100,
 			"crossing the seam should wrap, got %ld",
@@ -1283,6 +1293,134 @@ testMissileFliesAndExpires()
 	for (int i = 0; i < 100 && b.elements().size() > 1; ++i)
 		b.step();
 	CHECK(b.elements().size() == 1, "the missile should expire");
+}
+
+void
+testFiringPostponesEnergyRegen()
+{
+	// Every successful energy spend re-arms the regeneration countdown
+	// (status.c:317-323), so a ship that fires continuously does not
+	// regenerate while it can still afford the shots. The Avenger is the
+	// sharpest case: cost 1, weaponWait 0, regen 4 every 4 -- without the
+	// re-arm its flame is close to self-sustaining instead of a 16-frame
+	// burst.
+	Battle b(1);
+	const EntityId id = addShip(b, ilwrathAvenger(), Vec2i{2000, 2000}, 0, 0);
+	b.get(id)->preProcess = shipPreProcess;
+	b.get(id)->postProcess = shipPostProcess;
+	b.step();  // Appearing frame
+
+	b.get(id)->ship.input = ShipInput::Weapon;
+	for (int i = 0; i < 6; ++i)
+		b.step();
+
+	// Six shots, no regeneration mixed in: 16 - 6, exactly.
+	CHECK(b.get(id)->ship.energy == 16 - 6,
+			"six frames of flame should cost six energy with no regen, got %ld",
+			static_cast<long>(b.get(id)->ship.energy));
+}
+
+int g_specialFires = 0;
+
+void
+countingSpecial(Battle &b, EntityId id) noexcept
+{
+	auto e = b.get(id);
+	if (e == nullptr)
+		return;
+	++g_specialFires;
+	e->ship.specialCounter = e->ship.data->specialWait;
+}
+
+void
+testSpecialFiresTheFrameItsCounterExpires()
+{
+	// The C decrements special_counter and then lets the ship code see the
+	// result (ship.c:342-346), so a held special re-fires every specialWait
+	// frames -- the frame the counter reaches zero, not the one after.
+	static ShipData d = [] {
+		ShipData d_ = earthlingCruiser();
+		d_.specialWait = 3;
+		d_.specialEnergyCost = 0;
+		d_.special = countingSpecial;
+		return d_;
+	}();
+
+	Battle b(1);
+	const EntityId id = addShip(b, d, Vec2i{2000, 2000}, 0, 0);
+	b.get(id)->preProcess = shipPreProcess;
+	b.get(id)->postProcess = shipPostProcess;
+	b.step();  // Appearing frame
+
+	g_specialFires = 0;
+	b.get(id)->ship.input = ShipInput::Special;
+	for (int i = 0; i < 4; ++i)
+		b.step();
+
+	// Fires on the 1st step (counter 0) and again on the 4th, when the
+	// counter set to 3 has just been decremented to 0 -- a period of
+	// specialWait, not specialWait + 1.
+	CHECK(g_specialFires == 2,
+			"a held special with wait 3 should fire twice in 4 frames, got %d",
+			g_specialFires);
+}
+
+void
+testOpposingMissilesDestroyEachOther()
+{
+	// A weapon's mass is its damage (weapon.c:101), and CollisionPossible
+	// skips a pair only when BOTH masses are zero (collide.h:38) -- so shots
+	// from different ships collide and kill each other in flight. This is
+	// the mechanism behind flame-intercepts-nuke; a weapon spawned massless
+	// silently turns it off.
+	static CollisionMask shotMask = solid(3, 3);
+	static ShipData d = [] {
+		ShipData d_ = earthlingCruiser();
+		d_.weaponMasks = std::span<const CollisionMask>(&shotMask, 1);
+		return d_;
+	}();
+
+	Battle b(1);
+	// Far enough apart that the missiles meet in the middle long before
+	// either could reach the opposing ship.
+	const EntityId a = addShip(b, d, Vec2i{4000, 6000}, 0, 0);
+	const EntityId c = addShip(b, d, Vec2i{4000, 2000}, 8, 1);
+	for (const EntityId id : {a, c})
+	{
+		b.get(id)->preProcess = shipPreProcess;
+		b.get(id)->postProcess = shipPostProcess;
+	}
+	b.step();  // Appearing frame
+
+	b.get(a)->ship.input = ShipInput::Weapon;
+	b.get(c)->ship.input = ShipInput::Weapon;
+	b.step();
+	b.get(a)->ship.input = ShipInput::None;
+	b.get(c)->ship.input = ShipInput::None;
+
+	std::size_t weapons = 0;
+	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+		if (b.get(e)->kind == ElementKind::Weapon)
+			++weapons;
+	CHECK(weapons == 2, "both ships should have fired, got %zu", weapons);
+
+	// The nukes close at 80+ world units a frame across a ~3300-unit gap:
+	// they must meet and annihilate well before frame 40, and long before
+	// either 60-frame life expires or either ship is reached.
+	for (int i = 0; i < 40; ++i)
+		b.step();
+
+	weapons = 0;
+	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+		if (b.get(e)->kind == ElementKind::Weapon)
+			++weapons;
+	CHECK(weapons == 0,
+			"the missiles should have destroyed each other mid-flight, "
+			"%zu still alive", weapons);
+	CHECK(b.get(a)->ship.crew == 18 && b.get(c)->ship.crew == 18,
+			"and neither ship should have been hit, got %ld and %ld",
+			static_cast<long>(b.get(a)->ship.crew),
+			static_cast<long>(b.get(c)->ship.crew));
 }
 
 void
@@ -1645,7 +1783,7 @@ testMissileDamagesAndSpendsItself()
 }
 
 void
-testFlyingIntoAPlanetCostsOnePoint()
+testFlyingIntoAPlanetCostsCrewOverFour()
 {
 	const CollisionMask m = solid(8, 8);
 	Battle b(1);
@@ -1692,11 +1830,14 @@ testFlyingIntoAPlanetCostsOnePoint()
 	if (b.get(ship) == nullptr)
 		return;
 
-	// ship.c:364-367 computes hit_points >> 2 with a floor of 1, and a player
-	// ship's hit_points is never assigned in melee -- so this is always
-	// exactly 1, however grand the arithmetic looks.
-	CHECK(b.get(ship)->ship.crew == before - 1,
-			"hitting a planet should cost exactly 1 crew, got %ld (was %ld)",
+	// ship.c:364-367 computes hit_points >> 2 with a floor of 1 -- and for a
+	// PLAYER_SHIP, hit_points IS crew_level: one union field
+	// (element.h:126-133). An 18-crew Cruiser therefore pays 4 crew for a
+	// planet graze, not 1. The earlier version of this test asserted 1,
+	// reasoning from the rewrite's own split fields instead of the union.
+	CHECK(b.get(ship)->ship.crew == before - (before >> 2),
+			"hitting a planet should cost crew/4 (%ld), got %ld (was %ld)",
+			static_cast<long>(before >> 2),
 			static_cast<long>(b.get(ship)->ship.crew),
 			static_cast<long>(before));
 }
@@ -1811,12 +1952,13 @@ testShipShotMidFlightKeepsItsMotion()
 	CHECK(velocityToWorld(v.x) == 80,
 			"and its velocity untouched -- weapons carry no impulse, got %ld",
 			static_cast<long>(velocityToWorld(v.x)));
-	// The shot is spent but not yet reaped: the walk preprocessed it *before*
-	// the hit (process.c:371-373), so its zeroed life is not seen until the
-	// next frame's death check.
-	CHECK(b.get(iw) != nullptr, "the shot should still be in the list");
-	if (b.get(iw) != nullptr)
-		CHECK(b.get(iw)->lifeSpan == 0, "and it is spent");
+	// The shot is spent AND gone: weapon_collision marks a missile
+	// DISAPPEARING (weapon.c:175-177) and the post walk removes such
+	// elements the same frame (process.c:873-879) -- a dead missile is never
+	// drawn at its impact point. (The flame is the exception: its wrapper
+	// clears the flag and it lingers one frame, flameCollision.)
+	CHECK(b.get(iw) == nullptr,
+			"a spent missile is reaped on the frame it hit");
 }
 
 void
@@ -2056,12 +2198,28 @@ testCloakHidesFromTracking()
 
 	b.get(avenger)->ship.input = ShipInput::Special;
 	b.step();
+	b.get(avenger)->ship.input = ShipInput::None;
+
+	// Activation starts the colour walk at white; the ship is not hidden
+	// yet. OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204), so
+	// the whole five-colour fade is still targetable -- being missile-proof
+	// from the frame SPECIAL lands would be a sizeable unearned buff.
+	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
+			"activation alone must not hide the ship");
+	int fadeFacing = 8;
+	CHECK(trackShip(b, hunter, fadeFacing) >= 0,
+			"a half-faded ship is still targetable");
+
+	// Five walk steps later it is black, and hidden.
+	for (int i = 0; i < 5; ++i)
+		b.step();
 	CHECK(any(b.get(avenger)->flags & ElementFlags::Cloaked),
-			"the special should have cloaked it");
+			"fully faded should be cloaked");
 
 	int cloakedFacing = 8;
-	CHECK(trackShip(b, hunter, cloakedFacing) == 0,
-			"a cloaked ship must not be trackable (weapon.c:344-348)");
+	CHECK(trackShip(b, hunter, cloakedFacing) < 0,
+			"a cloaked ship must not be targetable at all -- TrackShip "
+			"returns -1, no target (weapon.c:344-348, 410-412)");
 
 	// It does *not* lift on its own. This test used to assert the opposite,
 	// and the assertion was wrong: the cloak was being driven off
@@ -2104,6 +2262,48 @@ testCloakHidesFromTracking()
 			"own");
 }
 
+void
+testCloakedFiringSnapAims()
+{
+	Battle b(1);
+	const EntityId avenger =
+			addShip(b, ilwrathAvenger(), Vec2i{4000, 4000}, 0, 1);
+	b.get(avenger)->preProcess = shipPreProcess;
+	b.get(avenger)->postProcess = shipPostProcess;
+	b.step();
+
+	const EntityId hunter =
+			addShip(b, earthlingCruiser(), Vec2i{4400, 4000}, 0, 0);
+	b.get(hunter)->preProcess = shipPreProcess;
+	b.step();
+
+	// Cloak fully: activation plus the five-colour walk.
+	b.get(avenger)->ship.input = ShipInput::Special;
+	b.step();
+	b.get(avenger)->ship.input = ShipInput::None;
+	for (int i = 0; i < 5; ++i)
+		b.step();
+	CHECK(any(b.get(avenger)->flags & ElementFlags::Cloaked),
+			"setup: the Avenger should be hidden");
+
+	// Point it the wrong way, then fire from the dark.
+	b.get(avenger)->facing = 8;
+	b.get(avenger)->ship.input = ShipInput::Weapon;
+	b.step();
+
+	// The ambush snap (ilwrath.c:281-342): the discharge aims the ship at
+	// the lead-predicted target before the shot leaves. Both ships are at
+	// rest here, so the prediction is the target itself -- due +x, facing 4.
+	CHECK(b.get(avenger)->facing == 4,
+			"firing from full black should snap the facing onto the target, "
+			"got %d", b.get(avenger)->facing);
+	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
+			"and the discharge steps the cloak off black");
+	CHECK(b.get(avenger)->ship.specialCounter == 0,
+			"and zeroes the special debounce, so re-cloak is immediate once "
+			"solid (ilwrath.c:347)");
+}
+
 }  // namespace
 
 int
@@ -2111,10 +2311,11 @@ main()
 {
 	testPointDefenceBurnsIncomingFire();
 	testCloakHidesFromTracking();
+	testCloakedFiringSnapAims();
 	testDeltaCrewReportsDeathOnTheExactHit();
 	testPlanetsTakeNoDamage();
 	testMissileDamagesAndSpendsItself();
-	testFlyingIntoAPlanetCostsOnePoint();
+	testFlyingIntoAPlanetCostsCrewOverFour();
 	testOverlappingShipsSeparateInsteadOfSticking();
 	testShipShotMidFlightKeepsItsMotion();
 	testDefyPhysicsExpires();
@@ -2130,6 +2331,9 @@ main()
 	testTurningIsGatedByTurnWait();
 	testFiringSpendsEnergyAndRespectsCooldown();
 	testMissileFliesAndExpires();
+	testFiringPostponesEnergyRegen();
+	testSpecialFiresTheFrameItsCounterExpires();
+	testOpposingMissilesDestroyEachOther();
 	testTheTwoShipsFeelDifferent();
 	testIsqrtIsFloorSqrt();
 	testHeadOnCollisionExchangesMomentum();
