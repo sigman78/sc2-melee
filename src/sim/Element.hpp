@@ -228,6 +228,11 @@ enum class ElementKind : std::uint8_t
 	// which is exactly what the C does with a LINE_PRIM (weapon.c:44-85), and
 	// why it can reuse the same element for it.
 	Laser,
+
+	// A single point of a ship's exhaust, and the shadow a ship leaves while
+	// warping in. One element in the C too -- both use cycle_ion_trail
+	// (tactrans.c:756-790), which is why they share a kind here.
+	IonTrail,
 };
 
 // Hooks. Free functions taking the battle and the element's own id, so they
@@ -266,6 +271,12 @@ struct Element
 	// pixels, so the explosion lands on the surface it hit rather than inside
 	// it (weapon.c:202-208).
 	std::int32_t blastOffset = 0;
+
+	// Where an element is in whatever colour or frame sequence it animates
+	// through: the ion trail's twelve-step fade, an explosion's frames. The C
+	// calls this colorCycleIndex and keeps it on every element for the same
+	// reason -- the alternative is a parallel table keyed by entity.
+	std::int32_t colorCycle = 0;
 
 	// Frames until the ship may turn or thrust again. A collision adds to
 	// both, which is the stagger you feel after hitting something

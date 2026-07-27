@@ -139,6 +139,10 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 		// its licence to exceed max speed on the very next thrust.
 		s.inGravityWell = false;
 		e->thrustWait = d.thrustWait;
+
+		// Exhaust, only on the frames the ship actually accelerates
+		// (ship.c:274) -- not on every frame the key is held.
+		spawnIonTrail(b, id);
 	}
 }
 
@@ -363,6 +367,97 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 	if (speed > d.weaponMaxSpeed)
 		speed = d.weaponMaxSpeed;
 	e->velocity.setVector(speed, e->facing);
+}
+
+void
+spawnIonTrail(Battle &b, EntityId ship) noexcept
+{
+	const auto e = b.get(ship);
+	if (e == nullptr)
+		return;
+
+	// Behind the ship, along the reverse of its facing. The C offsets by the
+	// sprite's height so the exhaust leaves the hull rather than the hotspot
+	// (tactrans.c:808-812); the collision mask stands in for the frame rect.
+	const int angle = facingToAngle(e->facing) + kHalfCircle;
+	const std::int32_t back = e->mask != nullptr
+			? displayToWorld(static_cast<std::int32_t>(e->mask->size().h) / 2)
+			: 0;
+
+	Element t;
+	t.kind = ElementKind::IonTrail;
+	t.playerNr = -1;  // NEUTRAL: exhaust belongs to nobody
+	t.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid
+			| ElementFlags::IgnoreVelocity;
+	t.lifeSpan = kIonTrailLife;
+	t.colorCycle = 0;
+	t.current = wrap(Vec2i{e->current.x + cosine(angle, back),
+			e->current.y + sine(angle, back)});
+	t.next = t.current;
+
+	// Head insertion, so exhaust draws behind everything that matters.
+	b.spawnFront(std::move(t));
+}
+
+void
+shipTransition(Battle &b, EntityId id) noexcept
+{
+	auto e = b.get(id);
+	if (e == nullptr || e->ship.data == nullptr)
+		return;
+
+	if (any(e->flags & ElementFlags::Appearing))
+	{
+		// Arriving: invisible, untouchable, and on a clock
+		// (tactrans.c:858-866). The ship is in the simulation the whole time
+		// -- it simply cannot be hit and is not drawn -- which is what stops
+		// two ships materialising inside each other.
+		e->ship.crew = e->ship.data->maxCrew;
+		e->ship.energy = e->ship.data->maxEnergy;
+		e->ship.input = ShipInput::None;
+		e->owner = id;
+		e->lifeSpan = kWarpInFrames;
+		e->flags |= ElementFlags::NonSolid | ElementFlags::FiniteLife;
+		e->velocity.zero();
+		return;
+	}
+
+	// A shadow of itself each frame, fading through the same ramp the exhaust
+	// uses -- which is exactly why the C shares cycle_ion_trail between them.
+	spawnIonTrail(b, id);
+
+	e = b.get(id);
+	if (e == nullptr)
+		return;
+
+	if (e->lifeSpan <= 1)
+	{
+		// Arrived. Solid, visible, and under its own control from here
+		// (tactrans.c:868-886).
+		e->flags &= ~(ElementFlags::NonSolid | ElementFlags::FiniteLife);
+		e->velocity.zero();
+		e->preProcess = shipPreProcess;
+		e->postProcess = shipPostProcess;
+		e->lifeSpan = 1;  // NORMAL_LIFE: persistent again
+		applyFacingMask(*e, *e->ship.data);
+	}
+}
+
+void
+startShipExplosion(Element &e) noexcept
+{
+	// The ship becomes its own explosion rather than vanishing
+	// (tactrans.c:703-728): it stops dead, loses its energy, stops colliding,
+	// and burns for a fixed number of frames. Removing it immediately, which
+	// is what happened before, made a kill read as the ship being deleted.
+	e.velocity.zero();
+	e.ship.energy = 0;
+	e.lifeSpan = kExplosionLife;
+	e.colorCycle = 0;
+	e.flags &= ~ElementFlags::Disappearing;
+	e.flags |= ElementFlags::FiniteLife | ElementFlags::NonSolid;
+	e.preProcess = nullptr;
+	e.postProcess = nullptr;
 }
 
 void

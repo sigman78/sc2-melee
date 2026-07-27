@@ -259,6 +259,23 @@ constexpr std::size_t kBoomFirstSlot = 2;
 // The Ilwrath cloak ramp, converted from the C's 5-bit RGB
 // (ilwrath.c:255-275). Index 0 is unused -- level 0 means "draw the real
 // sprite" -- and the last step is invisible, so it is not listed.
+// cycle_ion_trail's colour table (tactrans.c:757-770), 5-bit RGB widened to
+// 8. Yellow-white at the muzzle through red to almost-black, one step a frame.
+constexpr std::array<Colour, 12> kIonRamp{{
+		Colour{0xFF, 0xAD, 0x00},
+		Colour{0xFF, 0x8C, 0x00},
+		Colour{0xFF, 0x73, 0x00},
+		Colour{0xFF, 0x52, 0x00},
+		Colour{0xFF, 0x39, 0x00},
+		Colour{0xFF, 0x18, 0x00},
+		Colour{0xFF, 0x00, 0x00},
+		Colour{0xDE, 0x00, 0x00},
+		Colour{0xBD, 0x00, 0x00},
+		Colour{0x9C, 0x00, 0x00},
+		Colour{0x7B, 0x00, 0x00},
+		Colour{0x5A, 0x00, 0x00},
+}};
+
 constexpr std::array<Colour, 6> kCloakRamp{{
 		Colour{0xFF, 0xFF, 0xFF},  // unused; level 0 draws the sprite
 		Colour{0xFF, 0xFF, 0xFF},  // 1F,1F,1F
@@ -448,8 +465,10 @@ setUp(Game &g, const std::filesystem::path &content)
 				set != nullptr ? set->maskFor(facing) : nullptr;
 		e.mask = m != nullptr ? m : &g.shipMask;
 		e.ship.data = &data;
-		e.preProcess = sim::shipPreProcess;
-		e.postProcess = sim::shipPostProcess;
+		// Warping in, not simply present. shipTransition hands over to
+		// shipPreProcess once the ship has arrived.
+		e.preProcess = sim::shipTransition;
+		e.postProcess = nullptr;
 		e.onCollision = sim::solidCollision;
 		return g.battle.spawnBack(std::move(e));
 	};
@@ -502,6 +521,20 @@ draw(Game &g)
 		if (e == nullptr)
 			continue;
 
+		// Exhaust: a single point stepping through the colour ramp as it
+		// ages. lifeSpan counts down, so the ramp index counts up.
+		if (e->kind == sim::ElementKind::IonTrail)
+		{
+			const std::size_t step = static_cast<std::size_t>(
+					sim::kIonTrailLife - e->lifeSpan);
+			if (step >= kIonRamp.size())
+				continue;
+			const Colour c = kIonRamp[step];
+			const Vec2i at = g.camera.toScreen(e->current);
+			g.window.fillRect(at, Extent2u{2, 2}, c.r, c.g, c.b);
+			continue;
+		}
+
 		// A beam is a line between two points, not a sprite at one. Drawn
 		// before the width/height work below, none of which applies.
 		if (e->kind == sim::ElementKind::Laser)
@@ -530,6 +563,32 @@ draw(Game &g)
 
 		const Extent2u dest{static_cast<std::uint32_t>(w),
 				static_cast<std::uint32_t>(h)};
+
+		// A ship that has not arrived yet is not drawn -- only the shadows it
+		// sheds are (tactrans.c:863). And a dead one is drawn as its own
+		// explosion, growing over the frames it burns for.
+		if (e->kind == sim::ElementKind::Ship)
+		{
+			if (any(e->flags & sim::ElementFlags::NonSolid)
+					&& e->ship.crew > 0)
+				continue;  // still warping in
+
+			if (e->ship.crew == 0 && g.boom != nullptr && g.boom->valid())
+			{
+				const std::int32_t left = e->lifeSpan;
+				const std::int32_t age = sim::kExplosionLife - left;
+				const std::size_t frames = g.boom->frames.size();
+				const std::size_t i = std::min(frames - 1,
+						static_cast<std::size_t>(age) * frames
+								/ static_cast<std::size_t>(sim::kExplosionLife));
+				const std::int32_t size = std::max(1, w * 2);
+				g.window.draw(g.boom->frames[i],
+						Vec2i{at.x - size / 2, at.y - size / 2},
+						Extent2u{static_cast<std::uint32_t>(size),
+							static_cast<std::uint32_t>(size)});
+				continue;
+			}
+		}
 
 		if (const game::SpriteSet *set = spritesFor(g, *e); set != nullptr)
 		{
@@ -815,6 +874,9 @@ iterate(Game &g)
 		if (!alive0 || !alive1)
 		{
 			g.winner = alive0 ? 0 : (alive1 ? 1 : 2);
+			// battle.snd slot 1: shipdies.wav (tactrans.c:723-726).
+			if (g.battleSounds.size() > 1)
+				g.audio.play(g.battleSounds[1], kEffectGain);
 			g.endedAtFrame = static_cast<std::int64_t>(g.battle.frame());
 			if (g.winner == 2)
 				std::printf("mutual destruction\n");

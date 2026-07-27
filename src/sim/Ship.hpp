@@ -121,6 +121,29 @@ void cruiserSpecial(Battle &b, EntityId id) noexcept;
 // The Avenger's cloak (ilwrath.c:377-393).
 void avengerSpecial(Battle &b, EntityId id) noexcept;
 
+// How long the exhaust fade runs, in frames -- the length of the C's colour
+// table (tactrans.c:757-770).
+inline constexpr std::int32_t kIonTrailLife = 12;
+
+// HYPERJUMP_LIFE (element.h:69): how long a ship spends warping in, invisible
+// and untouchable, before it becomes real.
+inline constexpr std::int32_t kWarpInFrames = 15;
+
+// NUM_EXPLOSION_FRAMES * 3 (element.h:71, tactrans.c:714).
+inline constexpr std::int32_t kExplosionFrames = 12;
+inline constexpr std::int32_t kExplosionLife = kExplosionFrames * 3;
+
+// One point of exhaust, dropped behind a thrusting ship (tactrans.c:792-840).
+void spawnIonTrail(Battle &b, EntityId ship) noexcept;
+
+// The warp-in preprocess. A ship starts under this hook and swaps itself over
+// to shipPreProcess once it has arrived (ship_transition, tactrans.c:852-890).
+void shipTransition(Battle &b, EntityId id) noexcept;
+
+// Turns a dead ship into its own explosion rather than removing it
+// (StartShipExplosion, tactrans.c:703-728).
+void startShipExplosion(Element &e) noexcept;
+
 const ShipData &earthlingCruiser() noexcept;
 [[nodiscard]] const ShipData &ilwrathAvenger() noexcept;
 

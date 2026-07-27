@@ -42,11 +42,12 @@ doDamage(Element &e, std::int32_t damage) noexcept
 	{
 		if (!deltaCrew(e, -damage))
 		{
-			// Out of crew. NONSOLID first, so nothing else can hit the wreck
-			// on its way out, and life_span = 0 means the step loop reaps it
-			// at the start of the next frame and runs its death hook.
-			e.lifeSpan = 0;
-			e.flags |= ElementFlags::NonSolid;
+			// Out of crew. The ship does not vanish -- it becomes its own
+			// explosion and burns for three dozen frames (ship_death ->
+			// StartShipExplosion, tactrans.c:730-750). Setting life_span to 0
+			// here, which is what this did before, deleted the ship on the
+			// spot and made a kill look like a rendering glitch.
+			startShipExplosion(e);
 		}
 		return;
 	}
