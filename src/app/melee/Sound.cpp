@@ -34,9 +34,8 @@ playStepSounds(Game &g)
 	const std::span<const platform::Sound> battleSnd =
 			g.content.sounds(g.audio, game::kMeleeArt.battleSounds);
 
-	// Which boom plays tracks hit strength: TARGET_DAMAGED_FOR_1_PT +
-	// (damage >> 1), capped at slot 6 (weapon.c:168-172, ship.c:369-371);
-	// battle.snd orders booms after getcrew/shipdies.
+	// Which boom plays tracks hit strength: Damaged1 + (damage >> 1),
+	// capped at Damaged6Plus (weapon.c:168-172, ship.c:369-371).
 	for (const sim::CollisionEvent &c : g.battle.collisions())
 	{
 		std::int32_t damage = 0;
@@ -44,11 +43,12 @@ playStepSounds(Game &g)
 			if (const auto el = g.battle.get(side); el != nullptr)
 				damage = std::max(damage, el->damage);
 
-		const std::size_t slot = std::min<std::size_t>(
-				kBoomFirstSlot + static_cast<std::size_t>(damage >> 1),
-				kBoomFirstSlot + 3);
-		if (battleSnd.size() > slot)
-			g.audio.play(battleSnd[slot], kEffectGain);
+		const std::size_t boom = std::min(
+				slot(game::BattleSound::Damaged1)
+						+ static_cast<std::size_t>(damage >> 1),
+				slot(game::BattleSound::Damaged6Plus));
+		if (battleSnd.size() > boom)
+			g.audio.play(battleSnd[boom], kEffectGain);
 	}
 
 	// Weapons fired this frame, and beams: read from step()'s own spawn
@@ -58,18 +58,20 @@ playStepSounds(Game &g)
 		if (sp.kind == sim::ElementKind::Weapon)
 		{
 			// Whose weapon: the nuke and the flame are different sounds,
-			// both slot 0 of their owner's own .snd.
+			// both the Primary slot of their owner's own .snd.
 			const auto set = shipSounds(g, sp.playerNr);
-			if (!set.empty())
-				g.audio.play(set[0], kEffectGain);
+			if (set.size() > slot(game::ShipSound::Primary))
+				g.audio.play(set[slot(game::ShipSound::Primary)],
+						kEffectGain);
 		}
 		else if (sp.kind == sim::ElementKind::Laser)
 		{
-			// Slot 1 of the owner's .snd: secondary.wav, the point-defence
-			// laser (human.c:232-234).
+			// The owner's Secondary: secondary.wav, the point-defence laser
+			// (human.c:232-234).
 			const auto set = shipSounds(g, sp.playerNr);
-			if (set.size() > 1)
-				g.audio.play(set[1], kEffectGain);
+			if (set.size() > slot(game::ShipSound::Secondary))
+				g.audio.play(set[slot(game::ShipSound::Secondary)],
+						kEffectGain);
 		}
 	}
 
@@ -84,9 +86,10 @@ playStepSounds(Game &g)
 		if (s == nullptr || s->crew > 0)
 			continue;
 		g.deathAnnounced[p] = true;
-		// battle.snd slot 1: shipdies.wav (tactrans.c:723-726).
-		if (battleSnd.size() > 1)
-			g.audio.play(battleSnd[1], kEffectGain);
+		// shipdies.wav -- SHIP_EXPLODES (tactrans.c:723-726).
+		if (battleSnd.size() > slot(game::BattleSound::ShipExplodes))
+			g.audio.play(battleSnd[slot(game::BattleSound::ShipExplodes)],
+					kEffectGain);
 	}
 }
 

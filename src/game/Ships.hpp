@@ -6,6 +6,7 @@
 #include "engine/core/Borrowed.hpp"
 #include "sim/Ship.hpp"
 
+#include <cstddef>
 #include <span>
 #include <string_view>
 
@@ -27,6 +28,20 @@ struct ShipArt
 	std::string_view weapon;  // GFXRES: the primary's projectile frames
 	std::string_view sounds;  // SNDRES: slots in the .snd's line order
 };
+
+// A ship's .snd, by line: the order is a content contract, so it is
+// written down once instead of as a bare index at each play site.
+enum class ShipSound : std::size_t
+{
+	Primary = 0,    // the main weapon firing
+	Secondary = 1,  // the SPECIAL -- the Cruiser's point-defence laser
+};
+
+[[nodiscard]] constexpr std::size_t
+slot(ShipSound s) noexcept
+{
+	return static_cast<std::size_t>(s);
+}
 
 // A ship type as one entry: the key setup picks it by, the sim descriptor,
 // and the content the descriptor's presentation needs. A code literal today,

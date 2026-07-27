@@ -3,6 +3,7 @@
 #ifndef UQM2_GAME_MELEE_HPP
 #define UQM2_GAME_MELEE_HPP
 
+#include <cstddef>
 #include <string_view>
 
 namespace uqm::game {
@@ -20,8 +21,26 @@ struct MeleeArt
 	std::string_view planet;
 
 	std::string_view stars;
-	std::string_view battleSounds;  // getcrew, shipdies, then the booms
+	std::string_view battleSounds;  // slots below, in the .snd's line order
 };
+
+// battle.snd, by line -- the C's BATTLE_SOUND_EFFECTS (sounds.h:31-38).
+// The order is a content contract, written down once.
+enum class BattleSound : std::size_t
+{
+	GrabCrew = 0,      // unused until crew pickup exists
+	ShipExplodes = 1,
+	Damaged1 = 2,      // TARGET_DAMAGED_FOR_1_PT, then _2_3, _4_5 ...
+	Damaged23 = 3,
+	Damaged45 = 4,
+	Damaged6Plus = 5,  // ... and _6_PLUS_PT, the loudest and the cap
+};
+
+[[nodiscard]] constexpr std::size_t
+slot(BattleSound s) noexcept
+{
+	return static_cast<std::size_t>(s);
+}
 
 inline constexpr MeleeArt kMeleeArt{
 	.asteroid = "graphics.asteroid.large",

@@ -9,12 +9,15 @@
 // No framework, matching the other tests: non-zero exit means failure.
 
 #include "engine/content/ResourceMap.hpp"
+#include "engine/core/Text.hpp"
 #include "game/Melee.hpp"
 #include "game/Ships.hpp"
 #include "platform/File.hpp"
 
+#include <cstddef>
 #include <cstdio>
 #include <filesystem>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -84,6 +87,31 @@ testMeleeArt(const content::ResourceMap &map)
 	checkResolves(map, game::kMeleeArt.battleSounds, "melee.battleSounds");
 }
 
+// BattleSound names battle.snd's lines through Damaged6Plus = 5; that is a
+// claim about the content, so the content gets to veto it.
+void
+testBattleSoundSlots(const content::ResourceMap &map, const fs::path &content)
+{
+	const content::Resource *res = map.find(game::kMeleeArt.battleSounds);
+	if (res == nullptr)
+		return;  // already reported by testMeleeArt
+
+	const auto bytes = platform::readFile(content / std::string(res->path));
+	CHECK(bytes.has_value(), "cannot read battle.snd");
+	if (!bytes)
+		return;
+
+	std::size_t lines = 0;
+	forEachLine(platform::asText(*bytes), [&](std::string_view line,
+											  std::size_t) {
+		if (!trim(line).empty())
+			++lines;
+	});
+	CHECK(lines > slot(game::BattleSound::Damaged6Plus),
+			"battle.snd has %zu slots; BattleSound expects at least %zu",
+			lines, slot(game::BattleSound::Damaged6Plus) + 1);
+}
+
 }  // namespace
 
 int
@@ -108,6 +136,7 @@ main(int argc, char **argv)
 
 	testCatalog(map);
 	testMeleeArt(map);
+	testBattleSoundSlots(map, fs::path(argv[1]));
 
 	if (failures != 0)
 	{

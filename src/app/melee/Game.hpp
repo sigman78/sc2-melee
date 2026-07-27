@@ -109,9 +109,6 @@ inline constexpr std::int64_t kMarkLife = 24;
 // this level is honest, not a blanket fix for voice-count overlap.
 inline constexpr float kEffectGain = 0.35f;
 
-// battle.snd is getcrew, shipdies, then the four booms.
-inline constexpr std::size_t kBoomFirstSlot = 2;
-
 // How large a patch the field tiles over, in display pixels. The C
 // varies on-screen density with zoom (galaxy.c:248-259); this field is
 // zoom-independent, so it tiles over four screens for ~45 stars in view.
