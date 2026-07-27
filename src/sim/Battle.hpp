@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace uqm::sim {
@@ -128,16 +129,64 @@ public:
 			EntityId id) const noexcept;
 	void attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec);
 
-	// The world itself, for component types the sim does not know --
-	// presentation attaches its own (review-004 open question 3: ownership
-	// is by component type, not by store; sim/ never names an app type).
+	// The typed component surface: every component type the sim or the app
+	// defines goes through these instead of naming entt::registry directly --
+	// review-004 open question 3's ownership-by-component-type answer, closed.
+	// decltype(auto), not T&: entt's emplace returns void for an empty
+	// (tag) component -- PlayerShip, WarpingIn, Exploding -- since there is
+	// nothing to reference; no call site uses the return value for those.
+	template <class T, class... Args>
+	decltype(auto) attach(EntityId id, Args &&...args)
+	{
+		return reg_.emplace<T>(id, std::forward<Args>(args)...);
+	}
+	template <class T>
+	[[nodiscard]] T *find(EntityId id) noexcept
+	{
+		return reg_.valid(id) ? reg_.try_get<T>(id) : nullptr;
+	}
+	template <class T>
+	[[nodiscard]] const T *find(EntityId id) const noexcept
+	{
+		return reg_.valid(id) ? reg_.try_get<T>(id) : nullptr;
+	}
+	template <class T>
+	[[nodiscard]] bool has(EntityId id) const noexcept
+	{
+		return reg_.valid(id) && reg_.all_of<T>(id);
+	}
+	template <class T>
+	void detach(EntityId id)
+	{
+		reg_.remove<T>(id);
+	}
+
+	// An order-free walk over every element, for the scans that don't need
+	// the spine (Field.cpp's gravity/placement checks) -- entt::registry
+	// still never escapes Battle.
+	template <class Fn>
+	void eachElement(Fn &&fn)
+	{
+		for (auto [id, e] : reg_.view<Element>().each())
+			fn(id, e);
+	}
+	template <class Fn>
+	void eachElement(Fn &&fn) const
+	{
+		for (auto [id, e] : reg_.view<const Element>().each())
+			fn(id, e);
+	}
+
+private:
+	// The world itself, for component types the typed surface above does not
+	// cover. Private: everything outside Battle goes through attach/find/
+	// has/detach instead (review-004 open question 3).
 	[[nodiscard]] entt::registry &registry() noexcept { return reg_; }
 	[[nodiscard]] const entt::registry &registry() const noexcept
 	{
 		return reg_;
 	}
 
-private:
 	void preProcessPass();
 	void postProcessPass();
 	void catchUpFrom(EntityId first);

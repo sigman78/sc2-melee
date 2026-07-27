@@ -321,7 +321,7 @@ draw(Game &g)
 
 		// Should not happen: every live element is attached in setUpBattle
 		// or from a SpawnEvent. Safe fallback if one slipped through.
-		const Visual *v = g.battle.registry().try_get<Visual>(id);
+		const Visual *v = g.battle.find<Visual>(id);
 		Visual missing;
 		if (v == nullptr)
 		{
@@ -465,8 +465,7 @@ draw(Game &g)
 				continue;
 			}
 
-			const sim::Cloak *cloakState =
-					g.battle.registry().try_get<sim::Cloak>(id);
+			const sim::Cloak *cloakState = g.battle.find<sim::Cloak>(id);
 			const std::int32_t cloak =
 					cloakState != nullptr ? cloakState->level : 0;
 			if (cloak > 0 && i < set->silhouettes.size())

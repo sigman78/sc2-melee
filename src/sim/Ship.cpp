@@ -44,54 +44,12 @@ applyFacingMask(Element &e, const ShipSpec &spec) noexcept
 	e.mask = &spec.facingMasks[i];
 }
 
-void warpInStep(Battle &b, EntityId id) noexcept;
-void explosionStep(Battle &b, EntityId id) noexcept;
-
-}  // namespace
-
+// Energy regeneration, gated by its own counter (ship.c:225-230). The
+// counter itself is re-armed inside deltaEnergy on every success, which is
+// how firing postpones regeneration.
 void
-shipPreProcess(Battle &b, EntityId id) noexcept
+regenEnergy(ShipState &s, const ShipSpec &spec) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
-		return;
-	ShipState *sp = b.ship(id);
-	if (sp == nullptr)
-		return;
-
-	ShipState &s = *sp;
-	const ShipSpec &spec = *s.spec;
-
-	if (b.registry().all_of<WarpingIn>(id))
-	{
-		warpInStep(b, id);
-		return;
-	}
-
-	if (any(e->flags & ElementFlags::Appearing))
-	{
-		// First frame: the crew and energy come from the descriptor
-		// (ship.c:169). Input is deliberately *not* latched on the appearing
-		// frame, so a key held during the countdown does not fire on frame 1.
-		s.crew = spec.maxCrew;
-		s.energy = spec.maxEnergy;
-		s.input = ShipInput::None;
-		e->owner = id;  // a ship is its own pParent
-		applyFacingMask(*e, spec);
-		return;
-	}
-
-	// A dead hull runs its explosion and nothing else (tactrans.c:703-728).
-	if (s.crew == 0)
-	{
-		if (b.registry().all_of<Exploding>(id))
-			explosionStep(b, id);
-		return;
-	}
-
-	// Energy regeneration, gated by its own counter (ship.c:225-230). The
-	// counter itself is re-armed inside deltaEnergy on every success, which
-	// is how firing postpones regeneration.
 	if (s.energyCounter > 0)
 	{
 		--s.energyCounter;
@@ -100,47 +58,48 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 	{
 		(void)deltaEnergy(s, spec.energyRegen);
 	}
+}
 
-	// The ship's own hook, after regen and before turning -- RACE_DESC
-	// .preprocess_func's slot (ship.c:232-236). The Ilwrath cloak lives here,
-	// winning the energy race against the same frame's weapon.
-	if (spec.preProcess != nullptr)
+// Turning. One facing step per turn_wait frames -- ships rotate in whole
+// facings, which is why the trig tables matter (ship.c:238-254).
+void
+turnShip(Battle &b, EntityId id, Element &e, ShipState &,
+		const ShipSpec &spec) noexcept
+{
+	const Input &in = *b.find<Input>(id);
+	if (e.turnWait > 0)
 	{
-		spec.preProcess(b, id);
-		e = b.get(id);
-		if (e == nullptr)
-			return;
+		--e.turnWait;
 	}
+	else if (any(in.buttons & (ShipInput::Left | ShipInput::Right)))
+	{
+		const int delta = any(in.buttons & ShipInput::Left) ? -1 : 1;
+		e.facing += delta;
+		e.turnWait = spec.turnWait;
+		applyFacingMask(e, spec);
+	}
+}
 
-	// Turning. One facing step per turn_wait frames -- ships rotate in whole
-	// facings, which is why the trig tables matter (ship.c:238-254).
-	if (e->turnWait > 0)
+// Thrust (ship.c:256-276). The facing is passed in rather than read off a
+// global -- see Thrust.hpp.
+void
+applyThrustInput(Battle &b, EntityId id, Element &e, ShipState &s,
+		const ShipSpec &spec) noexcept
+{
+	const Input &in = *b.find<Input>(id);
+	if (e.thrustWait > 0)
 	{
-		--e->turnWait;
+		--e.thrustWait;
 	}
-	else if (any(s.input & (ShipInput::Left | ShipInput::Right)))
+	else if (any(in.buttons & ShipInput::Thrust))
 	{
-		const int delta = any(s.input & ShipInput::Left) ? -1 : 1;
-		e->facing += delta;
-		e->turnWait = spec.turnWait;
-		applyFacingMask(*e, spec);
-	}
-
-	// Thrust (ship.c:256-276). The facing is passed in rather than read off a
-	// global -- see Thrust.hpp.
-	if (e->thrustWait > 0)
-	{
-		--e->thrustWait;
-	}
-	else if (any(s.input & ShipInput::Thrust))
-	{
-		s.speed = thrust(e->velocity, e->facing, spec.thrust,
+		s.speed = thrust(e.velocity, e.facing, spec.thrust,
 				ThrustState{s.speed, s.inGravityWell});
 		// ship.c:263-267 clears the whole speed/gravity group and ORs in the
 		// thrust result; gravity re-sets the well flag next frame if still inside
 		// one, so leaving the well loses the licence to exceed max speed at once.
 		s.inGravityWell = false;
-		e->thrustWait = spec.thrustWait;
+		e.thrustWait = spec.thrustWait;
 
 		// Exhaust only on frames the ship actually accelerates (ship.c:274), and
 		// not while FULLY cloaked (ship.c:271 gates on OBJECT_CLOAKED, true only at
@@ -150,40 +109,25 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 	}
 }
 
+// Firing. The energy is spent as part of the test, so a ship that cannot
+// afford the shot does not start the cooldown either.
 void
-shipPostProcess(Battle &b, EntityId id) noexcept
+fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
+		const ShipSpec &spec) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
-		return;
-	ShipState *sp = b.ship(id);
-	if (sp == nullptr)
-		return;
-
-	ShipState &s = *sp;
-	const ShipSpec &spec = *s.spec;
-
-	if (b.registry().all_of<WarpingIn>(id))
-		return;
-
-	// A dead ship does nothing further (ship.c:288-289).
-	if (s.crew == 0)
-		return;
-
-	// Firing. The energy is spent as part of the test, so a ship that cannot
-	// afford the shot does not start the cooldown either.
+	const Input &in = *b.find<Input>(id);
 	if (s.weaponCounter > 0)
 	{
 		--s.weaponCounter;
 	}
-	else if (any(s.input & ShipInput::Weapon)
+	else if (any(in.buttons & ShipInput::Weapon)
 			&& deltaEnergy(s, -spec.weapon.energyCost))
 	{
 		ShipView view;
-		view.position = e->next;
-		view.velocity = e->velocity;
-		view.facing = e->facing;
-		view.playerNr = e->playerNr;
+		view.position = e.next;
+		view.velocity = e.velocity;
+		view.facing = e.facing;
+		view.playerNr = e.playerNr;
 		view.weaponSpeed = spec.weapon.speed;
 		view.weaponLife = spec.weapon.life;
 		view.weaponDamage = spec.weapon.damage;
@@ -248,7 +192,7 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 				// The ship's velocity adds on top of the muzzle velocity, and the start
 				// position backs off by one frame of it (ilwrath.c:219-222) -- otherwise
 				// the first frame of flame appears ahead of where the ship actually was.
-				const Vec2i v = e->velocity.current();
+				const Vec2i v = e.velocity.current();
 				w.velocity.deltaComponents(v.x, v.y);
 				w.current = wrap(Vec2i{w.current.x - velocityToWorld(v.x),
 						w.current.y - velocityToWorld(v.y)});
@@ -265,10 +209,10 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			// initialize_nuke seeds TRACK_WAIT (human.c:297-299), so the
 			// first steer lands on the fourth hook frame. The spec declares
 			// guidance by having any of the numbers; the component carries
-			// them plus the shot's own clock (review-005 Y1).
+			// them plus the shot's own clock.
 			if (spec.weapon.trackWait > 0 || spec.weapon.thrustScale > 0)
 			{
-				b.registry().emplace<Guided>(wid,
+				b.attach<Guided>(wid,
 						Guided{spec.weapon.trackWait, spec.weapon.maxSpeed,
 							spec.weapon.thrustScale, spec.weapon.trackWait});
 			}
@@ -276,17 +220,110 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 
 		s.weaponCounter = spec.weapon.wait;
 	}
+}
 
-	// SPECIAL: the engine only ticks the counter (ship.c:342-343). Decrement
-	// first, then test the just-decremented value (ship.c:342-346) -- gating
-	// in an else-branch instead adds a dead frame every cycle.
+// SPECIAL: the engine only ticks the counter (ship.c:342-343). Decrement
+// first, then test the just-decremented value (ship.c:342-346) -- gating
+// in an else-branch instead adds a dead frame every cycle.
+void
+gateSpecial(Battle &b, EntityId id, ShipState &s,
+		const ShipSpec &spec) noexcept
+{
+	const Input &in = *b.find<Input>(id);
 	if (s.specialCounter > 0)
 		--s.specialCounter;
-	if (s.specialCounter == 0 && any(s.input & ShipInput::Special)
+	if (s.specialCounter == 0 && any(in.buttons & ShipInput::Special)
 			&& spec.special.hook != nullptr)
 	{
 		spec.special.hook(b, id);
 	}
+}
+
+void warpInStep(Battle &b, EntityId id) noexcept;
+void explosionStep(Battle &b, EntityId id) noexcept;
+
+}  // namespace
+
+void
+shipPreProcess(Battle &b, EntityId id) noexcept
+{
+	auto e = b.get(id);
+	if (e == nullptr)
+		return;
+	ShipState *sp = b.ship(id);
+	if (sp == nullptr)
+		return;
+
+	ShipState &s = *sp;
+	const ShipSpec &spec = *s.spec;
+	Input &in = *b.find<Input>(id);
+
+	if (b.has<WarpingIn>(id))
+	{
+		warpInStep(b, id);
+		return;
+	}
+
+	if (any(e->flags & ElementFlags::Appearing))
+	{
+		// First frame: the crew and energy come from the descriptor
+		// (ship.c:169). Input is deliberately *not* latched on the appearing
+		// frame, so a key held during the countdown does not fire on frame 1.
+		s.crew = spec.maxCrew;
+		s.energy = spec.maxEnergy;
+		in.buttons = ShipInput::None;
+		e->owner = id;  // a ship is its own pParent
+		applyFacingMask(*e, spec);
+		return;
+	}
+
+	// A dead hull runs its explosion and nothing else (tactrans.c:703-728).
+	if (s.crew == 0)
+	{
+		if (b.has<Exploding>(id))
+			explosionStep(b, id);
+		return;
+	}
+
+	regenEnergy(s, spec);
+
+	// The ship's own hook, after regen and before turning -- RACE_DESC
+	// .preprocess_func's slot (ship.c:232-236). The Ilwrath cloak lives here,
+	// winning the energy race against the same frame's weapon.
+	if (spec.preProcess != nullptr)
+	{
+		spec.preProcess(b, id);
+		e = b.get(id);
+		if (e == nullptr)
+			return;
+	}
+
+	turnShip(b, id, *e, s, spec);
+	applyThrustInput(b, id, *e, s, spec);
+}
+
+void
+shipPostProcess(Battle &b, EntityId id) noexcept
+{
+	auto e = b.get(id);
+	if (e == nullptr)
+		return;
+	ShipState *sp = b.ship(id);
+	if (sp == nullptr)
+		return;
+
+	ShipState &s = *sp;
+	const ShipSpec &spec = *s.spec;
+
+	if (b.has<WarpingIn>(id))
+		return;
+
+	// A dead ship does nothing further (ship.c:288-289).
+	if (s.crew == 0)
+		return;
+
+	fireWeapon(b, id, *e, s, spec);
+	gateSpecial(b, id, s, spec);
 }
 
 int
@@ -312,7 +349,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 			id = b.next(id))
 	{
 		const auto t = b.get(id);
-		if (t == nullptr || !b.registry().all_of<PlayerShip>(id))
+		if (t == nullptr || !b.has<PlayerShip>(id))
 			continue;
 		if (t->playerNr == self->playerNr)
 			continue;
@@ -377,7 +414,7 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 	if (e == nullptr)
 		return;
 	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
-	Guided *g = b.registry().try_get<Guided>(id);
+	Guided *g = b.find<Guided>(id);
 	if (ws == nullptr || g == nullptr)
 		return;
 
@@ -474,7 +511,7 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	// Tags attach after the spawn hands out the id; the walk reaches the
 	// trail later than this statement, so it never sees a half-built one.
 	const EntityId trail = b.spawn(Layer::Background, std::move(t));
-	b.registry().emplace<IgnoreVelocity>(trail);
+	b.attach<IgnoreVelocity>(trail);
 }
 
 namespace {
@@ -496,7 +533,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		// which stops two ships materialising inside each other.
 		sp->crew = sp->spec->maxCrew;
 		sp->energy = sp->spec->maxEnergy;
-		sp->input = ShipInput::None;
+		b.find<Input>(id)->buttons = ShipInput::None;
 		e->owner = id;
 		e->lifeSpan = kWarpInFrames;
 		e->flags |= ElementFlags::NonSolid | ElementFlags::FiniteLife;
@@ -536,7 +573,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		e->velocity.zero();
 		e->lifeSpan = 1;  // NORMAL_LIFE: persistent again
 		applyFacingMask(*e, *sp->spec);
-		b.registry().remove<WarpingIn>(id);
+		b.detach<WarpingIn>(id);
 	}
 }
 
@@ -580,7 +617,8 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	e->flags |= ElementFlags::FiniteLife | ElementFlags::NonSolid;
 	e->postProcess = nullptr;
 	e->onDeath = sweepDeadShipOrdnance;
-	b.registry().emplace_or_replace<Exploding>(id);
+	if (!b.has<Exploding>(id))
+		b.attach<Exploding>(id);
 }
 
 namespace {
@@ -603,7 +641,7 @@ explosionStep(Battle &b, EntityId id) noexcept
 		count = 2;
 	if (age > 25)
 	{
-		b.registry().remove<Exploding>(id);
+		b.detach<Exploding>(id);
 		return;
 	}
 
@@ -722,8 +760,8 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		// fired, not the one after. BeamGeometry must be tagged before that
 		// catch-up runs, which this statement order guarantees.
 		const EntityId beamId = b.spawn(Layer::Ordnance, std::move(beam));
-		b.registry().emplace<IgnoreVelocity>(beamId);
-		b.registry().emplace<BeamGeometry>(beamId);
+		b.attach<IgnoreVelocity>(beamId);
+		b.attach<BeamGeometry>(beamId);
 
 		ship = b.get(id);
 		if (ship == nullptr)
@@ -794,34 +832,37 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 
 	ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
+	const Input &in = *b.find<Input>(id);
 
 	// ilwrath_preprocess (ilwrath.c:232-394): the Cloak component's level
 	// stands in for the prim type/colour, its walk direction derived fresh
 	// each frame -- no stored "cloaking" state to disagree with it, and
-	// OBJECT_CLOAKED is isCloaked(), derived from the same level.
-	// get_or_emplace: the machine owns its component, so only ships that
-	// run this hook ever carry one.
-	Cloak &cloak = b.registry().get_or_emplace<Cloak>(id);
+	// OBJECT_CLOAKED is isCloaked(), derived from the same level. The
+	// machine owns its component, so only ships that run this hook ever
+	// carry one.
+	Cloak *c = b.find<Cloak>(id);
+	if (c == nullptr)
+		c = &b.attach<Cloak>(id);
 
 	// The C masks SPECIAL out of a *local* flags copy when an uncloak step
 	// runs (ilwrath.c:346), which suppresses the activation block below for
 	// that frame only. A local mirrors that exactly.
 	bool specialMasked = false;
 
-	if (cloak.level > 0)  // the prim is STAMPFILL: the machine is engaged
+	if (c->level > 0)  // the prim is STAMPFILL: the machine is engaged
 	{
-		const bool weaponDischarge = any(s.input & ShipInput::Weapon)
+		const bool weaponDischarge = any(in.buttons & ShipInput::Weapon)
 				&& s.energy >= spec.weapon.energyCost;
 
 		if (weaponDischarge
 				|| (s.specialCounter == 0
-						&& (any(s.input & ShipInput::Special)
-								|| cloak.level < kCloakFullLevel)))
+						&& (any(in.buttons & ShipInput::Special)
+								|| c->level < kCloakFullLevel)))
 		{
 			// One step toward visible (ilwrath.c:250-348). Firing is the only trigger
 			// that works mid-debounce; a key press needs the counter spent, so an
 			// interrupted ramp keeps unwinding out on its own.
-			if (cloak.level == kCloakFullLevel && weaponDischarge)
+			if (c->level == kCloakFullLevel && weaponDischarge)
 			{
 				// Stepping off BLACK under fire is the ambush.
 				cloakedAutoAim(b, id);
@@ -829,7 +870,7 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 				if (e == nullptr)
 					return;
 			}
-			--cloak.level;  // reaching 0 is the C's SetPrimType(STAMP)
+			--c->level;  // reaching 0 is the C's SetPrimType(STAMP)
 
 			// Every uncloak step zeroes the debounce (ilwrath.c:347): re-cloak is
 			// available the moment the ship is solid again, and SPECIAL is masked
@@ -837,22 +878,22 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 			s.specialCounter = 0;
 			specialMasked = true;
 		}
-		else if (cloak.level < kCloakFullLevel)
+		else if (c->level < kCloakFullLevel)
 		{
 			// One step toward black (ilwrath.c:349-374). At black, nothing:
 			// the ship stays hidden until something above fires.
-			++cloak.level;
+			++c->level;
 		}
 	}
 
 	// Activation (ilwrath.c:377-393): SPECIAL with the debounce spent, paying
 	// energy every time -- no free toggle-off, no half-price re-cloak. Restarts
 	// at white even from mid-fade, though only reachable from solid in practice.
-	if (!specialMasked && any(s.input & ShipInput::Special)
+	if (!specialMasked && any(in.buttons & ShipInput::Special)
 			&& s.specialCounter == 0
 			&& deltaEnergy(s, -spec.special.energyCost))
 	{
-		cloak.level = 1;  // WHITE, the walk's first colour
+		c->level = 1;  // WHITE, the walk's first colour
 		s.specialCounter = spec.special.wait;
 	}
 }
@@ -862,9 +903,7 @@ isCloaked(const Battle &b, EntityId id) noexcept
 {
 	// OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204): hidden
 	// only when fully faded, in either direction of the walk.
-	const Cloak *c = b.registry().valid(id)
-			? b.registry().try_get<const Cloak>(id)
-			: nullptr;
+	const Cloak *c = b.find<const Cloak>(id);
 	return c != nullptr && c->level == kCloakFullLevel;
 }
 

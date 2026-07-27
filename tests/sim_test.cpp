@@ -844,7 +844,7 @@ spawnOnce(Battle &b, EntityId id) noexcept
 	child.flags = ElementFlags::FiniteLife;
 	child.lifeSpan = 5;
 	g_trace.spawnFrom = b.spawn(g_trace.spawnLayer, std::move(child));
-	b.registry().emplace<PlayerShip>(g_trace.spawnFrom);
+	b.attach<PlayerShip>(g_trace.spawnFrom);
 }
 
 Element
@@ -864,7 +864,7 @@ EntityId
 spawnShip(Battle &b, Element e, Layer layer = Layer::Field)
 {
 	const EntityId id = b.spawn(layer, std::move(e));
-	b.registry().emplace<PlayerShip>(id);
+	b.attach<PlayerShip>(id);
 	return id;
 }
 
@@ -1212,7 +1212,7 @@ addShip(Battle &b, const ShipSpec &data, Vec2i at, int facing, int player)
 	e.playerNr = player;
 	e.mass = data.mass;
 	const EntityId id = b.spawn(Layer::Field, std::move(e));
-	b.registry().emplace<PlayerShip>(id);
+	b.attach<PlayerShip>(id);
 	b.attachShip(id, &data);
 	return id;
 }
@@ -1243,7 +1243,7 @@ testTurningIsGatedByTurnWait()
 	b.get(slow)->postProcess = shipPostProcess;
 
 	b.step();  // Appearing frame: input is not latched
-	b.ship(slow)->input = ShipInput::Right;
+	b.find<Input>(slow)->buttons = ShipInput::Right;
 
 	// turnWait N means a turn every N+1 frames, not every N: the counter is
 	// set to N *after* a turn and has to reach zero again (ship.c:238-253).
@@ -1272,7 +1272,7 @@ testFiringSpendsEnergyAndRespectsCooldown()
 	b.step();
 	CHECK(b.size() == 1, "just the ship so far");
 
-	b.ship(id)->input = ShipInput::Weapon;
+	b.find<Input>(id)->buttons = ShipInput::Weapon;
 	b.step();
 	CHECK(b.size() == 2, "firing should have spawned a missile");
 	CHECK(b.ship(id)->energy == 18 - 9,
@@ -1297,7 +1297,7 @@ testFiringSpendsEnergyAndRespectsCooldown()
 	c.ship(poor)->energy = 8;   // one short of the 9-point cost
 	c.ship(poor)->energyCounter = 5;  // ...and hold off regen, which
 									  // would otherwise top it up first
-	c.ship(poor)->input = ShipInput::Weapon;
+	c.find<Input>(poor)->buttons = ShipInput::Weapon;
 	c.step();
 	CHECK(c.size() == 1,
 			"a ship that cannot afford the shot must not fire");
@@ -1315,9 +1315,9 @@ testMissileFliesAndExpires()
 	b.get(id)->postProcess = shipPostProcess;
 	b.step();
 
-	b.ship(id)->input = ShipInput::Weapon;
+	b.find<Input>(id)->buttons = ShipInput::Weapon;
 	b.step();
-	b.ship(id)->input = ShipInput::None;
+	b.find<Input>(id)->buttons = ShipInput::None;
 	CHECK(b.size() == 2, "one missile");
 
 	// Find it and watch it move.
@@ -1354,7 +1354,7 @@ testFiringPostponesEnergyRegen()
 	b.get(id)->postProcess = shipPostProcess;
 	b.step();  // Appearing frame
 
-	b.ship(id)->input = ShipInput::Weapon;
+	b.find<Input>(id)->buttons = ShipInput::Weapon;
 	for (int i = 0; i < 6; ++i)
 		b.step();
 
@@ -1397,7 +1397,7 @@ testSpecialFiresTheFrameItsCounterExpires()
 	b.step();  // Appearing frame
 
 	g_specialFires = 0;
-	b.ship(id)->input = ShipInput::Special;
+	b.find<Input>(id)->buttons = ShipInput::Special;
 	for (int i = 0; i < 4; ++i)
 		b.step();
 
@@ -1436,11 +1436,11 @@ testOpposingMissilesDestroyEachOther()
 	}
 	b.step();  // Appearing frame
 
-	b.ship(a)->input = ShipInput::Weapon;
-	b.ship(c)->input = ShipInput::Weapon;
+	b.find<Input>(a)->buttons = ShipInput::Weapon;
+	b.find<Input>(c)->buttons = ShipInput::Weapon;
 	b.step();
-	b.ship(a)->input = ShipInput::None;
-	b.ship(c)->input = ShipInput::None;
+	b.find<Input>(a)->buttons = ShipInput::None;
+	b.find<Input>(c)->buttons = ShipInput::None;
 
 	std::size_t weapons = 0;
 	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
@@ -1617,8 +1617,8 @@ testAsteroidsSpawnOnAnEdgeAndRepeatably()
 		// The spin rides its own component now (review-005 Y1), so the pin
 		// compares it there -- not a vacuous 0 == 0 on the retired field.
 		auto e2 = c.get(a2);
-		const Spin &s1 = b.registry().get<Spin>(a);
-		const Spin &s2 = c.registry().get<Spin>(a2);
+		const Spin &s1 = *b.find<Spin>(a);
+		const Spin &s2 = *c.find<Spin>(a2);
 		CHECK(e->current == e2->current && e->facing == e2->facing
 						&& s1.period == s2.period
 						&& s1.backwards == s2.backwards
@@ -1636,7 +1636,7 @@ testAsteroidTumbles()
 
 	// The spin period means "every N+1 frames", like turn_wait
 	// (misc.c:117-126); it lives in the Spin component.
-	const int period = static_cast<int>(b.registry().get<Spin>(a).period);
+	const int period = static_cast<int>(b.find<Spin>(a)->period);
 	const Facing start = b.get(a)->facing;
 
 	// period + 1 frames of stillness, not period: the first step is the
@@ -1811,9 +1811,9 @@ testMissileDamagesAndSpendsItself()
 	CHECK(before == 22, "the Avenger starts with 22 crew, got %ld",
 			static_cast<long>(before));
 
-	b.ship(gunner)->input = ShipInput::Weapon;
+	b.find<Input>(gunner)->buttons = ShipInput::Weapon;
 	b.step();
-	b.ship(gunner)->input = ShipInput::None;
+	b.find<Input>(gunner)->buttons = ShipInput::None;
 
 	// The missile flies -40 a frame from y=3832, so it reaches y=3600 in about
 	// six. MISSILE_DAMAGE is 4.
@@ -1983,7 +1983,7 @@ testShipShotMidFlightKeepsItsMotion()
 	ship.mask = &m;
 	ship.current = ship.next = Vec2i{4000, 4000};
 	const EntityId is = b.spawn(Layer::Field, std::move(ship));
-	b.registry().emplace<PlayerShip>(is);
+	b.attach<PlayerShip>(is);
 
 	// A stationary shot in the ship's path. Zero damage, so the run is about
 	// motion, not crew -- and damage IS mass (weapon.c:101,144), so a
@@ -2127,7 +2127,7 @@ testTurningIntoOverlapIsReverted()
 	CHECK(b.collisions().empty(), "setup: adjacent is not touching");
 
 	const std::int32_t crew = b.ship(ship)->crew;
-	b.ship(ship)->input = ShipInput::Right;
+	b.find<Input>(ship)->buttons = ShipInput::Right;
 	b.step();
 
 	CHECK(b.get(ship)->facing == Facing(0),
@@ -2212,7 +2212,7 @@ testPointDefenceBurnsOwnNuke()
 	b.get(ship)->postProcess = shipPostProcess;
 	b.step();
 
-	b.ship(ship)->input = ShipInput::Weapon;
+	b.find<Input>(ship)->buttons = ShipInput::Weapon;
 	b.step();
 	std::size_t weapons = 0;
 	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
@@ -2221,9 +2221,9 @@ testPointDefenceBurnsOwnNuke()
 	CHECK(weapons == 1, "setup: one nuke in flight, got %zu", weapons);
 
 	const std::int32_t energy = b.ship(ship)->energy;
-	b.ship(ship)->input = ShipInput::Special;
+	b.find<Input>(ship)->buttons = ShipInput::Special;
 	b.step();
-	b.ship(ship)->input = ShipInput::None;
+	b.find<Input>(ship)->buttons = ShipInput::None;
 	b.step();  // the burned nuke's death is seen the following frame
 
 	weapons = 0;
@@ -2256,7 +2256,7 @@ testCommittedElementsAreNotIntegratedTwice()
 	// frames 1, 4, 7, 10 -- four steps in twelve. A double-preprocessed ship
 	// turns visibly faster.
 	const Facing start = b.get(id)->facing;
-	b.ship(id)->input = ShipInput::Right | ShipInput::Weapon;
+	b.find<Input>(id)->buttons = ShipInput::Right | ShipInput::Weapon;
 	for (int i = 0; i < 12; ++i)
 		b.step();
 
@@ -2308,7 +2308,7 @@ testPointDefenceBurnsIncomingFire()
 	shot.current = shot.next = Vec2i{4000, 4200};
 	const EntityId incoming = b.spawn(Layer::Field, std::move(shot));
 
-	b.ship(ship)->input = ShipInput::Special;
+	b.find<Input>(ship)->buttons = ShipInput::Special;
 	b.step();
 
 	CHECK(b.get(incoming) == nullptr || b.get(incoming)->hitPoints == 0,
@@ -2334,7 +2334,7 @@ testDeadShipBurnsAsAPhaseThenGoes()
 	b.step();
 
 	doDamage(b, id, 100);
-	CHECK(b.registry().all_of<Exploding>(id),
+	CHECK(b.has<Exploding>(id),
 			"overkill starts the explosion phase");
 
 	b.step();
@@ -2374,8 +2374,8 @@ testShipWarpsInBeforeItIsSolid()
 	e.mass = sim::earthlingCruiser().mass;
 	e.preProcess = sim::shipPreProcess;
 	const sim::EntityId shipId = b.spawn(Layer::Field, std::move(e));
-	b.registry().emplace<sim::PlayerShip>(shipId);
-	b.registry().emplace<sim::WarpingIn>(shipId);
+	b.attach<sim::PlayerShip>(shipId);
+	b.attach<sim::WarpingIn>(shipId);
 	b.attachShip(shipId, &sim::earthlingCruiser());
 
 	const auto ship = [&b]() -> const sim::Element * {
@@ -2497,7 +2497,7 @@ testShipWarpsInBeforeItIsSolid()
 	CHECK(ship() != nullptr, "the ship should still be here once it arrives");
 	CHECK(!any(ship()->flags & sim::ElementFlags::NonSolid),
 			"an arrived ship must be solid");
-	CHECK(!b.registry().all_of<sim::WarpingIn>(shipId),
+	CHECK(!b.has<sim::WarpingIn>(shipId),
 			"arrival removes the phase component");
 	CHECK(b.ship(shipId)->crew == sim::earthlingCruiser().maxCrew,
 			"arriving fills the crew, got %d", b.ship(shipId)->crew);
@@ -2525,9 +2525,9 @@ testCloakHidesFromTracking()
 	CHECK(trackShip(b, hunter, facing) != 0,
 			"an uncloaked enemy should be trackable");
 
-	b.ship(avenger)->input = ShipInput::Special;
+	b.find<Input>(avenger)->buttons = ShipInput::Special;
 	b.step();
-	b.ship(avenger)->input = ShipInput::None;
+	b.find<Input>(avenger)->buttons = ShipInput::None;
 
 	// Activation starts the colour walk at white; the ship is not hidden
 	// yet. OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204), so
@@ -2555,7 +2555,7 @@ testCloakHidesFromTracking()
 	// specialCounter, so it expired after the 13 frames of SPECIAL_WAIT.
 	// ilwrath.c:251-253 only unwinds the ramp when SPECIAL is pressed again
 	// or the hull is not yet fully black, so a ship left alone stays hidden.
-	b.ship(avenger)->input = ShipInput::None;
+	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 40; ++i)
 		b.step();
 	CHECK(isCloaked(b, avenger),
@@ -2563,9 +2563,9 @@ testCloakHidesFromTracking()
 			"runs out");
 
 	// A second press drops it.
-	b.ship(avenger)->input = ShipInput::Special;
+	b.find<Input>(avenger)->buttons = ShipInput::Special;
 	b.step();
-	b.ship(avenger)->input = ShipInput::None;
+	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 20; ++i)
 		b.step();
 	CHECK(!isCloaked(b, avenger),
@@ -2573,17 +2573,17 @@ testCloakHidesFromTracking()
 
 	// And firing gives you away, permanently -- the ramp runs all the way
 	// back even after the trigger is released (ilwrath.c:249-252).
-	b.ship(avenger)->input = ShipInput::Special;
+	b.find<Input>(avenger)->buttons = ShipInput::Special;
 	b.step();
-	b.ship(avenger)->input = ShipInput::None;
+	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 20; ++i)
 		b.step();
 	CHECK(isCloaked(b, avenger),
 			"it should be hidden again before the firing check");
 
-	b.ship(avenger)->input = ShipInput::Weapon;
+	b.find<Input>(avenger)->buttons = ShipInput::Weapon;
 	b.step();
-	b.ship(avenger)->input = ShipInput::None;
+	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 20; ++i)
 		b.step();
 	CHECK(!isCloaked(b, avenger),
@@ -2607,9 +2607,9 @@ testCloakedFiringSnapAims()
 	b.step();
 
 	// Cloak fully: activation plus the five-colour walk.
-	b.ship(avenger)->input = ShipInput::Special;
+	b.find<Input>(avenger)->buttons = ShipInput::Special;
 	b.step();
-	b.ship(avenger)->input = ShipInput::None;
+	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 5; ++i)
 		b.step();
 	CHECK(isCloaked(b, avenger),
@@ -2617,7 +2617,7 @@ testCloakedFiringSnapAims()
 
 	// Point it the wrong way, then fire from the dark.
 	b.get(avenger)->facing = Facing(8);
-	b.ship(avenger)->input = ShipInput::Weapon;
+	b.find<Input>(avenger)->buttons = ShipInput::Weapon;
 	b.step();
 
 	// The ambush snap (ilwrath.c:281-342): the discharge aims the ship at

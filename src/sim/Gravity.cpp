@@ -66,7 +66,7 @@ calculateGravity(Battle &b, EntityId id)
 		const int angle = arctan(d.x, d.y);
 		t->velocity.deltaComponents(cosine(angle, pull), sine(angle, pull));
 
-		if (b.registry().all_of<PlayerShip>(other))
+		if (b.has<PlayerShip>(other))
 		{
 			// gravity.c:136-137 clears SHIP_AT_MAX_SPEED but deliberately
 			// leaves SHIP_BEYOND_MAX_SPEED alone: a ship already whipped past

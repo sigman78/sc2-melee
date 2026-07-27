@@ -39,7 +39,7 @@ asteroidPreProcess(Battle &b, EntityId id) noexcept
 	auto e = b.get(id);
 	if (e == nullptr)
 		return;
-	Spin *spin = b.registry().try_get<Spin>(id);
+	Spin *spin = b.find<Spin>(id);
 	if (spin == nullptr)
 		return;
 
@@ -73,28 +73,26 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 
 	const Body a{self->mask, self->current, self->current};
 
-	for (EntityId other = b.front(); other != kNoEntity;
-			other = b.next(other))
-	{
-		if (other == id)
-			continue;
-
-		auto t = b.get(other);
-		if (t == nullptr || t->mask == nullptr)
-			continue;
+	// Order-independent: a plain OR over every other element, so the walk
+	// need not be the spine -- eachElement is enough, and keeps
+	// entt::registry out of this file.
+	bool conflict = false;
+	b.eachElement([&](EntityId other, Element &t) {
+		if (conflict || other == id || t.mask == nullptr)
+			return;
 
 		// A player ship counts even when it is not collidable -- gravity.c:175
 		// calls that case "ship in transition", and it is what stops a planet
 		// materialising on top of a ship that is still warping in.
-		if (!t->collidable() && !b.registry().all_of<PlayerShip>(other))
-			continue;
+		if (!t.collidable() && !b.has<PlayerShip>(other))
+			return;
 
-		const Body other_{t->mask, t->current, t->current};
+		const Body other_{t.mask, t.current, t.current};
 		if (sweptIntersect(a, other_))
-			return true;
-	}
+			conflict = true;
+	});
 
-	return false;
+	return conflict;
 }
 
 void
@@ -110,20 +108,16 @@ placeShipAtRandom(Battle &b, EntityId id, std::int32_t minSeparation)
 		if (want <= 0)
 			return true;
 		auto self = b.get(id);
-		for (EntityId other = b.front(); other != kNoEntity;
-				other = b.next(other))
-		{
-			if (other == id)
-				continue;
-			auto t = b.get(other);
-			if (t == nullptr || !b.registry().all_of<PlayerShip>(other))
-				continue;
-			const Vec2i d = wrapDelta(Vec2i{t->current.x - self->current.x,
-					t->current.y - self->current.y});
+		bool tooClose = false;
+		b.eachElement([&](EntityId other, Element &t) {
+			if (tooClose || other == id || !b.has<PlayerShip>(other))
+				return;
+			const Vec2i d = wrapDelta(Vec2i{t.current.x - self->current.x,
+					t.current.y - self->current.y});
 			if (d.x * d.x + d.y * d.y < want * want)
-				return false;
-		}
-		return true;
+				tooClose = true;
+		});
+		return !tooClose;
 	};
 
 	for (int tries = 0;; ++tries)
@@ -222,7 +216,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 
 	a.next = a.current;
 	const EntityId id = b.spawn(Layer::Field, std::move(a));
-	b.registry().emplace<Spin>(id, spin);
+	b.attach<Spin>(id, spin);
 	return id;
 }
 

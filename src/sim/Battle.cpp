@@ -191,6 +191,7 @@ Battle::attachShip(EntityId id, Borrowed<const ShipSpec> spec)
 {
 	ShipState &s = reg_.emplace<ShipState>(id);
 	s.spec = spec;
+	reg_.emplace<Input>(id);
 	return s;
 }
 

@@ -41,7 +41,7 @@ doDamage(Battle &b, EntityId id, std::int32_t damage) noexcept
 	if (e == nullptr)
 		return;
 
-	if (b.registry().all_of<PlayerShip>(id))
+	if (b.has<PlayerShip>(id))
 	{
 		ShipState *s = b.ship(id);
 		if (s == nullptr)

@@ -85,9 +85,9 @@ setUpBattle(Game &g)
 		e.postProcess = sim::shipPostProcess;
 		e.onCollision = sim::solidCollision;
 		const sim::EntityId id = g.battle.spawn(sim::Layer::Field, std::move(e));
-		g.battle.registry().emplace<sim::PlayerShip>(id);
+		g.battle.attach<sim::PlayerShip>(id);
 		// Warping in, not simply present; arrival removes the component.
-		g.battle.registry().emplace<sim::WarpingIn>(id);
+		g.battle.attach<sim::WarpingIn>(id);
 		g.battle.attachShip(id, &data);
 		return id;
 	};
@@ -148,8 +148,7 @@ setUp(Game &g, const std::filesystem::path &content)
 		auto e = g.battle.get(id);
 		if (e == nullptr)
 			continue;
-		g.battle.registry().emplace<Visual>(
-				id, visualFor(g, e->kind, e->playerNr));
+		g.battle.attach<Visual>(id, visualFor(g, e->kind, e->playerNr));
 	}
 }
 
@@ -179,8 +178,8 @@ iterate(Game &g)
 					g.debugOverlay = !g.debugOverlay;
 				g.debugWasDown = debugDown;
 			}
-			if (sim::ShipState *s = g.battle.ship(g.ships[p]))
-				s->input = toShipInput(b);
+			if (sim::Input *in = g.battle.find<sim::Input>(g.ships[p]))
+				in->buttons = toShipInput(b);
 		}
 		g.battle.step();
 
@@ -201,7 +200,7 @@ iterate(Game &g)
 		for (const sim::SpawnEvent &sp : g.battle.spawns())
 		{
 			if (g.battle.alive(sp.id))
-				g.battle.registry().emplace<Visual>(
+				g.battle.attach<Visual>(
 						sp.id, visualFor(g, sp.kind, sp.playerNr));
 		}
 	}

@@ -153,7 +153,6 @@ struct ShipState
 	static constexpr auto in_place_delete = true;
 
 	Borrowed<const ShipSpec> spec = nullptr;
-	ShipInput input = ShipInput::None;
 
 	std::int32_t crew = 0;
 	std::int32_t energy = 0;
@@ -169,6 +168,13 @@ struct ShipState
 	// (ship.c:82,106-112); gravity sets it, next thrust clears it (ship.c:263-267).
 	bool inGravityWell = false;
 
+};
+
+// What the player is asking for, as its own component: every ship has one
+// (Battle::attachShip), so the app writes it without a ShipState field.
+struct Input
+{
+	ShipInput buttons = ShipInput::None;
 };
 
 // The weapon-guidance component: which WeaponSpec a shot flies by
