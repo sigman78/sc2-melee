@@ -173,6 +173,31 @@ drawNumber(platform::Platform &w, std::int32_t value, Vec2i rightTop,
 
 // Everything the frame needs. A struct rather than globals so the Emscripten
 // driver has something to hand back to iterate().
+// The starfield.
+//
+// Three planes, 30 big, 60 medium and 90 small (galaxy.c:37-44). The C stores
+// each plane in a coordinate space 2^plane larger than the arena and then
+// shifts all three by the *same* delta each frame (galaxy.c:405-407), so a
+// plane in a larger space slides proportionally less across the screen. That
+// is where the parallax comes from, and it is the only thing about the C's
+// implementation worth keeping: the rest of galaxy.c is an incremental
+// scroll over a y-sorted array, wrapping stars one at a time as they fall off
+// an edge, which exists to avoid recomputing 180 positions on a 386 and buys
+// nothing here.
+//
+// Stated directly instead: plane p scrolls at 1/2^p of the camera. Plane 0 is
+// nearest -- biggest, brightest, fastest -- and plane 2 is the far haze.
+inline constexpr int kStarPlanes = 3;
+inline constexpr std::array<int, kStarPlanes> kStarsPerPlane{{30, 60, 90}};
+inline constexpr int kStarCount = 30 + 60 + 90;
+
+// Near plane first, so the array is grouped by plane.
+inline constexpr std::array<Colour, kStarPlanes> kStarColours{{
+		Colour{0xD0, 0xD0, 0xE0},
+		Colour{0x90, 0x90, 0xA8},
+		Colour{0x58, 0x58, 0x70},
+}};
+
 struct Game
 {
 	platform::Platform window{"The Ur-Quan Masters -- melee",
@@ -182,6 +207,9 @@ struct Game
 
 	sim::Battle battle{0x2A5B};
 	game::Camera camera;
+
+	// The starfield, three planes deep (galaxy.c:37-44).
+	std::array<Vec2i, kStarCount> stars{};
 	Pacer pacer;
 	std::array<InputAccumulator, 2> players;
 
@@ -509,9 +537,58 @@ setUp(Game &g, const std::filesystem::path &content)
 	const sim::CollisionMask *rockMask =
 			g.rock->maskFor(0) != nullptr ? g.rock->maskFor(0) : &g.rockMask;
 
+	// Stars are spread over the arena and tiled by the same wrap the sim uses,
+	// so a plane never runs out however far the camera travels.
+	for (Vec2i &s : g.stars)
+		s = Vec2i{
+				static_cast<std::int32_t>(
+						g.battle.rng().next() % sim::kLogSpaceWidth),
+				static_cast<std::int32_t>(
+						g.battle.rng().next() % sim::kLogSpaceHeight)};
+
 	(void)sim::spawnPlanet(g.battle, planetMask);
 	for (int i = 0; i < sim::kNumAsteroids; ++i)
 		(void)sim::spawnAsteroid(g.battle, rockMask);
+}
+
+// The background, before anything in the arena.
+//
+// Stars are drawn at a fixed pixel size rather than through camera.scale():
+// they are meant to be at infinity, so zooming the arena must not swell them.
+void
+drawStars(Game &g)
+{
+	const Vec2i centre = g.camera.centre();
+
+	std::size_t first = 0;
+	for (int plane = 0; plane < kStarPlanes; ++plane)
+	{
+		const std::size_t count =
+				static_cast<std::size_t>(kStarsPerPlane[static_cast<std::size_t>(plane)]);
+		const Colour c = kStarColours[static_cast<std::size_t>(plane)];
+
+		// 1/2^plane of the camera's travel. Dividing the *viewpoint* is the
+		// same thing as the C multiplying the plane's coordinate space, and
+		// it does not need a second set of world constants to wrap against.
+		const Vec2i eye{centre.x >> plane, centre.y >> plane};
+
+		// Near stars are 2x2, the rest single pixels.
+		const std::uint32_t size = plane == 0 ? 2u : 1u;
+
+		for (std::size_t i = first; i < first + count; ++i)
+		{
+			const Vec2i d = sim::wrapDelta(
+					Vec2i{g.stars[i].x - eye.x, g.stars[i].y - eye.y});
+			const Vec2i at{sim::kSpaceWidth / 2 + g.camera.scale(d.x),
+					sim::kSpaceHeight / 2 + g.camera.scale(d.y)};
+			if (at.x < 0 || at.y < 0 || at.x >= sim::kSpaceWidth
+					|| at.y >= sim::kSpaceHeight)
+				continue;
+			g.window.fillRect(at, Extent2u{size, size}, c.r, c.g, c.b);
+		}
+
+		first += count;
+	}
 }
 
 void drawOverlay(Game &g);
@@ -521,6 +598,7 @@ void
 draw(Game &g)
 {
 	g.window.clear(0x08, 0x08, 0x18);
+	drawStars(g);
 
 	// Every position goes through the camera, which goes through wrapDelta:
 	// the arena is a torus eight screens across, so an element just over the
