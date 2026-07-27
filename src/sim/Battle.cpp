@@ -2,12 +2,85 @@
 
 #include "Battle.hpp"
 
+#include "sim/Damage.hpp"
 #include "sim/Impulse.hpp"
 #include "sim/World.hpp"
 
 #include <utility>
 
 namespace uqm::sim {
+
+namespace {
+
+// CollisionPossible (collide.h:34-39), which is stricter than it looks.
+//
+// The TEST element must be collidable -- the scanner's own collidability is
+// the walk's business, checked before and after each resolution. The pair is
+// skipped when BOTH are already stopped this frame, when both carry
+// IGNORE_SIMILAR and share an owner (both halves matter: `both` not `either`,
+// and `owner` not `player` or `kind` -- testing kind is what once let an
+// Ilwrath flame burn the Avenger that breathed it), and when neither side has
+// mass: a weapon's mass is its damage, and two massless things have nothing
+// to resolve.
+[[nodiscard]] bool
+collisionPossible(const Element &test, const Element &elem) noexcept
+{
+	if (!test.collidable())
+		return false;
+	if (any(test.flags & elem.flags & ElementFlags::Collided))
+		return false;
+	if (any(test.flags & elem.flags & ElementFlags::IgnoreSimilar)
+			&& test.owner.valid() && test.owner == elem.owner)
+		return false;
+	if (test.mass == 0 && elem.mass == 0)
+		return false;
+	return true;
+}
+
+// Masks are measured in display pixels and positions are in world units, so
+// the conversion is not optional -- feeding world coordinates to the
+// intersect test makes everything four times further apart than it is and
+// nothing ever touches. The C converts at exactly this boundary, in
+// InitIntersectStartPoint/EndPoint (collide.h:44-54).
+[[nodiscard]] Body
+bodyOf(const Element &e) noexcept
+{
+	return Body{e.mask, worldToDisplay(e.current), worldToDisplay(e.next)};
+}
+
+// Where a body stops if its hook says so -- placed in *world* units, by
+// rewinding its own motion to the impact time, not by converting the impact
+// point back from display space.
+//
+// Converting back looked equivalent and was not. displayToWorld multiplies by
+// four, so it snapped every collision to a four-unit grid and dragged each
+// body backwards by up to three world units. Two ships in contact were pulled
+// together again every frame by as much as the impulse pushed them apart, so
+// they stuck instead of separating -- and the minimum-nudge in applyImpulse
+// then fought the same battle from the other side. This is a deliberate
+// precision divergence from the C's DISPLAY_TO_WORLD(SavePt)
+// (process.c:578-595).
+[[nodiscard]] Vec2i
+rewindTo(Vec2i from, Vec2i to, TimeValue time) noexcept
+{
+	const std::int32_t t = static_cast<std::int32_t>(time) - 1;  // 0..256
+	return Vec2i{from.x
+				+ static_cast<std::int32_t>(
+						(std::int64_t{to.x - from.x} * t) >> kTimeShift),
+		from.y
+				+ static_cast<std::int32_t>(
+						(std::int64_t{to.y - from.y} * t) >> kTimeShift)};
+}
+
+// In world units per frame, so consumers never see the packed fixed point.
+[[nodiscard]] Vec2i
+worldVelocityOf(const Element &e) noexcept
+{
+	const Vec2i v = e.velocity.current();
+	return Vec2i{velocityToWorld(v.x), velocityToWorld(v.y)};
+}
+
+}  // namespace
 
 void
 Battle::recordSpawn(EntityId id, const Element &e)
@@ -83,6 +156,13 @@ Battle::preProcessOne(EntityId id) noexcept
 
 	if (!any(flags & ElementFlags::Disappearing))
 	{
+		// What this element entered the frame as -- the C's current.image.
+		// The overlap-repair protocol reverts a turn made this frame by
+		// putting these back (process.c:453-506); captured before the hook,
+		// which is where turning happens.
+		e->priorMask = e->mask;
+		e->priorFacing = e->facing;
+
 		if (any(flags & ElementFlags::Appearing))
 		{
 			// SetUpElement (process.c:117-126). A laser is exempt: its
@@ -139,211 +219,289 @@ Battle::preProcessOne(EntityId id) noexcept
 			| ElementFlags::PreProcessed;
 }
 
-bool
-Battle::testPair(EntityId aId, EntityId bId)
+// The other half of "BAD NEWS": an APPEARING element wedged inside something
+// on its spawn frame dies on the spot (process.c:427-449) -- full damage,
+// then straight to DISAPPEARING with its death hook run now, so an asteroid
+// respawned into the planet becomes rubble immediately instead of drifting
+// through it. hit_points is crew for a ship -- the union (element.h:126-133).
+void
+Battle::killOverlapSpawn(EntityId id)
 {
-	auto a = elements_.get(aId);
-	auto b = elements_.get(bId);
-	if (a == nullptr || b == nullptr)
-		return false;
-	if (!a->collidable() || !b->collidable())
-		return false;
+	auto e = elements_.get(id);
+	if (e == nullptr)
+		return;
 
-	// CollisionPossible (collide.h:34-39), which is stricter than it looks.
-	//
-	// The pair is skipped when *both* carry IGNORE_SIMILAR and they share an
-	// owner. Both halves matter: `both` and not `either`, and `owner` and not
-	// `player` or `kind`. Testing kind instead is what let an Ilwrath flame
-	// burn the Avenger that breathed it -- a ship and a weapon are different
-	// kinds, so the pair never matched and the hull took its own fire.
-	const bool bothIgnore = any(a->flags & ElementFlags::IgnoreSimilar)
-			&& any(b->flags & ElementFlags::IgnoreSimilar);
-	if (bothIgnore && a->owner.valid() && a->owner == b->owner)
-		return false;
+	doDamage(*e, any(e->flags & ElementFlags::PlayerShip) ? e->ship.crew
+														  : e->hitPoints);
+	e = elements_.get(id);
+	if (e == nullptr)
+		return;
+	e->flags |= ElementFlags::Collided | ElementFlags::Disappearing;
+	if (e->onDeath != nullptr)
+		e->onDeath(*this, id);
+}
 
-	// And at least one side must have mass. Two massless things pass through
-	// each other -- there is no momentum to exchange and nothing to resolve.
-	if (a->mass == 0 && b->mass == 0)
+// One candidate pair, from first possibility to full resolution -- the body
+// of the C's ProcessCollisions loop (process.c:382-621). Returns whether the
+// scanner is done for this walk (the C's mid-loop `return COLLISION`).
+bool
+Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
+		TimeValue maxTime, ElementFlags processedMask)
+{
+	auto e = elements_.get(elemId);
+	if (e == nullptr)
+		return true;
+	auto t = elements_.get(testId);
+	if (t == nullptr || !collisionPossible(*t, *e))
 		return false;
 
 	// A transient element does not collide on the frame it spawns
 	// (process.c:389-394). A missile is born at its ship's muzzle; test it
-	// there and it detonates on its own launcher. The lifeSpan > 1 exception
-	// keeps point-defence fire working: born with one frame to live, the
-	// spawn frame is the only one it has. lifeSpan has already been
-	// decremented by preprocess, same as in the C, so the comparison carries
-	// over unchanged.
-	const auto bornThisFrame = [](const Element &e) {
-		return any(e.flags & ElementFlags::Appearing)
-				&& any(e.flags & ElementFlags::FiniteLife) && e.lifeSpan > 1;
-	};
-	if (bornThisFrame(*a) || bornThisFrame(*b))
+	// there and it detonates on its own launcher. The exemption is the C's
+	// shape exactly: FINITE_LIFE on EITHER side, and APPEARING-with-life-left
+	// on EITHER side -- not necessarily the same element, which is what
+	// exempts the planet (APPEARING, non-finite, life 2) against a weapon on
+	// its spawn frame. The lifeSpan > 1 exception keeps point-defence fire
+	// working: born with one frame to live, the spawn frame is the only one
+	// it has, and preprocess has already decremented, same as in the C.
+	if (any((e->flags | t->flags) & ElementFlags::FiniteLife)
+			&& ((any(e->flags & ElementFlags::Appearing) && e->lifeSpan > 1)
+					|| (any(t->flags & ElementFlags::Appearing)
+							&& t->lifeSpan > 1)))
 		return false;
 
-	// Masks are measured in display pixels and positions are in world units,
-	// so the conversion is not optional -- feeding world coordinates to the
-	// intersect test makes everything four times further apart than it is and
-	// nothing ever touches. The C converts at exactly this boundary, in
-	// InitIntersectStartPoint/EndPoint (collide.h:44-54).
-	const Body ba{a->mask, worldToDisplay(a->current), worldToDisplay(a->next)};
-	const Body bb{b->mask, worldToDisplay(b->current), worldToDisplay(b->next)};
-	const Impact hit = sweptIntersect(ba, bb);
+	const bool bothSolid =
+			!any((e->flags | t->flags) & ElementFlags::FiniteLife);
+	Impact hit = sweptIntersect(bodyOf(*e), bodyOf(*t), maxTime);
+
+	// "BAD NEWS" (process.c:397-516). Impact at time 1 between two solids is
+	// a standing overlap, not a new collision, and gets a repair protocol
+	// rather than a response -- responding again is how ships weld together.
+	// Weapons are exempt from all of it: a shot that starts inside its target
+	// has simply hit it.
+	while (hit.time == 1 && bothSolid)
+	{
+		if (any(e->flags & ElementFlags::Collided))
+		{
+			// The scanner already stopped this frame; the overlap is real
+			// only if it persists with the test element taken at its END
+			// position (process.c:405-413).
+			const Body still{
+					t->mask, worldToDisplay(t->next), worldToDisplay(t->next)};
+			hit = sweptIntersect(bodyOf(*e), still, 1);
+			if (hit.time != 1)
+				break;
+		}
+
+		const bool eTurned = e->mask != e->priorMask;
+		const bool tTurned = t->mask != t->priorMask;
+		if (!eTurned && !tTurned)
+		{
+			// Neither silhouette changed this frame: either a spawn wedged
+			// inside something, which dies on the spot, or the tail of an
+			// already-resolved contact, which is skipped so the impulse from
+			// the original impact can carry the pair apart
+			// (process.c:427-451, 509-515).
+			if (any(t->flags & ElementFlags::Appearing))
+				killOverlapSpawn(testId);
+			if (any(e->flags & ElementFlags::Appearing))
+			{
+				killOverlapSpawn(elemId);
+				return true;
+			}
+			hit = Impact{};
+			break;
+		}
+
+		// A silhouette changed into the overlap -- something rotated into a
+		// wall. Undo the turn (process.c:453-506 reverts next.image to
+		// current.image and re-reads ShipFacing from it) and ask again: with
+		// the old silhouette back, the sweep may find no contact at all, a
+		// genuine mid-frame impact, or a standing overlap that the branch
+		// above then settles.
+		if (eTurned)
+		{
+			e->mask = e->priorMask;
+			e->facing = e->priorFacing;
+		}
+		if (tTurned)
+		{
+			t->mask = t->priorMask;
+			t->facing = t->priorFacing;
+		}
+		hit = sweptIntersect(bodyOf(*e), bodyOf(*t), maxTime);
+	}
+
 	if (!hit)
 		return false;
 
-	// Solid means "on the field until something kills it" -- a ship, a rock,
-	// the planet. FINITE_LIFE is where the C draws the same line, and the
-	// whole response protocol below hangs off it.
-	const bool aSolid = !any(a->flags & ElementFlags::FiniteLife);
-	const bool bSolid = !any(b->flags & ElementFlags::FiniteLife);
+	const Vec2i elemStop = rewindTo(e->current, e->next, hit.time);
+	const Vec2i testStop = rewindTo(t->current, t->next, hit.time);
 
-	// Impact time 1 is "already overlapping before either moved". For two
-	// solid bodies that is not a new collision, it is the tail of the previous
-	// one, and responding again is how ships weld together: both would be
-	// rewound to where they already stand, and the scrape-promotion in
-	// applyImpulse would reflect their separating velocities back inward --
-	// every frame, forever, since frozen ships can never stop overlapping.
-	// The C detects exactly this ("BAD NEWS", process.c:397-416, 509-515) and
-	// skips the pair, letting the impulse from the original impact carry them
-	// apart. Weapons are exempt: a shot that starts inside its target has
-	// simply hit it.
-	if (hit.time == 1 && aSolid && bSolid)
-		return false;
-
-	// Both stop where they met -- but placed in *world* units, by rewinding
-	// their own motion to the impact time, not by converting the impact point
-	// back from display space.
-	//
-	// Converting back looked equivalent and was not. displayToWorld multiplies
-	// by four, so it snapped every collision to a four-unit grid and dragged
-	// each body backwards by up to three world units. Two ships in contact
-	// were pulled together again every frame by as much as the impulse pushed
-	// them apart, so they stuck instead of separating -- and the minimum-nudge
-	// in applyImpulse then fought the same battle from the other side.
-	//
-	// The sub-frame time is exact and already computed, so interpolating the
-	// original world-space motion keeps full precision.
-	const std::int32_t t = static_cast<std::int32_t>(hit.time) - 1;  // 0..256
-	const auto rewind = [t](Vec2i from, Vec2i to) {
-		return Vec2i{from.x
-					+ static_cast<std::int32_t>(
-							(std::int64_t{to.x - from.x} * t) >> kTimeShift),
-				from.y
-						+ static_cast<std::int32_t>(
-								(std::int64_t{to.y - from.y} * t) >> kTimeShift)};
-	};
-	const Vec2i aNext = rewind(a->current, a->next);
-	const Vec2i bNext = rewind(b->current, b->next);
-
-	// Who actually stops where they met. In the C an element is moved to the
-	// impact point only if its own collision_func raised COLLISION
-	// (process.c:586-596), and a ship's does so only when the other party is
-	// solid (ship.c:356-358). So solid-on-solid stops both and exchanges
-	// momentum, while a ship hit by a missile keeps its full motion -- only
-	// the missile stops, dies, and leaves its blast at the impact point.
-	// Truncating the ship too reads on screen as the ship hanging in the
-	// stream of fire, halted again by every shot that lands.
-	const bool exchange = aSolid && bSolid;
-	if (exchange || !aSolid)
+	// Earliest-collision-wins (process.c:531-540): before resolving this pair
+	// at `hit.time`, ask whether either party hits something else EARLIER.
+	// The recursion does not merely ask -- it resolves what it finds -- and a
+	// yes on either side abandons this pair for the frame. Short-circuit
+	// order is the C's: the scanner's side first.
+	if (hit.time != 1)
 	{
-		a->next = aNext;
-		a->flags |= ElementFlags::Collided;
-	}
-	if (exchange || !bSolid)
-	{
-		b->next = bNext;
-		b->flags |= ElementFlags::Collided;
-	}
-	a->collidedWith = bId;
-	b->collidedWith = aId;
+		const auto earlier = static_cast<TimeValue>(hit.time - 1);
 
-	// In world units per frame, so consumers never see the packed fixed point.
-	const auto worldVelocity = [](const Element &e) {
-		const Vec2i v = e.velocity.current();
-		return Vec2i{velocityToWorld(v.x), velocityToWorld(v.y)};
-	};
+		if (!any(e->flags & ElementFlags::Collided)
+				&& processCollisions(elemId, succ, earlier, processedMask))
+			return false;
+		e = elements_.get(elemId);
+		t = elements_.get(testId);
+		if (e == nullptr)
+			return true;
+		if (t == nullptr)
+			return false;
+
+		if (!any(t->flags & ElementFlags::Collided))
+		{
+			// The C scans the test element's earlier candidates from the
+			// scanner's successor -- or from the head when the test element
+			// is newly spawned (process.c:535-540).
+			const EntityId from = any(t->flags & ElementFlags::Appearing)
+					? elements_.front()
+					: elements_.next(elemId);
+			if (processCollisions(testId, from, earlier, processedMask))
+				return false;
+		}
+		e = elements_.get(elemId);
+		t = elements_.get(testId);
+		if (e == nullptr)
+			return true;
+		if (t == nullptr)
+			return false;
+	}
+
+	// Resolution. The hooks decide who stops -- each raises Collided on
+	// itself, exactly as the C's collision_funcs raise COLLISION -- and run
+	// ship-side first when the TEST element is the ship (process.c:549-570).
+	const bool elemHad = any(e->flags & ElementFlags::Collided);
+	const bool testHad = any(t->flags & ElementFlags::Collided);
+	const bool bothSolidNow =
+			!any((e->flags | t->flags) & ElementFlags::FiniteLife);
+
+	e->collidedWith = testId;
+	t->collidedWith = elemId;
+
 	CollisionEvent event;
-	event.a = aId;
-	event.b = bId;
-	event.at = aNext;
-	event.beforeA = worldVelocity(*a);
-	event.beforeB = worldVelocity(*b);
+	event.a = elemId;
+	event.b = testId;
+	event.at = elemStop;
+	event.beforeA = worldVelocityOf(*e);
+	event.beforeB = worldVelocityOf(*t);
 
-	// Momentum exchange is solid-on-solid only (process.c:598-601). A weapon
-	// hit is resolved by damage, from the collidedWith it was just given.
-	if (exchange)
-		applyImpulse(*a, *b);
+	const ElementHook eHook = e->onCollision;
+	const ElementHook tHook = t->onCollision;
+	if (any(t->flags & ElementFlags::PlayerShip))
+	{
+		if (tHook != nullptr)
+			tHook(*this, testId);
+		if (eHook != nullptr && elements_.get(elemId) != nullptr)
+			eHook(*this, elemId);
+	}
+	else
+	{
+		if (eHook != nullptr)
+			eHook(*this, elemId);
+		if (tHook != nullptr && elements_.get(testId) != nullptr)
+			tHook(*this, testId);
+	}
 
-	event.afterA = worldVelocity(*a);
-	event.afterB = worldVelocity(*b);
+	e = elements_.get(elemId);
+	t = elements_.get(testId);
+
+	// Whoever NEWLY raised Collided stops at the impact point
+	// (process.c:572-596); a side that was already stopped keeps the
+	// position its first collision gave it.
+	if (t != nullptr && any(t->flags & ElementFlags::Collided) && !testHad)
+		t->next = testStop;
+
+	bool impulsed = false;
+	if (e != nullptr && any(e->flags & ElementFlags::Collided) && !elemHad)
+	{
+		e->next = elemStop;
+
+		// Momentum exchange is solid-on-solid only (process.c:598-601). A
+		// weapon hit is resolved by damage, from the collidedWith set above.
+		if (t != nullptr && bothSolidNow)
+		{
+			applyImpulse(*e, *t);
+			impulsed = true;
+		}
+	}
+
+	event.afterA = e != nullptr ? worldVelocityOf(*e) : event.beforeA;
+	event.afterB = t != nullptr ? worldVelocityOf(*t) : event.beforeB;
 	collisions_.push_back(event);
 
-	// Then each side's collision hook, which is where damage happens. Both
-	// run, and each reads its own `collidedWith` -- the C calls collision_func
-	// on both elements too. Re-fetched around every call because a hook can
-	// remove things, including itself.
-	const ElementHook aHook = a->onCollision;
-	const ElementHook bHook = b->onCollision;
-	if (aHook != nullptr)
-		aHook(*this, aId);
-	if (bHook != nullptr && elements_.get(bId) != nullptr)
-		bHook(*this, bId);
+	if (impulsed)
+	{
+		// Both participants immediately re-scan the whole list
+		// (process.c:603-606): a pile-up chains within this frame instead of
+		// resolving one pair per step.
+		processCollisions(elemId, elements_.front(), kMaxTimeValue,
+				processedMask);
+		processCollisions(testId, elements_.front(), kMaxTimeValue,
+				processedMask);
+	}
 
-	// Keep scanning unless this element is now out of the game for the frame.
-	// The C stops the walk when the scanning element gains COLLISION or stops
-	// being collidable (process.c:610-618); a ship merely hit by a missile is
-	// neither, and can still bounce off another ship this same frame.
-	a = elements_.get(aId);
-	return a == nullptr || !a->collidable()
-			|| any(a->flags & ElementFlags::Collided);
+	// Keep scanning unless the scanner is now out of the game for the frame
+	// (process.c:609-618): stopped, or no longer collidable -- a ship merely
+	// hit by a missile is neither, and can still bounce off another ship
+	// this same frame.
+	e = elements_.get(elemId);
+	if (e == nullptr || any(e->flags & ElementFlags::Collided))
+		return true;
+	if (!e->collidable())
+	{
+		e->flags |= ElementFlags::Collided;
+		return true;
+	}
+	return false;
 }
 
-void
-Battle::collideAgainstSuccessors(EntityId id)
+// ProcessCollisions (process.c:361-627): walk the candidates from `first`,
+// preprocessing anything the frame has not touched yet, and resolve what
+// `elem` hits. `processedMask` is the C's process_flags -- PreProcessed in
+// the pre pass, PreProcessed|PostProcessed in the post pass, where the
+// second flag is what stops a committed element being integrated twice by a
+// whole-list walk. Returns whether `elem` ended the walk stopped.
+bool
+Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime,
+		ElementFlags processedMask)
 {
-	// Only successors, so each pair is visited once per frame -- the C walks
-	// from hNextElement for exactly this reason (process.c:667).
-	for (EntityId other = elements_.next(id); other.valid();
-			other = elements_.next(other))
+	for (EntityId testId = first; testId.valid();)
 	{
-		// The walk preprocesses each element it passes, before the pair is
-		// tested (process.c:371-373). This is what makes the test see the
-		// other side's motion for *this* frame: its `next` is otherwise still
-		// last frame's position and the sweep hits a ghost. It is also what
-		// makes a collision's effects on the other element stick -- a
-		// preprocess run after the collision would re-integrate `next`,
-		// wiping the truncation and the Collided flag along with it.
-		auto o = elements_.get(other);
-		if (o != nullptr && !any(o->flags & ElementFlags::PreProcessed))
-			preProcessOne(other);
+		{
+			// The walk preprocesses each element it passes, before the pair
+			// is tested (process.c:371-373). This is what makes the test see
+			// the other side's motion for *this* frame: its `next` is
+			// otherwise still last frame's position and the sweep hits a
+			// ghost.
+			auto t = elements_.get(testId);
+			if (t == nullptr)
+				break;
+			if (!any(t->flags & processedMask))
+				preProcessOne(testId);
+		}
 
-		if (testPair(id, other))
-			return;  // already resolved; the C breaks out too
+		// Fetched after the preprocess, as the C fetches hSuccElement after
+		// PreProcess (process.c:374), so a spawn made there is walked into.
+		const EntityId succ = elements_.next(testId);
+
+		if (!(testId == elemId)
+				&& resolveAgainst(elemId, testId, succ, maxTime, processedMask))
+			return true;
+
+		testId = succ;
 	}
-}
 
-void
-Battle::collideAgainstAll(EntityId id)
-{
-	// The catch-up path for an element spawned mid-frame: everything already
-	// walked past it, so it has to be tested against the whole list rather
-	// than just what follows (process.c:858).
-	for (EntityId other = elements_.front(); other.valid();
-			other = elements_.next(other))
-	{
-		if (other == id)
-			continue;
-
-		// Same preprocess-before-test as the successor walk; an element
-		// spawned even later than this one still needs its motion integrated
-		// before the pair means anything.
-		auto o = elements_.get(other);
-		if (o != nullptr && !any(o->flags & ElementFlags::PreProcessed))
-			preProcessOne(other);
-
-		if (testPair(id, other))
-			return;
-	}
+	auto e = elements_.get(elemId);
+	return e == nullptr || any(e->flags & ElementFlags::Collided);
 }
 
 void
@@ -369,7 +527,12 @@ Battle::preProcessPass()
 		e = elements_.get(id);
 		if (e != nullptr && e->collidable()
 				&& !any(e->flags & ElementFlags::Collided))
-			collideAgainstSuccessors(id);
+		{
+			// Successors only, so each pair is visited once per frame -- the
+			// C passes GetSuccElement for exactly this reason (process.c:667).
+			(void)processCollisions(id, elements_.next(id), kMaxTimeValue,
+					ElementFlags::PreProcessed);
+		}
 
 		// Fetched after the hooks so a tail insertion is walked into.
 		id = elements_.next(id);
@@ -388,16 +551,24 @@ Battle::catchUpFrom(EntityId first)
 	// what gives a missile its first frame of flight on the frame the
 	// trigger was pulled. Live, like the outer walk: a weapon spawned by an
 	// element this loop preprocesses is reached by this same loop.
+	//
+	// The gate is PreProcessed OR PostProcessed, the C's PRE_PROCESS |
+	// POST_PROCESS (process.c:859): a committed element has already had its
+	// frame, and integrating it again from a whole-list walk would move and
+	// age it twice.
+	constexpr ElementFlags kDone =
+			ElementFlags::PreProcessed | ElementFlags::PostProcessed;
+
 	for (EntityId p = first; p.valid();)
 	{
 		auto pe = elements_.get(p);
-		if (pe != nullptr && !any(pe->flags & ElementFlags::PreProcessed))
+		if (pe != nullptr && !any(pe->flags & kDone))
 			preProcessOne(p);
 
 		pe = elements_.get(p);
 		if (pe != nullptr && pe->collidable()
 				&& !any(pe->flags & ElementFlags::Collided))
-			collideAgainstAll(p);
+			(void)processCollisions(p, elements_.front(), kMaxTimeValue, kDone);
 
 		p = elements_.next(p);
 	}
@@ -463,13 +634,17 @@ Battle::postProcessPass()
 					e->current = e->next;
 				}
 
-				// Ageing and the death decision both live in the pre pass,
-				// matching process.c:133-141 and 180-181, so an element dies
-				// at the start of the frame after its life reached zero --
-				// not at the end of the one that spent it.
-				e->flags &= ~(ElementFlags::Appearing
-						| ElementFlags::PreProcessed
-						| ElementFlags::PostProcessed);
+				// PostProcessed is the C's POST_PROCESS flag: it marks "had
+				// its frame", so the whole-list walks above do not integrate
+				// a committed element a second time. The next preprocess
+				// clears it. Ageing and the death decision both live in the
+				// pre pass, matching process.c:133-141 and 180-181, so an
+				// element dies at the start of the frame after its life
+				// reached zero -- not at the end of the one that spent it.
+				e->flags = (e->flags
+								   & ~(ElementFlags::Appearing
+										   | ElementFlags::PreProcessed))
+						| ElementFlags::PostProcessed;
 			}
 
 			// Fetched after the hook, so a tail spawn is walked into.

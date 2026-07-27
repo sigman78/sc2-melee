@@ -690,9 +690,13 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		if (t == nullptr || !t->collidable())
 			continue;
 		if (any(t->flags & ElementFlags::Cloaked))
-			continue;  // human.c:202
-		if (t->playerNr == ship->playerNr)
-			continue;  // its own fire is not a threat
+			continue;  // human.c:203-204
+
+		// No ownership test -- the C has none (human.c:203-204), so the
+		// Cruiser pays for and shoots down its OWN in-flight nukes within
+		// range. That is a real tactical constraint: you cannot hold SPECIAL
+		// with a nuke out. An ownership filter here was tried and reverted
+		// as an unmarked balance change (review-001 A15).
 
 		// A deliberate divergence: the C filters only on CollidingElement, so
 		// it will happily fire the laser at a planet -- which absorbs it,

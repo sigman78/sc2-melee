@@ -312,6 +312,15 @@ struct Element
 	// Not owned: masks live with the content and outlive the battle.
 	const CollisionMask *mask = nullptr;
 
+	// The silhouette and facing this element ENTERED the frame with, captured
+	// by the step before any hook runs. The overlap-repair protocol
+	// (process.c:453-506) uses them to undo a rotation made this frame that
+	// turned the element into a wall: the C reverts next.image to
+	// current.image and re-reads ShipFacing from it, and these two fields are
+	// that current.image for a sim without images.
+	const CollisionMask *priorMask = nullptr;
+	std::int32_t priorFacing = 0;
+
 	ElementHook preProcess = nullptr;
 	ElementHook postProcess = nullptr;
 	ElementHook onDeath = nullptr;

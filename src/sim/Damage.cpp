@@ -74,27 +74,52 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	if (w == nullptr)
 		return;
 
-	const EntityId targetId = w->collidedWith;
-	const std::int32_t damage = w->damage;
+	// "if already did effect" (weapon.c:141-142): a weapon that has raised
+	// its own Collided this frame is done, however many partners the walk
+	// still pairs it with.
+	if (any(w->flags & ElementFlags::Collided))
+		return;
 
-	if (auto target = b.get(targetId); target != nullptr && damage > 0)
+	auto target = b.get(w->collidedWith);
+	if (target == nullptr)
+		return;
+	const EntityId targetId = w->collidedWith;
+
+	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
+	const std::int32_t damage = w->mass;
+
+	// weapon.c:145-158. A weapon hurts things that are either transient
+	// themselves or are at NORMAL_LIFE -- which is everything really on the
+	// field, and excludes something already dying. A target that SURVIVES
+	// the damage marks the weapon Collided ("did effect"), which is also
+	// what stops it at the impact point.
+	if (damage > 0
+			&& (any(target->flags & ElementFlags::FiniteLife)
+					|| target->lifeSpan == 1))
 	{
-		// weapon.c:145-147. A weapon hurts things that are either transient
-		// themselves or are at NORMAL_LIFE -- which is everything that is
-		// really on the field, and excludes something already dying.
-		if (any(target->flags & ElementFlags::FiniteLife)
-				|| target->lifeSpan == 1)
-			doDamage(*target, damage);
+		doDamage(*target, damage);
+		w = b.get(id);
+		target = b.get(targetId);
+		if (w == nullptr)
+			return;
+		const std::int32_t left = target == nullptr ? 0
+				: any(target->flags & ElementFlags::PlayerShip)
+				? target->ship.crew
+				: target->hitPoints;
+		if (left > 0)
+			w->flags |= ElementFlags::Collided;
 	}
 
-	// The weapon is spent. NOT quite "either way" in the C: weapon.c:161-164
-	// keeps a weapon flying when its hit_points exceed a surviving finite
-	// target's mass_points -- a pierce rule no M1 weapon can trigger (both
-	// have 1 hit point), recorded as review-001 A16 and deferred with the
-	// collision-protocol work rather than half-ported here. Re-fetched
-	// because doDamage may have run a death hook that touched the list.
-	w = b.get(id);
-	if (w == nullptr)
+	// Does the weapon die here? Against a solid target, always. Against a
+	// finite one, only if that target has not already stopped this frame and
+	// the weapon is not tough enough to plough through -- weapon.c:161-164,
+	// the pierce rule. A shot with more hit points than its victim's mass
+	// keeps flying (Chmmr zapsats live on this; nuke and flame, at one hit
+	// point each, never pierce anything).
+	if (target != nullptr
+			&& any(target->flags & ElementFlags::FiniteLife)
+			&& (any(target->flags & ElementFlags::Collided)
+					|| w->hitPoints > target->mass))
 		return;
 
 	const Vec2i at = w->next;
@@ -103,11 +128,12 @@ weaponCollision(Battle &b, EntityId id) noexcept
 
 	w->hitPoints = 0;
 	w->lifeSpan = 0;
-	// DISAPPEARING too (weapon.c:175-177): a spent missile is reaped this
-	// same frame, never drawn dead at the impact point. The flame's wrapper
-	// clears the flag again so the fireball lingers one frame
-	// (flameCollision; ilwrath.c:141-148).
-	w->flags |= ElementFlags::NonSolid | ElementFlags::Disappearing;
+	// COLLISION | NONSOLID | DISAPPEARING (weapon.c:175-181): stopped, spent,
+	// and reaped this same frame -- never drawn dead at the impact point.
+	// The flame's wrapper clears Disappearing again so the fireball lingers
+	// one frame (flameCollision; ilwrath.c:141-148).
+	w->flags |= ElementFlags::Collided | ElementFlags::NonSolid
+			| ElementFlags::Disappearing;
 
 	// The blast, offset along the direction of travel so it sits on the
 	// surface it hit rather than inside it (weapon.c:198-208).
@@ -139,6 +165,11 @@ solidCollision(Battle &b, EntityId id) noexcept
 	// yours -- it has its own hook and has already run.
 	if (any(other->flags & ElementFlags::FiniteLife))
 		return;
+
+	// Hitting anything solid stops this element at the impact point
+	// (ship.c:358 raises COLLISION for any non-finite other) -- which is what
+	// makes solid-on-solid exchange momentum in the step loop.
+	e->flags |= ElementFlags::Collided;
 
 	if (!isGravityMass(other->mass))
 		return;

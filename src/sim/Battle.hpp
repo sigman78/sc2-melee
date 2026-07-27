@@ -111,9 +111,18 @@ private:
 	void postProcessPass();
 	void catchUpFrom(EntityId first);
 	void preProcessOne(EntityId id) noexcept;
-	void collideAgainstSuccessors(EntityId id);
-	void collideAgainstAll(EntityId id);
-	bool testPair(EntityId a, EntityId b);
+
+	// ProcessCollisions (process.c:361-627): walk the candidates from `first`,
+	// preprocessing stragglers (`processedMask` is the C's process_flags --
+	// PreProcessed in the pre pass, PreProcessed|PostProcessed in the post
+	// pass, which is what stops a committed element being integrated twice),
+	// and resolve what `elem` hits. Returns whether `elem` ended the walk
+	// stopped (the C's COLLISION return).
+	bool processCollisions(EntityId elem, EntityId first, TimeValue maxTime,
+			ElementFlags processedMask);
+	bool resolveAgainst(EntityId elem, EntityId test, EntityId succ,
+			TimeValue maxTime, ElementFlags processedMask);
+	void killOverlapSpawn(EntityId id);
 	void recordSpawn(EntityId id, const Element &e);
 
 	EntityList<Element> elements_;
