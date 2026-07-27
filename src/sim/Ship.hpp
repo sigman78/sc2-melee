@@ -51,7 +51,18 @@ struct ShipData
 	std::int32_t blastOffset = 0;
 
 	const CollisionMask *hullMask = nullptr;
-	const CollisionMask *weaponMask = nullptr;
+	// One per facing, like facingMasks below. A missile is drawn from the cel
+	// matching the direction it flies, so it has to collide as that cel --
+	// indexing this by 0 and drawing by facing is what makes a rocket appear
+	// squashed into the wrong box.
+	std::span<const CollisionMask> weaponMasks;
+
+	// One mask per facing, in facing order. A ship's silhouette changes as it
+	// turns -- that is the whole reason there are sixteen cels -- so the mask
+	// has to follow the facing or collision is tested against whichever
+	// rotation happened to be current at spawn. Empty until content is loaded;
+	// sim/ never fills this in, because sim/ does not read files.
+	std::span<const CollisionMask> facingMasks;
 };
 
 // The two halves of a ship's frame, matching ship.c:149-280 and 282-347.

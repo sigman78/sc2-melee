@@ -131,6 +131,8 @@ struct Game
 	game::SpriteSet flame;    // the Avenger's fire
 	game::SpriteSet rock;
 	game::SpriteSet world;    // the gravity well
+	game::SpriteSet blast;    // a weapon going off
+	game::SpriteSet boom;     // an asteroid coming apart
 
 	// Fallbacks for anything without art yet -- shots, rocks, the planet.
 	sim::CollisionMask shipMask = block(12, 12);
@@ -175,18 +177,87 @@ spritesFor(const Game &g, const sim::Element &e) noexcept
 		case sim::ElementKind::Planet:
 			set = &g.world;
 			break;
+		case sim::ElementKind::Blast:
+			// Weapon blasts and asteroid debris share a kind but not art. The
+			// rubble an asteroid leaves is unowned; a blast belongs to the
+			// shot that made it.
+			set = e.playerNr < 0 ? &g.boom : &g.blast;
+			break;
 		default:
 			return nullptr;
 	}
 	return set != nullptr && set->valid() ? set : nullptr;
 }
 
+// Where the content tree is.
+//
+// The working directory is not the answer. Launched from Explorer it is
+// wherever the shell felt like; launched from a build tree it is the build
+// tree. So look in both the working directory and beside the executable, and
+// walk upward from each -- which is what makes running straight out of
+// build/release/src work without arguments.
+//
+// A directory only counts if it has uqm.rmp in it. Finding a `sc2/content`
+// that is empty and then drawing rectangles is exactly the failure this is
+// meant to stop.
+[[nodiscard]] std::filesystem::path
+findContent(const std::filesystem::path &override_)
+{
+	namespace fs = std::filesystem;
+
+	const auto looksRight = [](const fs::path &p) {
+		std::error_code ec;
+		return fs::exists(p / "uqm.rmp", ec);
+	};
+
+	if (!override_.empty())
+		return override_;  // the user said so; do not second-guess it
+
+	std::error_code ec;
+	for (fs::path start : {fs::current_path(ec), platform::executableDirectory()})
+	{
+		for (int up = 0; up < 6 && !start.empty(); ++up)
+		{
+			if (looksRight(start / "sc2" / "content"))
+				return start / "sc2" / "content";
+			if (looksRight(start / "content"))
+				return start / "content";
+			if (!start.has_parent_path() || start.parent_path() == start)
+				break;
+			start = start.parent_path();
+		}
+	}
+	return {};
+}
+
 void
 setUp(Game &g, const std::filesystem::path &content)
 {
+	if (content.empty())
+	{
+		std::fprintf(stderr,
+				"content: not found.\n"
+				"  Looked for sc2/content/uqm.rmp beside the executable and in\n"
+				"  the working directory, and upward from both.\n"
+				"  Pass it explicitly:  uqm2-melee <path-to>/sc2/content\n"
+				"  Continuing without art -- everything will be a rectangle.\n");
+	}
+	else
+	{
+		// stderr, not stdout: this is diagnostic, and stdout is block-buffered
+		// when redirected, so a printf here is lost if the process is killed
+		// rather than exited -- which is exactly how you run a game.
+		std::fprintf(stderr, "content: %s\n", content.string().c_str());
+	}
+
 	const std::filesystem::path ct = content / "base/uqm.ct";
 	const auto load = [&](const char *rel) {
-		return game::loadSprites(g.window, content / rel, ct);
+		game::SpriteSet set = content.empty()
+				? game::SpriteSet{}
+				: game::loadSprites(g.window, content / rel, ct);
+		if (!set.valid() && !content.empty())
+			std::fprintf(stderr, "content: could not load %s\n", rel);
+		return set;
 	};
 
 	g.cruiser = load("base/ships/human/cruiser-big.ani");
@@ -199,24 +270,15 @@ setUp(Game &g, const std::filesystem::path &content)
 	// The C picks a planet type at random per battle (load_gravity_well,
 	// cons_res.c:52-82). One fixed type until melee setup exists.
 	g.world = load("base/planets/acid-big.ani");
+	g.blast = load("base/battle/blast-big.ani");
+	g.boom = load("base/battle/boom-big.ani");
 
 	g.cruiserData = sim::earthlingCruiser();
 	g.avengerData = sim::ilwrathAvenger();
-	if (const sim::CollisionMask *m = g.nuke.maskFor(0); m != nullptr)
-		g.cruiserData.weaponMask = m;
-	if (const sim::CollisionMask *m = g.flame.maskFor(0); m != nullptr)
-		g.avengerData.weaponMask = m;
-
-	// The planet first, then the asteroids -- init.c's order, and the RNG
-	// stream depends on it.
-	const sim::CollisionMask *planetMask =
-			g.world.maskFor(0) != nullptr ? g.world.maskFor(0) : &g.planetMask;
-	const sim::CollisionMask *rockMask =
-			g.rock.maskFor(0) != nullptr ? g.rock.maskFor(0) : &g.rockMask;
-
-	(void)sim::spawnPlanet(g.battle, planetMask);
-	for (int i = 0; i < sim::kNumAsteroids; ++i)
-		(void)sim::spawnAsteroid(g.battle, rockMask);
+	g.cruiserData.facingMasks = g.cruiser.masks;
+	g.avengerData.facingMasks = g.avenger.masks;
+	g.cruiserData.weaponMasks = g.nuke.masks;
+	g.avengerData.weaponMasks = g.flame.masks;
 
 	const auto addShip = [&g](const sim::ShipData &data, Vec2i at, int facing,
 							  int player) {
@@ -253,6 +315,22 @@ setUp(Game &g, const std::filesystem::path &content)
 	g.ships[1] = addShip(g.avengerData,
 			Vec2i{sim::kLogSpaceWidth / 2 + kStartGap, sim::kLogSpaceHeight / 2},
 			12, 1);
+
+	// The field goes in *after* the ships, not before.
+	//
+	// spawnPlanet rejects any position that overlaps something or sits in a
+	// gravity well (misc.c:63-70), and it can only reject what already exists.
+	// Placing it first meant it had nothing to avoid, so it could and did land
+	// on a ship -- which, now that masks are the real silhouettes rather than
+	// 12x12 blocks, means a ship starting *inside* a planet.
+	const sim::CollisionMask *planetMask =
+			g.world.maskFor(0) != nullptr ? g.world.maskFor(0) : &g.planetMask;
+	const sim::CollisionMask *rockMask =
+			g.rock.maskFor(0) != nullptr ? g.rock.maskFor(0) : &g.rockMask;
+
+	(void)sim::spawnPlanet(g.battle, planetMask);
+	for (int i = 0; i < sim::kNumAsteroids; ++i)
+		(void)sim::spawnAsteroid(g.battle, rockMask);
 }
 
 void
@@ -410,14 +488,9 @@ iterateOnce()
 int
 main(int argc, char **argv)
 {
-	// Where the content tree is. Defaults to the one in this repository, so
-	// running it from the build directory just works during development.
-	const std::filesystem::path content =
-			argc > 1 ? std::filesystem::path(argv[1])
-					 : std::filesystem::path("sc2/content");
-
 	Game game;
-	setUp(game, content);
+	setUp(game, findContent(argc > 1 ? std::filesystem::path(argv[1])
+									 : std::filesystem::path{}));
 	g_game = &game;
 
 #ifdef __EMSCRIPTEN__

@@ -30,6 +30,21 @@ deltaEnergy(ShipState &s, std::int32_t delta) noexcept
 	return true;
 }
 
+// The silhouette follows the facing. In the C this is implicit -- the
+// intersect frame is whatever frame is being displayed (process.c:159-160,
+// InitIntersectFrame) -- so a ship that turns is immediately colliding as its
+// new shape. Here the coupling is explicit, because the mask lives in the
+// simulation and the sprite does not.
+void
+applyFacingMask(Element &e, const ShipData &d) noexcept
+{
+	if (d.facingMasks.empty())
+		return;
+	const std::size_t i =
+			static_cast<std::size_t>(e.facing) % d.facingMasks.size();
+	e.mask = &d.facingMasks[i];
+}
+
 }  // namespace
 
 void
@@ -50,6 +65,7 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 		s.crew = d.maxCrew;
 		s.energy = d.maxEnergy;
 		s.input = ShipInput::None;
+		applyFacingMask(*e, d);
 		return;
 	}
 
@@ -75,6 +91,7 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 		const int delta = any(s.input & ShipInput::Left) ? -1 : 1;
 		e->facing = normalizeFacing(e->facing + delta);
 		e->turnWait = d.turnWait;
+		applyFacingMask(*e, d);
 	}
 
 	// Thrust (ship.c:256-276). The facing is passed in rather than read off a
@@ -149,7 +166,10 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			w.damage = sp.damage;
 			w.mass = 0;
 			w.blastOffset = sp.blastOffset;
-			w.mask = d.weaponMask;
+			w.mask = d.weaponMasks.empty()
+					? nullptr
+					: &d.weaponMasks[static_cast<std::size_t>(sp.facing)
+							% d.weaponMasks.size()];
 			w.onCollision = weaponCollision;
 			w.flags = ElementFlags::FiniteLife;
 			if (sp.ignoreSimilar)

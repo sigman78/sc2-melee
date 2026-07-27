@@ -8,6 +8,7 @@
 #include "engine/input/Input.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <span>
 
 struct SDL_Window;
@@ -44,6 +45,12 @@ struct Binding
 // left-hand ones. There is no rebinding yet and no config file -- when that
 // arrives it produces one of these tables and nothing else changes.
 [[nodiscard]] std::span<const Binding> defaultBindings() noexcept;
+
+// The directory the executable lives in. Needed because "where is the content"
+// cannot be answered from the working directory alone: a program launched from
+// Explorer, or from a build tree, has a working directory that says nothing
+// about where it was installed.
+[[nodiscard]] std::filesystem::path executableDirectory();
 
 // An uploaded image. Move-only, because it owns a GPU resource and there is
 // no sane copy (docs/cpp-conventions.md rule 6).

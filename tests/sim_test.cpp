@@ -1550,7 +1550,7 @@ testMissileDamagesAndSpendsItself()
 	// something loads it, and a weapon with no mask cannot hit anything.
 	static const ShipData cruiser = [&m] {
 		ShipData d = earthlingCruiser();
-		d.weaponMask = &m;
+		d.weaponMasks = std::span<const CollisionMask>(&m, 1);
 		return d;
 	}();
 

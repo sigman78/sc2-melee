@@ -46,6 +46,16 @@ defaultBindings() noexcept
 	return kDefaultBindings;
 }
 
+std::filesystem::path
+executableDirectory()
+{
+	// SDL owns the returned string and keeps it for the process lifetime, so
+	// there is nothing to free and nothing to outlive.
+	const char *base = SDL_GetBasePath();
+	return base != nullptr ? std::filesystem::path(base)
+						   : std::filesystem::current_path();
+}
+
 Platform::Platform(const char *title, Extent2u logical, int scale)
 {
 	// Video only. No audio yet, and deliberately no SDL_INIT_EVENTS-adjacent
