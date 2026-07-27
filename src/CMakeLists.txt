@@ -110,6 +110,42 @@ endif()
 add_executable(uqm2-audioprobe app/melee/audioprobe.cpp)
 target_link_libraries(uqm2-audioprobe PRIVATE uqm2_platform)
 
+if(EMSCRIPTEN)
+	# The browser build of the slice.
+	#
+	# Note what is *not* here: -pthread. The rewrite is single-threaded and its
+	# audio goes through SDL_AudioStream, which owns its own callback, so this
+	# needs no SharedArrayBuffer and the page needs no COOP/COEP headers to be
+	# hosted. That is the whole reason UQM_LEGACY exists -- see the top-level
+	# CMakeLists.
+	#
+	# Content is preloaded into MEMFS, which std::filesystem can read, so
+	# findContent works unchanged. Only what the melee actually opens: the
+	# resource map, the global colormap, the two ships, and the shared battle
+	# and planet art. About 3 MB against the 39 MB of a full base pack --
+	# streaming the rest is a real feature and belongs with the ship roster in
+	# M2, not here.
+	set(_melee_content "${CMAKE_CURRENT_SOURCE_DIR}/../sc2/content")
+	target_link_options(uqm2-melee PRIVATE
+		-sALLOW_MEMORY_GROWTH=1
+		-sINITIAL_MEMORY=134217728    # 128 MB
+		-sSTACK_SIZE=1048576
+		-sEXIT_RUNTIME=0
+		-sASYNCIFY=0
+		"SHELL:--preload-file ${_melee_content}/uqm.rmp@/content/uqm.rmp"
+		"SHELL:--preload-file ${_melee_content}/base/uqm.ct@/content/base/uqm.ct"
+		"SHELL:--preload-file ${_melee_content}/base/ships/human@/content/base/ships/human"
+		"SHELL:--preload-file ${_melee_content}/base/ships/ilwrath@/content/base/ships/ilwrath"
+		"SHELL:--preload-file ${_melee_content}/base/battle@/content/base/battle"
+		"SHELL:--preload-file ${_melee_content}/base/planets@/content/base/planets"
+		"SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/melee-shell.html"
+	)
+	set_target_properties(uqm2-melee PROPERTIES
+		OUTPUT_NAME melee
+		SUFFIX ".html"
+	)
+endif()
+
 # MinGW keeps libstdc++, libgcc and libwinpthread in DLLs that exist only on
 # the toolchain's PATH, so a perfectly good build dies at startup with a
 # missing-DLL box the moment it is launched from Explorer rather than from an

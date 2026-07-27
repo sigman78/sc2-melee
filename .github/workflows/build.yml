@@ -155,6 +155,46 @@ jobs:
       - name: Test
         run: ctest --preset core --output-on-failure
 
+  wasm-core:
+    name: wasm-core (the rewrite, deployable)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Configure
+        run: cmake --preset wasm-core
+
+      - name: Build
+        run: cmake --build --preset wasm-core --target uqm2-melee
+
+      - name: Assemble the bundle
+        run: tools/melee-dist.sh
+
+      # The check that matters: no pthread support anywhere in the output. If
+      # this ever finds one, the page has silently acquired a SharedArrayBuffer
+      # requirement and will stop loading on any host that does not send
+      # COOP/COEP -- which is exactly the constraint this build exists to avoid.
+      - name: Assert the bundle needs no SharedArrayBuffer
+        run: |
+          if grep -qE 'SharedArrayBuffer|pthread_create' dist-melee/melee.js; then
+            echo "wasm-core acquired a threading dependency" >&2
+            grep -nE 'SharedArrayBuffer|pthread_create' dist-melee/melee.js | head >&2
+            exit 1
+          fi
+          echo "no SharedArrayBuffer, no pthreads -- hostable anywhere"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: melee-web
+          path: dist-melee
+
   wasm:
     name: wasm (emscripten)
     runs-on: ubuntu-latest
