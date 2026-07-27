@@ -143,25 +143,95 @@ testButtonsAreIndependent()
 // --------------------------------------------------------------------------
 // Pacing
 
-void
-testStepsDueDoesNotDriftAtDisplayRates()
+// The time of display frame `f` at `fps`. Computed from the frame number
+// rather than by accumulating a per-frame delta, because 840 does not divide
+// evenly by every refresh rate -- 840/144 truncates to 5 and a clock built
+// out of those runs 14% slow. The display rate is not required to divide the
+// tick rate, and the Pacer has to hold 24 Hz when it does not.
+constexpr uqm::Ticks
+frameTime(int f, int fps)
 {
-	// ONE_SECOND is 840 and the sim runs at 24Hz, so a step is 35 ticks. 840
-	// divides by neither 60 nor 144, so anything that accumulates a truncated
-	// per-frame delta runs slow -- 840/144 truncates to 5, which is 14% short.
-	// Frame time has to be computed from the frame number.
-	for (const int hz : {30, 60, 100, 144})
-	{
-		Pacer pacer;
-		std::int64_t steps = 0;
-		for (int frame = 1; frame <= hz * 4; ++frame)
-			steps += pacer.stepsDue(static_cast<Ticks>(
-					std::int64_t{kOneSecond} * frame / hz));
+	return uqm::kOneSecond * f / fps;
+}
 
-		// Four seconds of game time at 24Hz.
-		CHECK(steps == 96, "at %dHz four seconds should be 96 steps, got %lld",
-				hz, static_cast<long long>(steps));
+// Runs `seconds` of display frames at `fps` and counts simulation steps, the
+// way the real loop would.
+constexpr int
+runPacer(uqm::Pacer &pacer, int fps, int seconds)
+{
+	int steps = 0;
+	for (int f = 1; f <= fps * seconds; ++f)
+		steps += pacer.stepsDue(frameTime(f, fps));
+	return steps;
+}
+
+// The naive form the plan warns about: deadline reset to `now` rather than
+// advanced by a period. Reproduced here so the test can show what it costs.
+constexpr int
+runNaive(uqm::Ticks period, int fps, int seconds)
+{
+	int steps = 0;
+	uqm::Ticks next = 0;
+	for (int f = 1; f <= fps * seconds; ++f)
+	{
+		const uqm::Ticks now = frameTime(f, fps);
+		if (now >= next + period)
+		{
+			++steps;
+			next = now;
+		}
 	}
+	return steps;
+}
+
+void
+testPacingHitsTwentyFourHertz()
+{
+	using namespace uqm;
+
+	// A 60 Hz display loop over ten seconds. 840/60 is 14 ticks a frame.
+	Pacer pacer;
+	const int steps = runPacer(pacer, 60, 10);
+	CHECK(steps == kBattleHz * 10,
+			"24 Hz sim under a 60 Hz loop should be %lld steps in 10s, got %d",
+			static_cast<long long>(kBattleHz * 10), steps);
+
+	// And the bug, measured: the naive form cannot fire until a whole period
+	// has passed since the last step, so it lands on every third 14-tick
+	// frame -- 42 ticks, 20 Hz -- for a 17% slowdown.
+	const int naive = runNaive(kBattleFrameRate, 60, 10);
+	CHECK(naive == 20 * 10,
+			"the naive deadline reset should give 20 Hz, got %d", naive);
+	CHECK(naive < steps, "the naive form must be measurably slower");
+
+	// A refresh rate that does not divide 840, and one slower than the sim.
+	Pacer fast;
+	const int fastSteps = runPacer(fast, 144, 10);
+	CHECK(fastSteps == kBattleHz * 10,
+			"24 Hz should survive a 144 Hz display loop, got %d", fastSteps);
+
+	Pacer slow;
+	const int slowSteps = runPacer(slow, 30, 10);
+	CHECK(slowSteps == kBattleHz * 10,
+			"24 Hz should survive a 30 Hz display loop, got %d", slowSteps);
+}
+
+void
+testPacingBoundsCatchUp()
+{
+	using namespace uqm;
+
+	// A backgrounded tab hands back an hour. Catching that up would run
+	// 86,400 steps and hang; the cap drops the backlog instead.
+	Pacer pacer(kBattleFrameRate, 5);
+	const int steps = pacer.stepsDue(kOneSecond * 3600);
+	CHECK(steps == 5, "catch-up should be capped at 5, got %d", steps);
+
+	// ...and the cadence resumes from there rather than owing an hour.
+	const Ticks resumed = kOneSecond * 3600;
+	CHECK(pacer.stepsDue(resumed) == 0, "no backlog should survive the cap");
+	CHECK(pacer.stepsDue(resumed + kBattleFrameRate) == 1,
+			"the next step should be one period after the resync");
 }
 
 }  // namespace
@@ -176,7 +246,8 @@ main()
 	testHeldSurvivesConsumeButStickyDoesNot();
 	testResetDropsPendingInput();
 	testButtonsAreIndependent();
-	testStepsDueDoesNotDriftAtDisplayRates();
+	testPacingHitsTwentyFourHertz();
+	testPacingBoundsCatchUp();
 
 	if (g_failures != 0)
 	{

@@ -5,7 +5,6 @@
 // compile for them to have been checked. What is left is the behaviour that
 // needs a running object: stream independence and reseed semantics.
 
-#include "engine/core/Pacing.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Collision.hpp"
 #include "sim/EntityList.hpp"
@@ -25,7 +24,7 @@
 #include <string>
 #include <vector>
 
-using namespace uqm;       // Vec2i, Pacer, Ticks
+using namespace uqm;       // Vec2i
 using namespace uqm::sim;  // Rng, EntityList, the world constants
 
 namespace {
@@ -90,100 +89,6 @@ testTruncationWidthMatters()
 	CHECK(full != trunc,
 			"16-bit truncation must change the result for this seed "
 			"(%u vs %u)", full, trunc);
-}
-
-// --------------------------------------------------------------------------
-// Pacing
-
-// The time of display frame `f` at `fps`. Computed from the frame number
-// rather than by accumulating a per-frame delta, because 840 does not divide
-// evenly by every refresh rate -- 840/144 truncates to 5 and a clock built
-// out of those runs 14% slow. The display rate is not required to divide the
-// tick rate, and the Pacer has to hold 24 Hz when it does not.
-constexpr uqm::Ticks
-frameTime(int f, int fps)
-{
-	return uqm::kOneSecond * f / fps;
-}
-
-// Runs `seconds` of display frames at `fps` and counts simulation steps, the
-// way the real loop would.
-constexpr int
-runPacer(uqm::Pacer &pacer, int fps, int seconds)
-{
-	int steps = 0;
-	for (int f = 1; f <= fps * seconds; ++f)
-		steps += pacer.stepsDue(frameTime(f, fps));
-	return steps;
-}
-
-// The naive form the plan warns about: deadline reset to `now` rather than
-// advanced by a period. Reproduced here so the test can show what it costs.
-constexpr int
-runNaive(uqm::Ticks period, int fps, int seconds)
-{
-	int steps = 0;
-	uqm::Ticks next = 0;
-	for (int f = 1; f <= fps * seconds; ++f)
-	{
-		const uqm::Ticks now = frameTime(f, fps);
-		if (now >= next + period)
-		{
-			++steps;
-			next = now;
-		}
-	}
-	return steps;
-}
-
-void
-testPacingHitsTwentyFourHertz()
-{
-	using namespace uqm;
-
-	// A 60 Hz display loop over ten seconds. 840/60 is 14 ticks a frame.
-	Pacer pacer;
-	const int steps = runPacer(pacer, 60, 10);
-	CHECK(steps == kBattleHz * 10,
-			"24 Hz sim under a 60 Hz loop should be %lld steps in 10s, got %d",
-			static_cast<long long>(kBattleHz * 10), steps);
-
-	// And the bug, measured: the naive form cannot fire until a whole period
-	// has passed since the last step, so it lands on every third 14-tick
-	// frame -- 42 ticks, 20 Hz -- for a 17% slowdown.
-	const int naive = runNaive(kBattleFrameRate, 60, 10);
-	CHECK(naive == 20 * 10,
-			"the naive deadline reset should give 20 Hz, got %d", naive);
-	CHECK(naive < steps, "the naive form must be measurably slower");
-
-	// A refresh rate that does not divide 840, and one slower than the sim.
-	Pacer fast;
-	const int fastSteps = runPacer(fast, 144, 10);
-	CHECK(fastSteps == kBattleHz * 10,
-			"24 Hz should survive a 144 Hz display loop, got %d", fastSteps);
-
-	Pacer slow;
-	const int slowSteps = runPacer(slow, 30, 10);
-	CHECK(slowSteps == kBattleHz * 10,
-			"24 Hz should survive a 30 Hz display loop, got %d", slowSteps);
-}
-
-void
-testPacingBoundsCatchUp()
-{
-	using namespace uqm;
-
-	// A backgrounded tab hands back an hour. Catching that up would run
-	// 86,400 steps and hang; the cap drops the backlog instead.
-	Pacer pacer(kBattleFrameRate, 5);
-	const int steps = pacer.stepsDue(kOneSecond * 3600);
-	CHECK(steps == 5, "catch-up should be capped at 5, got %d", steps);
-
-	// ...and the cadence resumes from there rather than owing an hour.
-	const Ticks resumed = kOneSecond * 3600;
-	CHECK(pacer.stepsDue(resumed) == 0, "no backlog should survive the cap");
-	CHECK(pacer.stepsDue(resumed + kBattleFrameRate) == 1,
-			"the next step should be one period after the resync");
 }
 
 // --------------------------------------------------------------------------
@@ -1434,7 +1339,7 @@ testGravityHasAHardEdge()
 	// disc is 1020 world units. There is no falloff inside it and nothing at
 	// all outside -- the DIFUSE_GRAVITY block that would have smoothed this is
 	// commented out in the C (gravity.c:96-111).
-	for (const auto [dx, pulled] :
+	for (const auto &[dx, pulled] :
 			{std::pair{1020, true}, std::pair{1024, false}})
 	{
 		Battle b(1);
@@ -1624,8 +1529,6 @@ main()
 	testStreamsAreIndependent();
 	testReseedReturnsThePrevious();
 	testTruncationWidthMatters();
-	testPacingHitsTwentyFourHertz();
-	testPacingBoundsCatchUp();
 	testTraversalOrderIsWhatWasAskedFor();
 	testSlotReuseDoesNotReorder();
 	testStaleHandlesAreDetectable();
