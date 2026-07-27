@@ -86,8 +86,8 @@ bit-identical; the harness carries what does not.
 | --- | --- | --- |
 | Z1 | Ship.cpp split by concern: ShipSystems (generic frame), Targeting (trackShip), ships/Human, ships/Ilwrath; nukePreProcess renamed guidedShotPreProcess (it is the generic guided-shot system) | suite green; pure file movement |
 | Z2 | Replay-similarity harness: N seeded battles recorded on the current sim (winner, damage timeline, per-frame entity counts); a comparison mode that asserts statistical equivalence | the harness validates against itself |
-| Z3 | `Seq` component; the order-free systems become batch passes (AgeAndReap, EnergyRegen, Animate, GuidedSteer, Integrate, Commit) | **bit-green required** — these are per-entity independent |
-| Z4 | Effect components + command buffer + the sync point; Fire/SpecialGate emit instead of spawning inline; one-frame spawn latency arrives | harness-green; the bit suite keeps whatever still passes, divergences documented per test |
+| Z3 | `Seq` component; step() restructured into the pipeline *shape* (named phases over the spine, no semantic change); EnergyRegen becomes the first true batch pass | **bit-green required** — and the corrected claim is that regen is nearly the *only* pass that can be: aging, animation, steering and integration are all observable through walk position (batch-aging shifts death frames, batch-animate re-masks the flame mid-walk, batch-integrate changes what collision pairs see). The §1 table stands as the destination; the bit-green on-ramp is far narrower than first drafted |
+| Z4 | The semantic flip, in one harness-verified stage: aging, animate, steer, integrate as batch passes; effect components + command buffer + the sync point; Fire/SpecialGate emit instead of spawning inline; one-frame spawn latency arrives | harness-green; the bit suite keeps whatever still passes, divergences documented per test |
 | Z5 | Collide as the pair-worklist algorithm-system with (Layer, Seq) pair order | harness-green |
 | Z6 | Spine retirement: OrderLink deleted, draw sorts by (Layer, Seq); the verdict, measurements, and sim-architecture.md amended again | the report card |
 
