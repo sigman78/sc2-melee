@@ -9,7 +9,13 @@
 #include <span>
 #include <string_view>
 
+namespace uqm::platform {
+class Platform;
+}
+
 namespace uqm::game {
+
+class Resources;
 
 // The resource ids a ship's presentation loads -- the C's SHIP_DATA
 // (ship.h:69-81), minus the three sizes collapsed to `-big` (SpriteSet.hpp)
@@ -40,6 +46,13 @@ struct ShipDef
 // The catalog entry a key names, or null -- a roster will one day come from
 // data, so an unknown key is the caller's question to ask.
 [[nodiscard]] Borrowed<const ShipDef> findShip(std::string_view key) noexcept;
+
+// The spec copy a battle flies: def.spec plus the content-derived facing
+// and weapon masks. The spans point into `content`'s caches, which outlive
+// any battle (Resources.hpp, LIFETIME). Defined in Materialize.cpp, which
+// lives in uqm2_platform -- loading sprites means a window.
+[[nodiscard]] sim::ShipSpec materialize(const ShipDef &def,
+		Resources &content, platform::Platform &window);
 
 }  // namespace uqm::game
 

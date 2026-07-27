@@ -116,17 +116,12 @@ loadAssets(Game &g, const std::filesystem::path &content)
 	if (!g.audio.valid())
 		std::fprintf(stderr, "audio: no device; the game runs silent\n");
 
-	// Descriptors first, then the content-derived masks on top: skipping
-	// these leaves a default ShipSpec with thrust.max = 0 and turnWait = 0,
-	// a ship that cannot accelerate and spins every frame.
+	// Skipping this leaves a default ShipSpec with thrust.max = 0 and
+	// turnWait = 0, a ship that cannot accelerate and spins every frame.
 	for (std::size_t p = 0; p < g.roster.size(); ++p)
 	{
 		const game::ShipDef &def = *g.roster[p];
-		g.shipData[p] = *def.spec;
-		g.shipData[p].facingMasks =
-				g.content.sprites(g.window, def.art.ship).masks;
-		g.shipData[p].weapon.masks =
-				g.content.sprites(g.window, def.art.weapon).masks;
+		g.shipData[p] = game::materialize(def, g.content, g.window);
 
 		if (!g.shipData[p].valid())
 		{
