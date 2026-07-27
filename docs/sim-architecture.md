@@ -16,27 +16,36 @@ components, ~19 one-offs and 27 tactics classes (game-rewrite-plan.md,
 charge weapons, limpet stacks, tethered satellites — is composition pressure.
 **Adopted.**
 
-**Storage** — archetype/SoA arrays, entities as indices into them, systems as
-tight loops over contiguous components. Adopted **not at all**, for two
-falsifiable reasons:
+**Storage** — amended on the rewrite/ecs branch by review-004's
+experiment. Adopted **as EnTT sparse-set pools, and only that**: an
+`entt::registry` stores components keyed by entity, and an explicitly-kept
+`OrderLink` spine owns traversal order. The two falsifiable reasons the
+original decision rested on, re-examined against the executed code:
 
-1. There is no performance problem to solve. A melee is ~40 entities at
-   24 Hz; the WASM budget is spent in rendering and decoding, not the step.
-2. **Traversal order is gameplay.** The Pkunk phoenix is head-inserted so it
-   preprocesses before the dead ship's death hook; AI target selection and
-   the collision walk's pair order follow list order. Archetype storage
-   reorders entities by composition, which fights the one invariant the C
-   actually depends on.
+1. There is no performance problem to solve — still true, and nothing in
+   the adoption was done for speed. Pools were adopted for the composition
+   ergonomics (a component is a type and an `emplace`, not a hand-rolled
+   sidecar), not for cache behaviour.
+2. **Traversal order is gameplay** — held completely. The order never
+   entered the library: the C's `disp_q` survives as the OrderLink
+   component plus head/tail in Battle, and every ordered pass walks it.
+   A sparse-set registry coexists with an owned spine precisely because it
+   has no opinions about order. What this reason actually rejects —
+   archetype/SoA storage that reorders entities by composition — remains
+   rejected, exactly as before.
 
-If a profile ever contradicts reason 1, this file is where the argument gets
-reopened — not a refactor that quietly assumes it.
+The costs paid for the pools are recorded in review-004's friction ledger
+(3-4× per-TU compile time in sim/, the EntityRef diagnostic lost, the
+kNoEntity/in_place_delete/spawn-then-tag disciplines). If a profile ever
+contradicts reason 1 in the other direction, this file is still where the
+argument gets reopened — not a refactor that quietly assumes it.
 
 ## Vocabulary
 
 | Term | What it is here | What it is in the C |
 | --- | --- | --- |
-| **Entity** | `EntityId` — stable, generation-checked handle in an explicitly ORDERED `EntityList` | `HELEMENT` in `disp_q` |
-| **Component** | Typed state blob keyed by `EntityId`, stored in per-kind sidecars; `Element` keeps only the universal motion/collision core | fields smuggled into `ELEMENT` or `STARSHIP` |
+| **Entity** | `EntityId` = `entt::entity` — a versioned id; order lives in the `OrderLink` spine, not the storage | `HELEMENT` in `disp_q` |
+| **Component** | A type in the registry, `emplace`d per entity (`ShipState`, `WeaponGuidance`, `Cloak`, tags, the app's `Visual`); `Element` keeps the universal motion/protocol/collision core | fields smuggled into `ELEMENT` or `STARSHIP` |
 | **Behavior slot** | The four phase hooks — pre, post, collision, death — filled from the component library, per entity | per-instance function pointers |
 | **System** | A cross-entity pass with its own state: gravity, camera, sound | special-cased calls inside the queue walk |
 | **Event** | Observational output of `step()` — `CollisionEvent`, `SpawnEvent`. Never an input; nothing reads events back into the sim | draw/sound calls made mid-step |
@@ -53,11 +62,12 @@ slots.
 - **Now**: specs. `ShipData`'s prefixed field blocks become nested
   `WeaponSpec`/`SpecialSpec` values; ship definitions become spec literals —
   declarative in code before any file format exists.
-- **At M2, per mechanic**: sidecar components. `ShipState` moves out of
-  `Element` (every asteroid currently carries one) when the first new ship
-  forces the store's shape; each subsequent mechanic (limpets, tethers,
-  charge state) is a new component, never a new `Element` field. The plan's
-  rule holds: no component is generalised until its second user exists.
+- **At M2, per mechanic**: registry components. `ShipState` is one
+  already (review-004 X3); each subsequent mechanic (limpets, tethers,
+  charge state) is a new component type, never a new `Element` field —
+  and review-004's split rule applies: a component needs an owner
+  narrower than "everything", never taxonomy. The plan's rule holds: no
+  component is generalised until its second user exists.
 - **Never, absent a profile**: archetype storage, SoA, parallel systems.
 
 ## The promotion rule

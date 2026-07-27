@@ -133,31 +133,104 @@ do the mechanical sweeps, the design stays in the main session.
 | X2 | The storage swap: `EntityId` = `entt::entity`, registry + `OrderLink` replace EntityList; `Element` rides whole as one component; Battle's surface unchanged; EntityList/EntityRef deleted | **done** — every gameplay pin bit-green; the five arena-pinning tests rewritten against the spine (order, reap-during-walk, stale handles, slot reuse) or re-pointed at what now provides the guarantee (address stability pins in_place_delete); entity zero is a live entity in EnTT, so every default-constructed EntityId became an explicit kNoEntity, surfacing one latent uninitialized-enum bug in the tests |
 | X3 | Sidecars → pools (`ShipState`, weapon spec); app `Visual` becomes a component, RenderStore and purgeDead deleted | **done** — suite green, driven run; one new truth surfaced: an element executed for spawning inside something is destroyed before its SpawnEvent is read, so the app guards the Visual attach with alive() where the old store appended blindly and purged later |
 | X4 | Trait flags → tag components (three of the four: Cloaked stays, see §2); order-sensitive scans stay on the spine | **done** — suite green, driven run; friction collected: tags attach to the id, not the Element value, so every spawn site splits into spawn-then-emplace; and applyImpulse, pure over two Elements, is now *told* aIsShip/bIsShip by the caller — a trait that leaves the struct must be handed to pure functions as a parameter |
-| X5 | Split `Element` by concern (motion, collision shape, vitals, identity, hooks, animation); hooks fetch what they name | suite green; this stage is allowed to *fail the ledger* — if it reads worse, it says so and X5 reverts, which is a finding |
-| X6 | The verdict: this section rewritten with measurements (LOC, compile time, friction list); sim-architecture.md amended on this branch to whatever is now true | the report card |
+| X5 | Split `Element` by concern | **done, as two worked splits and a declination** — `Cloak{level}` (only the Avenger's machine emplaces it; `isCloaked()` derives OBJECT_CLOAKED from it, stored nowhere) and `PriorSilhouette` (the overlap-repair scratch, a component in Battle.cpp's anonymous namespace — a type nothing else can name). The universal core stays one `Element`, deliberately: see the verdict |
+| X6 | The verdict below; sim-architecture.md amended on this branch to what is now true | **done** |
 
-## 4. What gets measured
+## 4. The verdict
 
-- LOC delta per stage (deleted infrastructure vs added adapter code).
-- Clean rebuild time of uqm2_content, before and at X5.
-- The friction ledger: every place the library had to be fought, with the
-  workaround.
-- The wins ledger: every deleted mechanism, named.
-- A verdict against sim-architecture.md's two falsifiable reasons: reason
-  1 (no performance problem) is not contested; reason 2 (order is
-  gameplay) is *tested* — does a component store coexist with an owned
-  order spine gracefully, or does it fight?
+### Measurements
 
-## 5. Open questions going in
+- **LOC**: net −178 in src/ (447 added, 625 deleted, docs excluded);
+  sim/ alone is −143. EntityList.hpp's 350 lines became a 38-line
+  Entity.hpp plus ~90 lines of spine ops inside Battle. Tests grew a net
+  +36 converting five arena pins into spine/pool pins.
+- **Compile time** (per TU, MinGW GCC 15.2, `-g -std=gnu++23`, warm
+  second run): Battle.cpp 1.1s → 4.4s, Ship.cpp 0.8s → 2.6s. **EnTT
+  costs 3-4× per sim TU.** Tolerable at a dozen TUs; the CI matrix and
+  the WASM build will feel it, and it is the experiment's plainest cost.
 
-1. Does `entt::entity`'s 20-bit id / 12-bit version split matter for a
-   long melee? (4096 generations per slot; a slot reused 24 times/sec
-   wraps in ~3 minutes — worst case aliases a stale handle. Likely
-   irrelevant: reuse spreads across slots; noted so it is checked, not
-   assumed.)
-2. Do the golden battles stay *bit*-green through X2, or only
-   gameplay-green? Entity id values leak into nothing gameplay-visible by
-   design, but the tests may compare ids in event streams.
-3. Is one registry shared by sim and app a layering win (component-type
-   ownership) or a hole (app code can touch sim pools)? X3 answers with
-   real code.
+### The wins ledger, as landed
+
+1. Component machinery became one-liners: attach is `emplace`, lookup is
+   `try_get`, teardown is `destroy` — the sidecar vectors, linear finds
+   and `dropComponents` are gone, and every M2 component (limpets, charge
+   state, marines) is a type, not new infrastructure.
+2. `Visual` rides its entity; RenderStore and `purgeDead` deleted. The
+   `alive()` guard on attach surfaced a real protocol truth the old
+   append-then-purge store papered over (executed overlap spawns).
+3. Trait flags became types; the bitfield stopped filling up.
+4. `Cloak{level}` ended the every-ship-carries-an-Ilwrath-field
+   pollution, and `isCloaked()` *derives* OBJECT_CLOAKED instead of
+   storing it — a whole class of desync made unrepresentable.
+5. `PriorSilhouette` in Battle.cpp's anonymous namespace: protocol
+   scratch nothing else can even name.
+6. 350 lines of bespoke arena/handle machinery retired for a library the
+   industry tests harder than we ever will.
+
+### The friction ledger, as paid
+
+1. **Compile time, 3-4× per sim TU** (above).
+2. **The EntityRef epoch diagnostic is gone** — removed-while-held is
+   once again a silent wrong-read in debug builds. EnTT's asserts catch
+   less than what we built.
+3. **Entity zero is a live entity**: every default-constructed EntityId
+   was a landmine; the sweep found one latent uninitialized-enum bug, and
+   nothing but discipline prevents the next one.
+4. **`in_place_delete` is a per-component judgment that must be right**:
+   the hold-across-spawn idiom makes it mandatory for Element and
+   ShipState, and nothing in the type system says so — a comment does.
+5. **Tags attach to ids, not values**: every spawn site split into
+   spawn-then-emplace, and the walk had better not reach the element in
+   between (it cannot today; that is an ordering argument, not a check).
+6. **Pure functions must be told traits**: applyImpulse takes
+   aIsShip/bIsShip because a trait that left the struct cannot be read
+   from an Element&.
+7. **The ordered walk is still entirely ours**: OrderLink is bespoke code
+   the library neither provides nor helps with. It ported correctly on
+   the first try *because* the pinned suite existed — without those tests
+   this stage would have been genuinely dangerous.
+
+### The declination
+
+The universal core — motion, protocol flags, life/combat numbers,
+collision fields, hooks — stays one `Element`. Every element has all of
+it; the step protocol reads and writes it as one thing at protocol
+points; at forty entities there is no cache argument. The two X5 splits
+that DID pay both had an *ownership* story (only the Avenger has a cloak;
+only the protocol touches the prior silhouette). The rule the experiment
+leaves behind: **split when a component has an owner narrower than
+"everything", never for taxonomy.**
+
+### Open questions, answered
+
+1. Version wrap: entt's 32-bit entity is 20-bit index + 12-bit version;
+   a melee churns a handful of entities a second spread across slots —
+   no realistic path to aliasing, and `alive()` would catch it as a
+   wrong-dead, not a wrong-read.
+2. The golden battles stayed **bit-green through every stage** — same
+   positions, energy, RNG draws, frame counts. Entity id *values* proved
+   to be pure bookkeeping, as designed.
+3. One registry shared by sim and app worked and read well; the layering
+   holds by convention only (sim never names an app type; the app goes
+   through Battle's surface for sim state). The convention is written
+   down; the compiler does not enforce it. Acceptable for this tree.
+
+### Against sim-architecture.md
+
+Reason 1 (no performance problem) was never contested and remains true —
+nothing here was done for speed. Reason 2 (**traversal order is
+gameplay**) *held completely*: the order never entered the library, and
+the experiment's clearest architectural finding is that a sparse-set
+registry coexists gracefully with an owned order spine precisely because
+it does not have opinions about order. What the old document rejected —
+archetype storage that reorders entities by composition — remains
+rejected; flecs would have been that fight. sim-architecture.md is
+amended on this branch accordingly.
+
+**Bottom line**: the composition model this tree already believed in got
+cheaper — components are types now, and M2's library lands on `emplace`
+instead of hand-rolled sidecars — at the price of 3-4× sim compile time,
+one lost debug diagnostic, and a handful of disciplines (kNoEntity,
+in_place_delete, spawn-then-tag) that comments enforce where the old
+types did. Whether that trade merges is SiGMan's call; the branch is the
+evidence either way.
