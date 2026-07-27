@@ -22,6 +22,7 @@
 #include "engine/core/Pacing.hpp"
 #include "engine/input/Input.hpp"
 #include "game/Camera.hpp"
+#include "game/Resources.hpp"
 #include "game/SpriteSet.hpp"
 #include "platform/Platform.hpp"
 #include "sim/Battle.hpp"
@@ -123,16 +124,19 @@ struct Game
 	Pacer pacer;
 	std::array<InputAccumulator, 2> players;
 
-	// Sprite sets, and the masks that come with them. Both outlive the
-	// battle, which is what Element::mask assumes.
-	game::SpriteSet cruiser;
-	game::SpriteSet avenger;
-	game::SpriteSet nuke;     // the Cruiser's missile ("saturn")
-	game::SpriteSet flame;    // the Avenger's fire
-	game::SpriteSet rock;
-	game::SpriteSet world;    // the gravity well
-	game::SpriteSet blast;    // a weapon going off
-	game::SpriteSet boom;     // an asteroid coming apart
+	// Everything content-addressed. Resources owns the sets and the masks
+	// inside them, so both outlive the battle -- which is what Element::mask
+	// assumes.
+	game::Resources content;
+
+	const game::SpriteSet *cruiser = nullptr;
+	const game::SpriteSet *avenger = nullptr;
+	const game::SpriteSet *nuke = nullptr;   // the Cruiser's missile
+	const game::SpriteSet *flame = nullptr;  // the Avenger's fire
+	const game::SpriteSet *rock = nullptr;
+	const game::SpriteSet *world = nullptr;  // the gravity well
+	const game::SpriteSet *blast = nullptr;  // a weapon going off
+	const game::SpriteSet *boom = nullptr;   // an asteroid coming apart
 
 	// Fallbacks for anything without art yet -- shots, rocks, the planet.
 	sim::CollisionMask shipMask = block(12, 12);
@@ -166,22 +170,22 @@ spritesFor(const Game &g, const sim::Element &e) noexcept
 	switch (e.kind)
 	{
 		case sim::ElementKind::Ship:
-			set = e.playerNr == 0 ? &g.cruiser : &g.avenger;
+			set = e.playerNr == 0 ? g.cruiser : g.avenger;
 			break;
 		case sim::ElementKind::Weapon:
-			set = e.playerNr == 0 ? &g.nuke : &g.flame;
+			set = e.playerNr == 0 ? g.nuke : g.flame;
 			break;
 		case sim::ElementKind::Asteroid:
-			set = &g.rock;
+			set = g.rock;
 			break;
 		case sim::ElementKind::Planet:
-			set = &g.world;
+			set = g.world;
 			break;
 		case sim::ElementKind::Blast:
 			// Weapon blasts and asteroid debris share a kind but not art. The
 			// rubble an asteroid leaves is unowned; a blast belongs to the
 			// shot that made it.
-			set = e.playerNr < 0 ? &g.boom : &g.blast;
+			set = e.playerNr < 0 ? g.boom : g.blast;
 			break;
 		default:
 			return nullptr;
@@ -250,35 +254,40 @@ setUp(Game &g, const std::filesystem::path &content)
 		std::fprintf(stderr, "content: %s\n", content.string().c_str());
 	}
 
-	const std::filesystem::path ct = content / "base/uqm.ct";
-	const auto load = [&](const char *rel) {
-		game::SpriteSet set = content.empty()
-				? game::SpriteSet{}
-				: game::loadSprites(g.window, content / rel, ct);
-		if (!set.valid() && !content.empty())
-			std::fprintf(stderr, "content: could not load %s\n", rel);
-		return set;
+	g.content = game::Resources::open(content);
+	if (!g.content.valid())
+	{
+		std::fprintf(stderr,
+				"content: %s has no readable uqm.rmp -- everything will be a "
+				"rectangle.\n",
+				content.string().c_str());
+	}
+
+	// Addressed by resource id, not by path. uqm.rmp is the only link between
+	// a name and a file, and it is what an addon overrides -- see
+	// game/Resources.hpp.
+	const auto load = [&](const char *id) -> const game::SpriteSet * {
+		const game::SpriteSet &set = g.content.sprites(g.window, id);
+		if (!set.valid() && g.content.valid())
+			std::fprintf(stderr, "content: could not load %s\n", id);
+		return &set;
 	};
 
-	g.cruiser = load("base/ships/human/cruiser-big.ani");
-	g.avenger = load("base/ships/ilwrath/avenger-big.ani");
-	// ship.earthling.graphics.saturn.large -- the Cruiser's nuke is a ringed
-	// sphere, hence the name.
-	g.nuke = load("base/ships/human/saturn-big.ani");
-	g.flame = load("base/ships/ilwrath/fire-big.ani");
-	g.rock = load("base/battle/asteroid-big.ani");
+	g.cruiser = load("ship.earthling.graphics.human.large");
+	g.avenger = load("ship.ilwrath.graphics.avenger.large");
+	g.nuke = load("ship.earthling.graphics.saturn.large");
+	g.flame = load("ship.ilwrath.graphics.fire.large");
+	g.rock = load("graphics.asteroid.large");
+	g.blast = load("graphics.blast.large");
+	g.boom = load("graphics.boom.large");
 	// The C picks a planet type at random per battle (load_gravity_well,
-	// cons_res.c:52-82). One fixed type until melee setup exists.
-	g.world = load("base/planets/acid-big.ani");
-	g.blast = load("base/battle/blast-big.ani");
-	g.boom = load("base/battle/boom-big.ani");
+	// cons_res.c:52-82). One fixed type until melee setup exists to choose.
+	g.world = load("planet.acid.large");
 
-	g.cruiserData = sim::earthlingCruiser();
-	g.avengerData = sim::ilwrathAvenger();
-	g.cruiserData.facingMasks = g.cruiser.masks;
-	g.avengerData.facingMasks = g.avenger.masks;
-	g.cruiserData.weaponMasks = g.nuke.masks;
-	g.avengerData.weaponMasks = g.flame.masks;
+	g.cruiserData.facingMasks = g.cruiser->masks;
+	g.avengerData.facingMasks = g.avenger->masks;
+	g.cruiserData.weaponMasks = g.nuke->masks;
+	g.avengerData.weaponMasks = g.flame->masks;
 
 	const auto addShip = [&g](const sim::ShipData &data, Vec2i at, int facing,
 							  int player) {
@@ -294,8 +303,9 @@ setUp(Game &g, const std::filesystem::path &content)
 		// The real silhouette when the art loaded, a block when it did not.
 		// Per-pixel collision against a 12x12 square is not per-pixel
 		// collision, so this changes how the ships actually touch.
-		const game::SpriteSet *set = player == 0 ? &g.cruiser : &g.avenger;
-		const sim::CollisionMask *m = set->maskFor(facing);
+		const game::SpriteSet *set = player == 0 ? g.cruiser : g.avenger;
+		const sim::CollisionMask *m =
+				set != nullptr ? set->maskFor(facing) : nullptr;
 		e.mask = m != nullptr ? m : &g.shipMask;
 		e.ship.data = &data;
 		e.preProcess = sim::shipPreProcess;
@@ -324,9 +334,9 @@ setUp(Game &g, const std::filesystem::path &content)
 	// on a ship -- which, now that masks are the real silhouettes rather than
 	// 12x12 blocks, means a ship starting *inside* a planet.
 	const sim::CollisionMask *planetMask =
-			g.world.maskFor(0) != nullptr ? g.world.maskFor(0) : &g.planetMask;
+			g.world->maskFor(0) != nullptr ? g.world->maskFor(0) : &g.planetMask;
 	const sim::CollisionMask *rockMask =
-			g.rock.maskFor(0) != nullptr ? g.rock.maskFor(0) : &g.rockMask;
+			g.rock->maskFor(0) != nullptr ? g.rock->maskFor(0) : &g.rockMask;
 
 	(void)sim::spawnPlanet(g.battle, planetMask);
 	for (int i = 0; i < sim::kNumAsteroids; ++i)
