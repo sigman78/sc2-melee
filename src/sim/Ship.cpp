@@ -442,18 +442,25 @@ shipTransition(Battle &b, EntityId id) noexcept
 		return;
 	}
 
-	// A shadow of itself each frame -- and the shadow is *ship-shaped*: a
-	// silhouette of the hull, flying outward along the facing at
-	// TRANSITION_SPEED, fading through the exhaust's colour ramp. The C draws
-	// the ship's own image as a STAMPFILL_PRIM (tactrans.c:893-930).
+	// The trail *is* the ship teleporting in.
 	//
-	// This was first written as a point trail, reusing spawnIonTrail because
-	// the C shares cycle_ion_trail between the two. But sharing the *fade* is
-	// not sharing the *shape*: a stack of points on a stationary ship is
-	// invisible against the hull it sits on, which is why the effect could not
-	// be seen at all. The arrival reads as an arrival because it is the ship
-	// itself you see coming apart out of nothing.
+	// Each frame drops a stationary copy of the hull *behind* the arrival
+	// point, offset by TRANSITION_SPEED for every frame still left on the
+	// clock (tactrans.c:938-950). The countdown shrinks that offset, so
+	// successive images march inward along the facing, the ship itself
+	// appears at the end of its own trail, and the trail then fades out
+	// behind it.
+	//
+	// Nothing here moves: the motion is entirely in where each image is put.
+	// Two earlier attempts got this wrong in different ways -- first a stack
+	// of points at the ship, which is invisible against the hull it sits on,
+	// then hull silhouettes flying *outward*, which reads as the ship coming
+	// apart rather than arriving. The direction and the shape both carry
+	// meaning, and the C encodes both in that one subtraction.
 	{
+		const int angle = facingToAngle(e->facing);
+		const std::int32_t back = kTransitionSpeed * (e->lifeSpan - 1);
+
 		Element shadow;
 		shadow.kind = ElementKind::ShipShadow;
 		shadow.playerNr = e->playerNr;  // picks which ship's sprites to draw
@@ -461,9 +468,10 @@ shipTransition(Battle &b, EntityId id) noexcept
 		shadow.mask = e->mask;  // hull-sized, so it is drawn as the hull
 		shadow.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
 		shadow.lifeSpan = kIonTrailLife;
-		shadow.current = e->current;
+		shadow.current = wrap(Vec2i{e->current.x - cosine(angle, back),
+				e->current.y - sine(angle, back)});
 		shadow.next = shadow.current;
-		shadow.velocity.setVector(displayToWorld(40), e->facing);
+		shadow.velocity.zero();
 		b.spawnFront(std::move(shadow));
 	}
 

@@ -1935,15 +1935,56 @@ testShipWarpsInBeforeItIsSolid()
 			"an arriving ship must be intangible -- that is what stops two of "
 			"them materialising inside each other");
 
-	// Partway through: shadows are being shed, and they are hull-sized rather
-	// than points, which is the whole difference between visible and not.
+	// Partway through: shadows are being shed, they are hull-sized rather than
+	// points, and -- the part that was wrong twice -- each new one is laid
+	// *closer* to the arrival point than the last, so the trail converges onto
+	// the ship instead of streaming away from it.
+	const Vec2i arrival = ship()->current;
+	const auto newestDistance = [&b, &arrival]() -> std::int64_t {
+		std::int32_t best = -1;
+		std::int64_t dist = -1;
+		for (sim::EntityId id = b.elements().front(); id.valid();
+				id = b.elements().next(id))
+		{
+			auto p = b.get(id);
+			if (p == nullptr || p->kind != sim::ElementKind::ShipShadow)
+				continue;
+			if (p->lifeSpan <= best)
+				continue;
+			best = p->lifeSpan;
+			const Vec2i d = sim::wrapDelta(Vec2i{p->current.x - arrival.x,
+					p->current.y - arrival.y});
+			dist = static_cast<std::int64_t>(d.x) * d.x
+					+ static_cast<std::int64_t>(d.y) * d.y;
+		}
+		return dist;
+	};
+
 	int peak = 0;
+	int closing = 0;
+	int receding = 0;
+	std::int64_t previous = -1;
 	for (int i = 0; i < sim::kWarpInFrames - 2; ++i)
 	{
 		b.step();
 		peak = std::max(peak, shadows());
+
+		const std::int64_t d = newestDistance();
+		if (d >= 0 && previous >= 0)
+		{
+			if (d < previous)
+				++closing;
+			else if (d > previous)
+				++receding;
+		}
+		if (d >= 0)
+			previous = d;
 	}
 	CHECK(peak > 0, "a warping ship should shed shadows, saw none");
+	CHECK(closing > 0 && receding == 0,
+			"the trail must close onto the arrival point, not stream away "
+			"from it -- %d frames closed, %d receded",
+			closing, receding);
 
 	const sim::Element *s = nullptr;
 	for (sim::EntityId id = b.elements().front(); id.valid();

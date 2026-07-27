@@ -129,6 +129,10 @@ inline constexpr std::int32_t kIonTrailLife = 12;
 // and untouchable, before it becomes real.
 inline constexpr std::int32_t kWarpInFrames = 15;
 
+// TRANSITION_SPEED (tactrans.c:909): how far apart the images of an arriving
+// ship are spaced along its path.
+inline constexpr std::int32_t kTransitionSpeed = displayToWorld(40);
+
 // NUM_EXPLOSION_FRAMES * 3 (element.h:71, tactrans.c:714).
 inline constexpr std::int32_t kExplosionFrames = 12;
 inline constexpr std::int32_t kExplosionLife = kExplosionFrames * 3;
