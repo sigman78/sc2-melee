@@ -65,6 +65,13 @@ struct ShipState
 	std::int32_t specialCounter = 0;
 
 	SpeedState speed = SpeedState::Normal;
+
+	// SHIP_IN_GRAVITY_WELL (races.h:71). Its own bit in the C, orthogonal to
+	// the at-max/beyond-max pair rather than a fourth value of them: while it
+	// is set a ship may accelerate past its own maximum, up to the hard
+	// kMaxAllowedSpeed ceiling (ship.c:82, 106-112). Gravity sets it, and the
+	// next thrust clears it (ship.c:263-267).
+	bool inGravityWell = false;
 };
 
 // What an element is doing this frame. The C keeps these in one
@@ -148,6 +155,40 @@ any(ElementFlags f) noexcept
 	return static_cast<std::uint32_t>(f) != 0;
 }
 
+// Mass, and the two different questions the C asks about it.
+//
+// GRAVITY_MASS (element.h:198) is `mass > MAX_SHIP_MASS * 10`, i.e. > 100.
+// But gravity.c never calls it on the mass itself -- always on `mass + 1`
+// (gravity.c:34,45). The off-by-one is deliberate and it is not about planets,
+// which have mass 200 (misc.c:53,71) and clear either test.
+//
+// It is about a ship running away. DoRunAway sets mass_points to exactly 100
+// (battle.c:92), which fails `> 100` but passes `+ 1 > 100`. So a fleeing ship
+// reads as a gravity *source* to gravity.c and nowhere else -- and because
+// gravity skips any pair whose answers agree, the planet stops pulling on it.
+// You cannot be dragged into a planet while escaping. do_damage (misc.c:214)
+// asks the question without the `+ 1`, so the same ship stays damageable, and
+// collide.c asks it without too, so it still takes an impulse.
+//
+// Two names, because they are two predicates and conflating them is a bug
+// waiting to be reintroduced.
+inline constexpr std::int32_t kMaxShipMass = 10;              // element.h:197
+inline constexpr std::int32_t kGravityMass = kMaxShipMass * 10;  // 100
+
+// GRAVITY_MASS as written: does this push instead of being pushed?
+[[nodiscard]] constexpr bool
+isGravityMass(std::int32_t massPoints) noexcept
+{
+	return massPoints > kGravityMass;
+}
+
+// GRAVITY_MASS as gravity.c asks it. See above for why they differ.
+[[nodiscard]] constexpr bool
+isGravitySource(std::int32_t massPoints) noexcept
+{
+	return massPoints + 1 > kGravityMass;
+}
+
 // What kind of thing this is.
 //
 // The plan's engine primitive #3: a real tag, not a frame pointer. The C
@@ -188,7 +229,12 @@ struct Element
 	std::int32_t playerNr = -1;
 
 	std::int32_t facing = 0;
-	std::int32_t lifeSpan = 0;
+
+	// NORMAL_LIFE (element.h:32), not zero. The step loop reads a zero as
+	// "died last frame" regardless of FiniteLife, so a persistent element has
+	// to start at 1 and simply never decrement.
+	std::int32_t lifeSpan = 1;
+
 	std::int32_t hitPoints = 0;
 	std::int32_t mass = 0;
 	std::int32_t damage = 0;
@@ -212,10 +258,15 @@ struct Element
 	// Only meaningful when kind == Ship; `ship.data` is null otherwise.
 	ShipState ship;
 
+	// CollidingElement (collide.h:31-33): NONSOLID *or* DISAPPEARING is out.
+	// Something dying this frame must not still be hit, and must not still
+	// pull on anything.
 	[[nodiscard]] bool
 	collidable() const noexcept
 	{
-		return mask != nullptr && !any(flags & ElementFlags::NonSolid);
+		return mask != nullptr
+				&& !any(flags
+						& (ElementFlags::NonSolid | ElementFlags::Disappearing));
 	}
 };
 

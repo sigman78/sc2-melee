@@ -41,63 +41,70 @@ Battle::preProcessOne(EntityId id) noexcept
 	if (e == nullptr)
 		return;
 
-	// Death is decided at the *start* of the frame after life reached zero,
-	// and the hook runs while the element is still in the list
-	// (process.c:133-141).
-	if (any(e->flags & ElementFlags::FiniteLife) && e->lifeSpan == 0)
+	// Death is `life_span == 0` and nothing else -- process.c:133 has no
+	// FINITE_LIFE guard. That is what lets do_damage kill an asteroid by
+	// assigning life_span = 0 (misc.c:210,221) even though an asteroid does
+	// not age. It is also why a persistent element is born with NORMAL_LIFE
+	// rather than 0: a zero would be read as "died last frame".
+	if (e->lifeSpan == 0)
 	{
 		e->flags |= ElementFlags::Disappearing;
 		if (e->onDeath != nullptr)
+		{
 			e->onDeath(*this, id);
-		e = elements_.get(id);
-		if (e == nullptr)
-			return;
+			e = elements_.get(id);
+			if (e == nullptr)
+				return;
+		}
 	}
 
-	if (!any(e->flags & ElementFlags::Disappearing))
+	// From here the C works on a *local copy* of the flags (process.c:143) and
+	// writes it back at the end, re-reading from the element only after the
+	// preprocess hook has run. That is not a detail: it is how APPEARING
+	// survives a player ship's own preprocess. The flag is cleared in the
+	// local at line 151 purely so the `!(state_flags & APPEARING)` test at 154
+	// lets the hook run, then line 158 reads it straight back off the element.
+	// APPEARING is not actually cleared until PostProcess (process.c:202).
+	ElementFlags flags = e->flags;
+
+	if (!any(flags & ElementFlags::Disappearing))
 	{
-		const bool appearing = any(e->flags & ElementFlags::Appearing);
-		if (appearing)
+		if (any(flags & ElementFlags::Appearing))
 		{
-			e->next = e->current;  // SetUpElement
-			if (any(e->flags & ElementFlags::PlayerShip))
-				e->flags &= ~ElementFlags::Appearing;
+			e->next = e->current;  // SetUpElement (process.c:117-126)
+			if (any(flags & ElementFlags::PlayerShip))
+				flags &= ~ElementFlags::Appearing;  // the local, not the element
 		}
 
-		if (e->preProcess != nullptr && !appearing)
+		if (e->preProcess != nullptr && !any(flags & ElementFlags::Appearing))
 		{
 			e->preProcess(*this, id);
 			e = elements_.get(id);
 			if (e == nullptr)
 				return;
-		}
-		else if (appearing && any(e->flags & ElementFlags::PlayerShip)
-				&& e->preProcess != nullptr)
-		{
-			// A ship's hook *does* run on its appearing frame -- the C clears
-			// the flag in a local before calling, so ship_preprocess still
-			// sees APPEARING on the element and takes its init branch.
-			e->flags |= ElementFlags::Appearing;
-			e->preProcess(*this, id);
-			e = elements_.get(id);
-			if (e == nullptr)
-				return;
-			e->flags &= ~ElementFlags::Appearing;
+			flags = e->flags;
 		}
 
-		if (!any(e->flags & ElementFlags::IgnoreVelocity))
+		// Motion is gated on IGNORE_VELOCITY alone (process.c:163). A newly
+		// spawned element still moves on its first frame; APPEARING suppresses
+		// the hook, not the movement.
+		if (!any(flags & ElementFlags::IgnoreVelocity))
 		{
 			const Vec2i delta = e->velocity.advance(1);
 			e->next = wrap(
 					Vec2i{e->current.x + delta.x, e->current.y + delta.y});
 		}
 
-		if (any(e->flags & ElementFlags::FiniteLife) && e->lifeSpan > 0)
+		// Unconditional once FINITE_LIFE is set (process.c:180-181): it cannot
+		// underflow, because reaching zero routes through the death branch
+		// above and skips this whole block.
+		if (any(flags & ElementFlags::FiniteLife))
 			--e->lifeSpan;
 	}
 
-	e->flags &= ~ElementFlags::Collided;
-	e->flags |= ElementFlags::PreProcessed;
+	e->flags = (flags
+					   & ~(ElementFlags::PostProcessed | ElementFlags::Collided))
+			| ElementFlags::PreProcessed;
 }
 
 bool

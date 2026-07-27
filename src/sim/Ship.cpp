@@ -82,7 +82,12 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 	else if (any(s.input & ShipInput::Thrust))
 	{
 		s.speed = thrust(e->velocity, e->facing, d.thrust,
-				ThrustState{s.speed, false});
+				ThrustState{s.speed, s.inGravityWell});
+		// ship.c:263-267 clears the whole speed/gravity group and ORs in what
+		// inertial_thrust returned. Gravity re-sets the well flag next frame
+		// if the ship is still in one, so a ship that leaves the well loses
+		// its licence to exceed max speed on the very next thrust.
+		s.inGravityWell = false;
 		e->thrustWait = d.thrustWait;
 	}
 }

@@ -28,15 +28,10 @@ namespace uqm::sim {
 
 inline constexpr std::int32_t kCollisionTurnWait = 1;    // collide.h:28
 inline constexpr std::int32_t kCollisionThrustWait = 3;  // collide.h:29
-inline constexpr std::int32_t kMaxShipMass = 10;         // element.h:197
 
 // Planets are gravity masses and do not take an impulse -- they push, they
-// are not pushed (element.h:198).
-[[nodiscard]] constexpr bool
-isGravityMass(std::int32_t massPoints) noexcept
-{
-	return massPoints > kMaxShipMass * 10;
-}
+// are not pushed. isGravityMass is in Element.hpp, next to the gravity.c
+// variant it must not be confused with.
 
 // Deterministic integer square root. UQM's square_root (libs/math/sqrt.c) is
 // a bit-restoring routine, and it computes exactly floor(sqrt(v)) -- verified

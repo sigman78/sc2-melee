@@ -9,6 +9,8 @@
 #include "sim/Battle.hpp"
 #include "sim/Collision.hpp"
 #include "sim/EntityList.hpp"
+#include "sim/Field.hpp"
+#include "sim/Gravity.hpp"
 #include "sim/Impulse.hpp"
 #include "sim/Ship.hpp"
 #include "sim/Random.hpp"
@@ -1356,11 +1358,237 @@ testTheTwoShipsFeelDifferent()
 			"and pays 9 a shot against the Avenger's 1");
 }
 
+// --------------------------------------------------------------------------
+// Gravity and the battlefield
+
+EntityId
+addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
+{
+	Element p;
+	p.kind = ElementKind::Planet;
+	p.playerNr = -1;
+	p.hitPoints = 200;
+	p.mass = 200;
+	p.lifeSpan = 2;
+	p.mask = &m;
+	p.current = at;
+	p.next = at;
+	p.postProcess = planetPostProcess;
+	return b.spawnBack(std::move(p));
+}
+
+void
+testGravityMassThreshold()
+{
+	CHECK(kGravityMass == 100, "MAX_SHIP_MASS * 10");
+	CHECK(isGravitySource(200), "a planet (mass 200) is a gravity source");
+	CHECK(!isGravitySource(6), "the Cruiser is not");
+	CHECK(!isGravitySource(3), "nor is an asteroid");
+	CHECK(!isGravitySource(99), "nor is anything below the threshold");
+
+	// The `+ 1` gravity.c applies before every test. A ship running away is
+	// set to exactly MAX_SHIP_MASS * 10 (battle.c:92), which fails the plain
+	// GRAVITY_MASS macro but passes this -- and since gravity skips any pair
+	// that agrees, that is precisely what stops a planet dragging in a ship
+	// that is trying to escape.
+	CHECK(isGravitySource(kGravityMass),
+			"a fleeing ship counts as a source, so nothing pulls on it");
+}
+
+void
+testGravityPullsTowardTheSource()
+{
+	const CollisionMask m = solid(4, 4);
+	Battle b(1);
+	const EntityId planet = addPlanet(b, m, Vec2i{4000, 4000});
+
+	// 100 world units to the planet's right, well inside the 1020-unit disc.
+	const EntityId ship =
+			addShip(b, earthlingCruiser(), Vec2i{4100, 4000}, 0, 0);
+	b.get(ship)->mask = &m;
+	b.get(ship)->ship.speed = SpeedState::AtMax;
+
+	CHECK(!calculateGravity(b, planet),
+			"the source itself is never in a well");
+
+	const Vec2i v = b.get(ship)->velocity.current();
+	CHECK(v.x < 0, "the ship should be pulled back toward the planet, got %ld",
+			static_cast<long>(v.x));
+	CHECK(v.y == 0, "and straight along the axis, got %ld",
+			static_cast<long>(v.y));
+	CHECK(b.get(ship)->ship.inGravityWell,
+			"and should be flagged as being in the well");
+	CHECK(b.get(ship)->ship.speed == SpeedState::Normal,
+			"gravity.c:136 clears at-max so the ship may accelerate again");
+
+	// And the other direction: asked of the light element, it reports the well.
+	CHECK(calculateGravity(b, ship), "the ship should know it is in a well");
+}
+
+void
+testGravityHasAHardEdge()
+{
+	const CollisionMask m = solid(4, 4);
+
+	// GRAVITY_THRESHOLD is 255 *display* pixels, and ONE_SHIFT is 2, so the
+	// disc is 1020 world units. There is no falloff inside it and nothing at
+	// all outside -- the DIFUSE_GRAVITY block that would have smoothed this is
+	// commented out in the C (gravity.c:96-111).
+	for (const auto [dx, pulled] :
+			{std::pair{1020, true}, std::pair{1024, false}})
+	{
+		Battle b(1);
+		const EntityId planet = addPlanet(b, m, Vec2i{4000, 4000});
+		const EntityId ship =
+				addShip(b, earthlingCruiser(), Vec2i{4000 + dx, 4000}, 0, 0);
+		b.get(ship)->mask = &m;
+
+		(void)calculateGravity(b, planet);
+		const bool moved = !b.get(ship)->velocity.isZero();
+		CHECK(moved == pulled, "at %d world units the pull should be %s", dx,
+				pulled ? "on" : "off");
+	}
+}
+
+void
+testFleeingShipIsImmuneToGravity()
+{
+	const CollisionMask m = solid(4, 4);
+	Battle b(1);
+	const EntityId planet = addPlanet(b, m, Vec2i{4000, 4000});
+	const EntityId ship =
+			addShip(b, earthlingCruiser(), Vec2i{4100, 4000}, 0, 0);
+	b.get(ship)->mask = &m;
+	b.get(ship)->mass = kGravityMass;  // DoRunAway, battle.c:92
+
+	(void)calculateGravity(b, planet);
+	CHECK(b.get(ship)->velocity.isZero(),
+			"a ship at mass 100 reads as a source, so the planet skips it");
+}
+
+void
+testAsteroidsSpawnOnAnEdgeAndRepeatably()
+{
+	const CollisionMask m = solid(4, 4);
+
+	Battle b(7);
+	Battle c(7);
+	for (int i = 0; i < kNumAsteroids; ++i)
+	{
+		const EntityId a = spawnAsteroid(b, &m);
+		const EntityId a2 = spawnAsteroid(c, &m);
+
+		const Element *e = b.get(a);
+		const bool onEdge = e->current.x == 0 || e->current.x == kLogSpaceWidth
+				|| e->current.y == 0 || e->current.y == kLogSpaceHeight;
+		CHECK(onEdge, "asteroid %d should enter from an edge, got (%ld,%ld)", i,
+				static_cast<long>(e->current.x),
+				static_cast<long>(e->current.y));
+		CHECK(!e->velocity.isZero(), "and should be moving");
+
+		// Same seed, same asteroid: the six draws happen in a fixed order.
+		const Element *e2 = c.get(a2);
+		CHECK(e->current == e2->current && e->facing == e2->facing
+						&& e->thrustWait == e2->thrustWait,
+				"asteroid %d should be identical from the same seed", i);
+	}
+}
+
+void
+testAsteroidTumbles()
+{
+	const CollisionMask m = solid(4, 4);
+	Battle b(3);
+	const EntityId a = spawnAsteroid(b, &m);
+
+	// thrust_wait is the spin period, not a thrust delay (misc.c:117-126), and
+	// like turn_wait it means "every N+1 frames".
+	const int period = static_cast<int>(b.get(a)->thrustWait);
+	const int start = b.get(a)->facing;
+
+	// period + 1 frames of stillness, not period: the first step is the
+	// asteroid's appearing frame and an asteroid is not a PLAYER_SHIP, so its
+	// preprocess hook does not run at all that frame (process.c:150-154).
+	for (int i = 0; i < period + 1; ++i)
+		b.step();
+	CHECK(b.get(a)->facing == start, "it should hold still for %d frames",
+			period + 1);
+
+	b.step();
+	CHECK(b.get(a)->facing != start, "then rotate one frame index");
+}
+
+void
+testDestroyedAsteroidIsReplaced()
+{
+	// The field's population is constant because the loop is closed: an
+	// asteroid's death leaves rubble, and the rubble's death spawns a fresh
+	// asteroid (misc.c:80-105, 130-201). Break either link and the field
+	// empties out over a long match.
+	const CollisionMask m = solid(4, 4);
+	Battle b(11);
+	(void)spawnAsteroid(b, &m);
+	CHECK(b.elements().size() == 1, "one asteroid to start");
+
+	// do_damage's kill (misc.c:220-222).
+	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+	{
+		b.get(e)->hitPoints = 0;
+		b.get(e)->lifeSpan = 0;
+		b.get(e)->flags |= ElementFlags::NonSolid;
+	}
+
+	int asteroids = 0;
+	for (int i = 0; i < 12; ++i)
+	{
+		b.step();
+		asteroids = 0;
+		for (EntityId e = b.elements().front(); e.valid();
+				e = b.elements().next(e))
+			if (b.get(e)->kind == ElementKind::Asteroid)
+				++asteroids;
+		if (asteroids == 1)
+			break;
+	}
+	CHECK(asteroids == 1, "the field should refill itself, got %d asteroids",
+			asteroids);
+}
+
+void
+testPlanetPlacementAvoidsEverything()
+{
+	const CollisionMask m = solid(4, 4);
+	Battle b(5);
+
+	// A ship already on the field. The planet must not land in its lap, and
+	// must not land close enough that the ship starts the match in a well.
+	const EntityId ship =
+			addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
+	b.get(ship)->mask = &m;
+
+	const EntityId planet = spawnPlanet(b, &m);
+	CHECK(b.get(planet)->mass == 200,
+			"mass is assigned after placement, got %ld",
+			static_cast<long>(b.get(planet)->mass));
+	CHECK(!timeSpaceMatterConflict(b, planet),
+			"the planet should not overlap the ship");
+	CHECK(!calculateGravity(b, ship),
+			"and the ship should not start inside its well");
+}
+
 }  // namespace
 
 int
 main()
 {
+	testGravityMassThreshold();
+	testGravityPullsTowardTheSource();
+	testGravityHasAHardEdge();
+	testFleeingShipIsImmuneToGravity();
+	testAsteroidsSpawnOnAnEdgeAndRepeatably();
+	testAsteroidTumbles();
+	testDestroyedAsteroidIsReplaced();
+	testPlanetPlacementAvoidsEverything();
 	testShipInitialisesFromItsDescriptor();
 	testTurningIsGatedByTurnWait();
 	testFiringSpendsEnergyAndRespectsCooldown();
