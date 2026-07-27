@@ -830,15 +830,16 @@ spawnOnce(Battle &b, EntityId id) noexcept
 	child.mass = 99;
 	child.preProcess = recordPre;
 	// PlayerShip so the hook runs on the appearing frame -- what is under test
-	// is the catch-up pass, and without the flag the hook would be skipped for
+	// is the catch-up pass, and without the tag the hook would be skipped for
 	// the unrelated (and correct) reason that projectiles do not preprocess on
 	// the frame they are born.
-	child.flags = ElementFlags::FiniteLife | ElementFlags::PlayerShip;
+	child.flags = ElementFlags::FiniteLife;
 	child.lifeSpan = 5;
 	if (g_trace.spawnAtHead)
 		g_trace.spawnFrom = b.spawnFront(std::move(child));
 	else
 		g_trace.spawnFrom = b.spawnBack(std::move(child));
+	b.registry().emplace<PlayerShip>(g_trace.spawnFrom);
 }
 
 Element
@@ -847,11 +848,20 @@ plain(int label)
 	Element e;
 	e.mass = label;
 	e.preProcess = recordPre;
-	// PlayerShip, because that is the flag that makes the preprocess hook run
-	// on the appearing frame (process.c:150-151). A projectile's hook is
-	// skipped on its first frame; these tests are about ordering, not that.
-	e.flags = ElementFlags::PlayerShip;
 	return e;
+}
+
+// Spawns and tags PlayerShip -- the trait that makes the preprocess hook
+// run on the appearing frame (process.c:150-151) is a component now, so it
+// attaches to the id, not the value. A projectile's hook is skipped on its
+// first frame; these tests are about ordering, not that.
+EntityId
+spawnShip(Battle &b, Element e, bool atFront = false)
+{
+	const EntityId id =
+			atFront ? b.spawnFront(std::move(e)) : b.spawnBack(std::move(e));
+	b.registry().emplace<PlayerShip>(id);
+	return id;
 }
 
 void
@@ -859,9 +869,9 @@ testStepVisitsInListOrder()
 {
 	g_trace = Trace{};
 	Battle b(1);
-	b.spawnBack(plain(1));
-	b.spawnBack(plain(2));
-	b.spawnBack(plain(3));
+	spawnShip(b, plain(1));
+	spawnShip(b, plain(2));
+	spawnShip(b, plain(3));
 	b.step();
 	CHECK(g_trace.preOrder == std::vector<int>({1, 2, 3}),
 			"preprocess should follow list order");
@@ -869,7 +879,7 @@ testStepVisitsInListOrder()
 	// Head insertion puts the newcomer first next frame -- the pkunk.c
 	// phoenix ordering.
 	g_trace.preOrder.clear();
-	b.spawnFront(plain(0));
+	spawnShip(b, plain(0), true);
 	b.step();
 	CHECK(g_trace.preOrder == std::vector<int>({0, 1, 2, 3}),
 			"a head-inserted element preprocesses first");
@@ -890,8 +900,8 @@ testMidFrameSpawnIsCaughtUpSameFrame()
 		Battle b(1);
 		Element shooter = plain(1);
 		shooter.preProcess = spawnOnce;
-		b.spawnBack(std::move(shooter));
-		b.spawnBack(plain(2));
+		spawnShip(b, std::move(shooter));
+		spawnShip(b, plain(2));
 
 		b.step();
 		CHECK(g_trace.spawned, "the hook should have spawned");
@@ -915,10 +925,10 @@ testFiniteLifeExpiresAndCallsDeath()
 	Battle b(1);
 
 	Element shot = plain(7);
-	shot.flags = ElementFlags::FiniteLife | ElementFlags::PlayerShip;
+	shot.flags = ElementFlags::FiniteLife;
 	shot.lifeSpan = 3;
 	shot.onDeath = recordDeath;
-	b.spawnBack(std::move(shot));
+	spawnShip(b, std::move(shot));
 
 	// Life is spent in the pre pass and death is decided at the *start* of
 	// the frame after it reaches zero (process.c:133-141, 180-181). A
@@ -1087,7 +1097,6 @@ testHeadOnCollisionExchangesMomentum()
 	a.current = Vec2i{0, 0};
 	a.next = Vec2i{100, 0};
 	a.velocity.setComponents(worldToVelocity(20), 0);
-	a.flags = ElementFlags::PlayerShip;
 	a.kind = ElementKind::Ship;
 
 	Element b;
@@ -1095,11 +1104,11 @@ testHeadOnCollisionExchangesMomentum()
 	b.current = Vec2i{200, 0};
 	b.next = Vec2i{110, 0};
 	b.velocity.setComponents(-worldToVelocity(20), 0);
-	b.flags = ElementFlags::PlayerShip;
 	b.kind = ElementKind::Ship;
 
+	// The trait is a tag now; pure physics is told who is a ship.
 	const Vec2i beforeA = a.velocity.current();
-	applyImpulse(a, b);
+	applyImpulse(a, true, b, true);
 	const Vec2i afterA = a.velocity.current();
 
 	CHECK(afterA.x < beforeA.x,
@@ -1131,7 +1140,7 @@ testGravityMassIsNotPushed()
 	planet.next = Vec2i{200, 0};
 	planet.kind = ElementKind::Planet;
 
-	applyImpulse(ship, planet);
+	applyImpulse(ship, true, planet, false);
 	CHECK(planet.velocity.isZero(), "the planet must not move");
 	CHECK(!ship.velocity.isZero(), "the ship must");
 }
@@ -1151,14 +1160,14 @@ testStuckPairIsWorkedApart()
 	Element b = a;
 	b.current = b.next = Vec2i{100, 100};
 
-	applyImpulse(a, b);
+	applyImpulse(a, true, b, true);
 	CHECK(any(a.flags & ElementFlags::DefyPhysics),
 			"a stationary pair should defy physics rather than exchange nothing");
 	CHECK(any(b.flags & ElementFlags::DefyPhysics), "both of them");
 
 	// Second time round, already defying: velocities are zeroed and the pair
 	// gets pushed apart along a skewed axis.
-	applyImpulse(a, b);
+	applyImpulse(a, true, b, true);
 	CHECK(!a.velocity.isZero() || !b.velocity.isZero(),
 			"an already-stuck pair should be given a way out");
 }
@@ -1190,13 +1199,13 @@ addShip(Battle &b, const ShipSpec &data, Vec2i at, int facing, int player)
 {
 	Element e;
 	e.kind = ElementKind::Ship;
-	e.flags = ElementFlags::PlayerShip;
 	e.current = at;
 	e.next = at;
 	e.facing = Facing(facing);
 	e.playerNr = player;
 	e.mass = data.mass;
 	const EntityId id = b.spawnBack(std::move(e));
+	b.registry().emplace<PlayerShip>(id);
 	b.attachShip(id, &data);
 	return id;
 }
@@ -1956,12 +1965,12 @@ testShipShotMidFlightKeepsItsMotion()
 
 	Element ship;
 	ship.kind = ElementKind::Ship;
-	ship.flags = ElementFlags::PlayerShip;
 	ship.playerNr = 0;
 	ship.mass = 6;
 	ship.mask = &m;
 	ship.current = ship.next = Vec2i{4000, 4000};
 	const EntityId is = b.spawnBack(std::move(ship));
+	b.registry().emplace<PlayerShip>(is);
 
 	// A stationary shot in the ship's path. Zero damage, so the run is about
 	// motion, not crew -- and damage IS mass (weapon.c:101,144), so a
@@ -2320,7 +2329,6 @@ testShipWarpsInBeforeItIsSolid()
 
 	sim::Element e;
 	e.kind = sim::ElementKind::Ship;
-	e.flags = sim::ElementFlags::PlayerShip;
 	e.mask = &hull;
 	e.current = Vec2i{4000, 4000};
 	e.next = e.current;
@@ -2329,6 +2337,7 @@ testShipWarpsInBeforeItIsSolid()
 	e.mass = sim::earthlingCruiser().mass;
 	e.preProcess = sim::shipTransition;
 	const sim::EntityId shipId = b.spawnBack(std::move(e));
+	b.registry().emplace<sim::PlayerShip>(shipId);
 	b.attachShip(shipId, &sim::earthlingCruiser());
 
 	const auto ship = [&b]() -> const sim::Element * {

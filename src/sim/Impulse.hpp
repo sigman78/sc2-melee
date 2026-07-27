@@ -38,7 +38,10 @@ inline constexpr std::int32_t kCollisionThrustWait = 3;  // collide.h:29
 
 // Applies the collision response to both elements. They are assumed to have
 // already been placed at their impact positions by the sweep.
-void applyImpulse(Element &a, Element &b) noexcept;
+// aIsShip/bIsShip: the PlayerShip trait is a tag component now (review-004
+// X4), and pure physics takes facts as parameters rather than a registry.
+void applyImpulse(
+		Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept;
 
 }  // namespace uqm::sim
 

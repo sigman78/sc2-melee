@@ -67,7 +67,7 @@ setUpBattle(Game &g)
 							  sim::Facing facing, int player) {
 		sim::Element e;
 		e.kind = sim::ElementKind::Ship;
-		e.flags = sim::ElementFlags::PlayerShip | sim::ElementFlags::IgnoreSimilar;
+		e.flags = sim::ElementFlags::IgnoreSimilar;
 		e.current = at;
 		e.next = at;
 		e.facing = facing;
@@ -87,6 +87,7 @@ setUpBattle(Game &g)
 		e.postProcess = nullptr;
 		e.onCollision = sim::solidCollision;
 		const sim::EntityId id = g.battle.spawnBack(std::move(e));
+		g.battle.registry().emplace<sim::PlayerShip>(id);
 		g.battle.attachShip(id, &data);
 		return id;
 	};

@@ -84,7 +84,7 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 		// A player ship counts even when it is not collidable -- gravity.c:175
 		// calls that case "ship in transition", and it is what stops a planet
 		// materialising on top of a ship that is still warping in.
-		if (!t->collidable() && !any(t->flags & ElementFlags::PlayerShip))
+		if (!t->collidable() && !b.registry().all_of<PlayerShip>(other))
 			continue;
 
 		const Body other_{t->mask, t->current, t->current};
@@ -114,7 +114,7 @@ placeShipAtRandom(Battle &b, EntityId id, std::int32_t minSeparation)
 			if (other == id)
 				continue;
 			auto t = b.get(other);
-			if (t == nullptr || !any(t->flags & ElementFlags::PlayerShip))
+			if (t == nullptr || !b.registry().all_of<PlayerShip>(other))
 				continue;
 			const Vec2i d = wrapDelta(Vec2i{t->current.x - self->current.x,
 					t->current.y - self->current.y});

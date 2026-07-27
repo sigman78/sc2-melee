@@ -252,9 +252,9 @@ Battle::preProcessOne(EntityId id) noexcept
 		{
 			// SetUpElement (process.c:117-126). BeamGeometry is exempt:
 			// seeding next from current would collapse the beam to a point.
-			if (!any(flags & ElementFlags::BeamGeometry))
+			if (!reg_.all_of<BeamGeometry>(id))
 				e->next = e->current;
-			if (any(flags & ElementFlags::PlayerShip))
+			if (reg_.all_of<PlayerShip>(id))
 				flags &= ~ElementFlags::Appearing;  // the local, not the element
 		}
 
@@ -270,7 +270,7 @@ Battle::preProcessOne(EntityId id) noexcept
 		// Motion gates on IGNORE_VELOCITY alone (process.c:163), so a spawned
 		// element still moves its first frame. Integration ADDS to `next`
 		// (process.c:172-173); the wrap happens at commit, not here -- design-notes D4.
-		if (!any(flags & ElementFlags::IgnoreVelocity))
+		if (!reg_.all_of<IgnoreVelocity>(id))
 		{
 			const Vec2i delta = e->velocity.advance(1);
 			e->next = Vec2i{e->next.x + delta.x, e->next.y + delta.y};
@@ -448,7 +448,7 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 
 	const ElementHook eHook = e->onCollision;
 	const ElementHook tHook = t->onCollision;
-	if (any(t->flags & ElementFlags::PlayerShip))
+	if (reg_.all_of<PlayerShip>(testId))
 	{
 		if (tHook != nullptr)
 			tHook(*this, testId);
@@ -481,14 +481,17 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 		// weapon hit is resolved by damage, from the collidedWith set above.
 		if (t != nullptr && bothSolidNow)
 		{
-			applyImpulse(*e, *t);
+			// The trait left the struct, so pure physics is told who is a
+			// ship instead of reading a flag (review-004 X4's friction note).
+			applyImpulse(*e, reg_.all_of<PlayerShip>(elemId), *t,
+					reg_.all_of<PlayerShip>(testId));
 			impulsed = true;
 
 			// collide.c:104-110: an impulse invalidates the at-max bookkeeping.
-			if (any(e->flags & ElementFlags::PlayerShip))
+			if (reg_.all_of<PlayerShip>(elemId))
 				if (ShipState *ss = ship(elemId))
 					ss->speed = SpeedState::Normal;
-			if (any(t->flags & ElementFlags::PlayerShip))
+			if (reg_.all_of<PlayerShip>(testId))
 				if (ShipState *ss = ship(testId))
 					ss->speed = SpeedState::Normal;
 		}
@@ -657,7 +660,7 @@ Battle::postProcessPass()
 				// The wrap lives here, at the commit (process.c:899-916) -- see
 				// design-notes D4. BeamGeometry is exempt: its two points are
 				// the beam, not motion.
-				if (!any(e->flags & ElementFlags::BeamGeometry))
+				if (!reg_.all_of<BeamGeometry>(id))
 				{
 					e->next = wrap(e->next);
 					e->current = e->next;

@@ -53,7 +53,7 @@ deriveSpeedState(const Velocity &v, const ThrustProfile &profile) noexcept
 }
 
 void
-applyImpulse(Element &a, Element &b) noexcept
+applyImpulse(Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept
 {
 	// Impact axis: the line between the two at the moment they met.
 	const Vec2i rel{a.next.x - b.next.x, a.next.y - b.next.y};
@@ -103,12 +103,13 @@ applyImpulse(Element &a, Element &b) noexcept
 	const std::int64_t scalar =
 			std::int64_t{sine(directness, speed << 1)} * (massA * massB);
 
-	const auto push = [&](Element &self, Element &other, int impactAngle,
-							  std::int32_t selfMass, std::int32_t otherMass) {
+	const auto push = [&](Element &self, bool selfIsShip, Element &other,
+							  int impactAngle, std::int32_t selfMass,
+							  std::int32_t otherMass) {
 		if (isGravityMass(self.mass + 1))
 			return;  // a planet is not pushed
 
-		if (any(self.flags & ElementFlags::PlayerShip))
+		if (selfIsShip)
 		{
 			// The turn/thrust stagger, gated on DEFY_PHYSICS
 			// (collide.c:111-116).
@@ -145,8 +146,8 @@ applyImpulse(Element &a, Element &b) noexcept
 		(void)other;
 	};
 
-	push(a, b, impactA, massA, massB);
-	push(b, a, impactB, massB, massA);
+	push(a, aIsShip, b, impactA, massA, massB);
+	push(b, bIsShip, a, impactB, massB, massA);
 }
 
 }  // namespace uqm::sim

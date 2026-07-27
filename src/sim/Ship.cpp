@@ -284,7 +284,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 			id = b.next(id))
 	{
 		const auto t = b.get(id);
-		if (t == nullptr || !any(t->flags & ElementFlags::PlayerShip))
+		if (t == nullptr || !b.registry().all_of<PlayerShip>(id))
 			continue;
 		if (t->playerNr == self->playerNr)
 			continue;
@@ -433,8 +433,7 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	Element t;
 	t.kind = ElementKind::IonTrail;
 	t.playerNr = -1;  // NEUTRAL: exhaust belongs to nobody
-	t.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid
-			| ElementFlags::IgnoreVelocity;
+	t.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
 	t.lifeSpan = kIonTrailLife;
 	t.colorCycle = 0;
 	t.current = wrap(Vec2i{e->current.x + cosine(angle, back),
@@ -442,7 +441,10 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	t.next = t.current;
 
 	// Head insertion, so exhaust draws behind everything that matters.
-	b.spawnFront(std::move(t));
+	// Tags attach after the spawn hands out the id; the walk reaches the
+	// trail later than this statement, so it never sees a half-built one.
+	const EntityId trail = b.spawnFront(std::move(t));
+	b.registry().emplace<IgnoreVelocity>(trail);
 }
 
 void
@@ -679,15 +681,17 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		beam.kind = ElementKind::Laser;
 		beam.playerNr = ship->playerNr;
 		beam.owner = id;
-		beam.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid
-				| ElementFlags::IgnoreVelocity | ElementFlags::BeamGeometry;
+		beam.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
 		beam.lifeSpan = 1;
 		beam.current = from;
 		beam.next = beamTo;
 		// Tail insertion: the post walk's catch-up reaches it this frame, so
 		// its one frame of life is spent -- and drawn -- on the frame it was
-		// fired, not the one after.
-		b.spawnBack(std::move(beam));
+		// fired, not the one after. BeamGeometry must be tagged before that
+		// catch-up runs, which this statement order guarantees.
+		const EntityId beamId = b.spawnBack(std::move(beam));
+		b.registry().emplace<IgnoreVelocity>(beamId);
+		b.registry().emplace<BeamGeometry>(beamId);
 
 		ship = b.get(id);
 		if (ship == nullptr)

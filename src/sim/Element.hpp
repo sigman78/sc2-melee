@@ -55,23 +55,42 @@ enum class ElementFlags : std::uint32_t
 	// relative motion to exchange (collide.c:84-85). DEFY_PHYSICS in the C.
 	DefyPhysics = 1u << 8,
 
-	// Skips velocity integration. IGNORE_VELOCITY in the C, and distinct
-	// from DefyPhysics -- process.c:163 tests this one and nothing else when
-	// deciding whether an element moves.
-	IgnoreVelocity = 1u << 10,
-
-	// A player's ship, as opposed to a projectile or a rock.
-	PlayerShip = 1u << 9,
-
 	// OBJECT_CLOAKED: invisible to weapon targeting (weapon.c:344) and PD
 	// (human.c:202), but does not stop collisions. Set only at full black
 	// (element.h:201-204), so targetable through the whole fade either way.
+	//
+	// Still a flag, deliberately: it is a projection of the cloak machine's
+	// state (ShipState::cloakLevel), and the census's Cloak *component* is
+	// where it belongs -- storing it as a tag beside that state would be
+	// the sync hazard review-002 warns about (the POINT_DEFENSE case).
 	Cloaked = 1u << 11,
 
-	// `current` and `next` are the two ENDS of a beam, not motion -- the C's
-	// LINE_PRIM elements (weapon.c:44-85). The step neither seeds next from
-	// current at spawn nor commits current = next.
-	BeamGeometry = 1u << 12,
+	// Bits 9, 10 and 12 (PlayerShip, IgnoreVelocity, BeamGeometry) left
+	// this enum in review-004 X4: a trait an element has for its whole
+	// life is a tag component now. What stays here is the step protocol
+	// and the cloak projection above.
+};
+
+// Traits as types: any(flags & X) became registry().all_of<X>(id), and the
+// bitfield stopped filling up (review-002 called it "close to full" at 13).
+
+// A player's ship, as opposed to a projectile or a rock.
+struct PlayerShip
+{
+};
+
+// Skips velocity integration. IGNORE_VELOCITY in the C, and distinct from
+// DefyPhysics -- process.c:163 tests this one and nothing else when
+// deciding whether an element moves.
+struct IgnoreVelocity
+{
+};
+
+// `current` and `next` are the two ENDS of a beam, not motion -- the C's
+// LINE_PRIM elements (weapon.c:44-85). The step neither seeds next from
+// current at spawn nor commits current = next.
+struct BeamGeometry
+{
 };
 
 [[nodiscard]] constexpr ElementFlags
