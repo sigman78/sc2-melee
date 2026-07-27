@@ -209,12 +209,12 @@ testEntityAddressesAreStable()
 	for (int i = 0; i < 500; ++i)
 	{
 		ids.push_back(list.pushBack(i));
-		addresses.push_back(list.get(ids.back()));
+		addresses.push_back(list.get(ids.back()).raw());
 	}
 
 	for (std::size_t i = 0; i < ids.size(); ++i)
 	{
-		CHECK(list.get(ids[i]) == addresses[i],
+		CHECK(list.get(ids[i]).raw() == addresses[i],
 				"entity %zu moved when the arena grew", i);
 		CHECK(*addresses[i] == static_cast<int>(i),
 				"entity %zu holds the wrong value after growth", i);
@@ -781,14 +781,14 @@ Trace g_trace;
 void
 recordPre(Battle &b, EntityId id) noexcept
 {
-	const Element *e = b.get(id);
+	auto e = b.get(id);
 	g_trace.preOrder.push_back(static_cast<int>(e->mass));
 }
 
 void
 recordDeath(Battle &b, EntityId id) noexcept
 {
-	const Element *e = b.get(id);
+	auto e = b.get(id);
 	g_trace.deaths.push_back(static_cast<int>(e->mass));
 }
 
@@ -1133,7 +1133,7 @@ testShipInitialisesFromItsDescriptor()
 	b.get(id)->postProcess = shipPostProcess;
 
 	b.step();
-	const Element *e = b.get(id);
+	auto e = b.get(id);
 	CHECK(e->ship.crew == 18, "the cruiser starts with 18 crew, got %ld",
 			static_cast<long>(e->ship.crew));
 	CHECK(e->ship.energy == 18, "and 18 energy, got %ld",
@@ -1384,7 +1384,7 @@ testAsteroidsSpawnOnAnEdgeAndRepeatably()
 		const EntityId a = spawnAsteroid(b, &m);
 		const EntityId a2 = spawnAsteroid(c, &m);
 
-		const Element *e = b.get(a);
+		auto e = b.get(a);
 		const bool onEdge = e->current.x == 0 || e->current.x == kLogSpaceWidth
 				|| e->current.y == 0 || e->current.y == kLogSpaceHeight;
 		CHECK(onEdge, "asteroid %d should enter from an edge, got (%ld,%ld)", i,
@@ -1393,7 +1393,7 @@ testAsteroidsSpawnOnAnEdgeAndRepeatably()
 		CHECK(!e->velocity.isZero(), "and should be moving");
 
 		// Same seed, same asteroid: the six draws happen in a fixed order.
-		const Element *e2 = c.get(a2);
+		auto e2 = c.get(a2);
 		CHECK(e->current == e2->current && e->facing == e2->facing
 						&& e->thrustWait == e2->thrustWait,
 				"asteroid %d should be identical from the same seed", i);

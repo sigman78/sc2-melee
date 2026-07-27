@@ -11,7 +11,7 @@ namespace uqm::sim {
 bool
 calculateGravity(Battle &b, EntityId id)
 {
-	const Element *self = b.get(id);
+	auto self = b.get(id);
 	if (self == nullptr)
 		return false;
 
@@ -35,7 +35,7 @@ calculateGravity(Battle &b, EntityId id)
 		if (other == id)
 			continue;
 
-		Element *t = b.get(other);
+		auto t = b.get(other);
 		if (t == nullptr || !t->collidable())
 			continue;
 

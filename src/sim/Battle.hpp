@@ -35,11 +35,11 @@ public:
 		return elements_;
 	}
 
-	[[nodiscard]] Element *get(EntityId id) noexcept
-	{
-		return elements_.get(id);
-	}
-	[[nodiscard]] const Element *get(EntityId id) const noexcept
+	// Returns a checked reference, not a raw pointer -- see EntityRef in
+	// EntityList.hpp. `auto e = b.get(id)` works; `Element *e = b.get(id)`
+	// deliberately does not.
+	[[nodiscard]] auto get(EntityId id) noexcept { return elements_.get(id); }
+	[[nodiscard]] auto get(EntityId id) const noexcept
 	{
 		return elements_.get(id);
 	}

@@ -39,7 +39,7 @@ Battle::spawnBack(Element e)
 void
 Battle::preProcessOne(EntityId id) noexcept
 {
-	Element *e = elements_.get(id);
+	auto e = elements_.get(id);
 	if (e == nullptr)
 		return;
 
@@ -112,8 +112,8 @@ Battle::preProcessOne(EntityId id) noexcept
 bool
 Battle::testPair(EntityId aId, EntityId bId)
 {
-	Element *a = elements_.get(aId);
-	Element *b = elements_.get(bId);
+	auto a = elements_.get(aId);
+	auto b = elements_.get(bId);
 	if (a == nullptr || b == nullptr)
 		return false;
 	if (!a->collidable() || !b->collidable())
@@ -209,7 +209,7 @@ Battle::preProcessPass()
 
 	for (const EntityId id : scratch_)
 	{
-		Element *e = elements_.get(id);
+		auto e = elements_.get(id);
 		if (e == nullptr)
 			continue;
 
@@ -235,7 +235,7 @@ Battle::postProcessPass()
 
 	for (const EntityId id : scratch_)
 	{
-		Element *e = elements_.get(id);
+		auto e = elements_.get(id);
 		if (e == nullptr || any(e->flags & ElementFlags::PreProcessed))
 			continue;
 
@@ -254,7 +254,7 @@ Battle::postProcessPass()
 
 	for (const EntityId id : scratch_)
 	{
-		Element *e = elements_.get(id);
+		auto e = elements_.get(id);
 		if (e == nullptr)
 			continue;
 
@@ -280,7 +280,7 @@ Battle::postProcessPass()
 	scratch_.clear();
 	for (EntityId id = elements_.front(); id.valid(); id = elements_.next(id))
 	{
-		const Element *e = elements_.get(id);
+		auto e = elements_.get(id);
 		if (e != nullptr && any(e->flags & ElementFlags::Disappearing))
 			scratch_.push_back(id);
 	}

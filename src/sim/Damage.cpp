@@ -69,14 +69,14 @@ doDamage(Element &e, std::int32_t damage) noexcept
 void
 weaponCollision(Battle &b, EntityId id) noexcept
 {
-	Element *w = b.get(id);
+	auto w = b.get(id);
 	if (w == nullptr)
 		return;
 
 	const EntityId targetId = w->collidedWith;
 	const std::int32_t damage = w->damage;
 
-	if (Element *target = b.get(targetId); target != nullptr && damage > 0)
+	if (auto target = b.get(targetId); target != nullptr && damage > 0)
 	{
 		// weapon.c:145-147. A weapon hurts things that are either transient
 		// themselves or are at NORMAL_LIFE -- which is everything that is
@@ -116,11 +116,11 @@ weaponCollision(Battle &b, EntityId id) noexcept
 void
 solidCollision(Battle &b, EntityId id) noexcept
 {
-	Element *e = b.get(id);
+	auto e = b.get(id);
 	if (e == nullptr)
 		return;
 
-	const Element *other = b.get(e->collidedWith);
+	auto other = b.get(e->collidedWith);
 	if (other == nullptr)
 		return;
 

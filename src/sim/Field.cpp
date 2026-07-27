@@ -40,7 +40,7 @@ displayAlignY(std::uint32_t r) noexcept
 void
 asteroidPreProcess(Battle &b, EntityId id) noexcept
 {
-	Element *e = b.get(id);
+	auto e = b.get(id);
 	if (e == nullptr)
 		return;
 
@@ -59,7 +59,7 @@ asteroidPreProcess(Battle &b, EntityId id) noexcept
 void
 rubbleDeath(Battle &b, EntityId id) noexcept
 {
-	const Element *e = b.get(id);
+	auto e = b.get(id);
 	const CollisionMask *mask = (e != nullptr) ? e->mask : nullptr;
 	(void)spawnAsteroid(b, mask);
 }
@@ -69,7 +69,7 @@ rubbleDeath(Battle &b, EntityId id) noexcept
 bool
 timeSpaceMatterConflict(Battle &b, EntityId id)
 {
-	const Element *self = b.get(id);
+	auto self = b.get(id);
 	if (self == nullptr || self->mask == nullptr)
 		return false;
 
@@ -81,7 +81,7 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 		if (other == id)
 			continue;
 
-		const Element *t = b.get(other);
+		auto t = b.get(other);
 		if (t == nullptr || t->mask == nullptr)
 			continue;
 
@@ -122,7 +122,7 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 
 	do
 	{
-		Element *e = b.get(id);
+		auto e = b.get(id);
 		e->current = wrap(Vec2i{displayAlignX(b.rng().next()),
 				displayAlignY(b.rng().next())});
 		e->next = e->current;
@@ -178,7 +178,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 void
 asteroidDeath(Battle &b, EntityId id) noexcept
 {
-	const Element *dead = b.get(id);
+	auto dead = b.get(id);
 	if (dead == nullptr)
 		return;
 

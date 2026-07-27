@@ -92,9 +92,8 @@ public:
 		for (const Vec2i &s : ships.subspan(1))
 		{
 			const Vec2i d = sim::wrapDelta(
-					Vec2i{align(s.x) - origin.x, align(s.y) - origin.y});
-			origin = Vec2i{align(origin.x + (d.x >> 1)),
-					align(origin.y + (d.y >> 1))};
+					Vec2i{s.x - origin.x, s.y - origin.y});
+			origin = Vec2i{origin.x + (d.x >> 1), origin.y + (d.y >> 1)};
 
 			// Written out rather than std::max, to keep <algorithm> out of a
 			// header this widely included for two comparisons.
@@ -126,19 +125,36 @@ public:
 	[[nodiscard]] std::int32_t
 	scale(std::int32_t worldLength) const noexcept
 	{
+		// One division, and rounded.
+		//
+		// Converting world to display *first* and then dividing by the zoom
+		// truncates twice. The first throws away two bits of position, and the
+		// second divides by up to four again, so a ship drifting a few world
+		// units a frame lands on screen positions that step unevenly -- which
+		// reads as jitter rather than as motion, and makes sprite sizes
+		// breathe by a pixel as the zoom drifts. Doing it in one rounded
+		// division keeps the full world precision until the last moment.
+		const std::int64_t denom = std::int64_t{sim::kScaledOne} * zoom_;
+		const std::int64_t num = std::int64_t{worldLength} * kZoomOne;
+		const std::int64_t half = denom / 2;
 		return static_cast<std::int32_t>(
-				std::int64_t{sim::worldToDisplay(worldLength)} * kZoomOne
-				/ zoom_);
+				(num >= 0 ? num + half : num - half) / denom);
 	}
 
 private:
-	// DISPLAY_ALIGN (units.h:84): snap to a whole display pixel, which is what
-	// keeps objects from jittering by a pixel as the origin drifts.
-	[[nodiscard]] static constexpr std::int32_t
-	align(std::int32_t v) noexcept
-	{
-		return v & ~(sim::kScaledOne - 1);
-	}
+	// The C snaps the origin to a whole display pixel here (DISPLAY_ALIGN,
+	// process.c:337-342, "to reduce the amount of object positioning jitter").
+	// That is the right fix for a renderer that truncates world coordinates to
+	// display pixels, because an unaligned origin then shifts objects by a
+	// pixel inconsistently.
+	//
+	// It is the wrong fix here, and was actively causing the thing it is meant
+	// to prevent. `scale` keeps full world precision now, so snapping the
+	// origin to a four-world-unit grid makes the centre jump in steps -- and
+	// because every object is drawn relative to it, the *whole screen* judders
+	// by a pixel together each time the midpoint crosses a boundary. Not
+	// aligning is smoother, which is only true because the arithmetic below it
+	// got more precise.
 
 	// process.c:222-243.
 	[[nodiscard]] std::int32_t

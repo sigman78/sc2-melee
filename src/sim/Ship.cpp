@@ -35,7 +35,7 @@ deltaEnergy(ShipState &s, std::int32_t delta) noexcept
 void
 shipPreProcess(Battle &b, EntityId id) noexcept
 {
-	Element *e = b.get(id);
+	auto e = b.get(id);
 	if (e == nullptr || e->ship.data == nullptr)
 		return;
 
@@ -99,7 +99,7 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 void
 shipPostProcess(Battle &b, EntityId id) noexcept
 {
-	Element *e = b.get(id);
+	auto e = b.get(id);
 	if (e == nullptr || e->ship.data == nullptr)
 		return;
 

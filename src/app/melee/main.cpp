@@ -207,7 +207,7 @@ draw(Game &g)
 	for (sim::EntityId id = g.battle.elements().front(); id.valid();
 			id = g.battle.elements().next(id))
 	{
-		const sim::Element *e = g.battle.get(id);
+		auto e = g.battle.get(id);
 		if (e == nullptr)
 			continue;
 
@@ -271,7 +271,7 @@ iterate(Game &g)
 			const input::Buttons b = g.players[p].consume();
 			if (b.test(Button::Escape))
 				g.running = false;
-			if (sim::Element *ship = g.battle.get(g.ships[p]); ship != nullptr)
+			if (auto ship = g.battle.get(g.ships[p]); ship != nullptr)
 				ship->ship.input = toShipInput(b);
 		}
 		g.battle.step();
@@ -283,7 +283,7 @@ iterate(Game &g)
 	std::array<Vec2i, 2> eyes{};
 	std::size_t living = 0;
 	for (const sim::EntityId id : g.ships)
-		if (const sim::Element *e = g.battle.get(id); e != nullptr)
+		if (auto e = g.battle.get(id); e != nullptr)
 			eyes[living++] = e->current;
 	if (living > 0)
 		g.camera.follow(std::span<const Vec2i>{eyes.data(), living});

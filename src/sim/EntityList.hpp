@@ -10,6 +10,10 @@
 #include <utility>
 #include <vector>
 
+#ifndef NDEBUG
+#include <cstdio>
+#endif
+
 namespace uqm::sim {
 
 // A stable handle. The index addresses a slot; the generation makes a stale
@@ -28,6 +32,106 @@ struct EntityId
 };
 
 inline constexpr EntityId kNoEntity{};
+
+// A borrowed pointer to a live entity, checked in debug builds.
+//
+// Stable addresses (see EntityList below) removed one hazard and left another.
+// Allocating no longer moves anyone, so holding a pointer across a spawn is
+// safe. But a hook can *remove* the entity underneath you, and then the
+// pointer refers to a default-constructed T -- not undefined behaviour, just
+// silently wrong, which is worse to find. The discipline is to go back through
+// the handle after anything that can mutate the list, and the discipline is
+// what failed: a ship wrote its own weapon cooldown through a stale pointer
+// and fired every frame.
+//
+// So the check is mechanical rather than remembered. Every dereference asserts
+// the entity is still alive, and the message says how many times the list
+// changed since the pointer was handed out -- which is the number that tells
+// you which call did it. In release this is a T* with no extra members and
+// every method inlines away.
+//
+// There is deliberately no implicit conversion to T*, so `auto e = // list.get(id)` does not compile and `auto e = list.get(id)` does. Opting out
+// means writing `.raw()`, which is visible in review.
+template <class T, class List>
+class EntityRef
+{
+public:
+	EntityRef() = default;
+
+	EntityRef(T *ptr, [[maybe_unused]] const List *list,
+			[[maybe_unused]] EntityId id) noexcept
+		: ptr_(ptr)
+#ifndef NDEBUG
+		, list_(list)
+		, id_(id)
+		, epoch_(list != nullptr ? list->epoch() : 0)
+#endif
+	{
+	}
+
+	[[nodiscard]] T *
+	operator->() const noexcept
+	{
+		check();
+		return ptr_;
+	}
+
+	[[nodiscard]] T &
+	operator*() const noexcept
+	{
+		check();
+		return *ptr_;
+	}
+
+	[[nodiscard]] explicit operator bool() const noexcept
+	{
+		return ptr_ != nullptr;
+	}
+
+	[[nodiscard]] friend bool
+	operator==(const EntityRef &r, std::nullptr_t) noexcept
+	{
+		return r.ptr_ == nullptr;
+	}
+
+	// The escape hatch, spelled out. Unchecked from here on.
+	[[nodiscard]] T *
+	raw() const noexcept
+	{
+		return ptr_;
+	}
+
+private:
+	void
+	check() const noexcept
+	{
+#ifndef NDEBUG
+		if (ptr_ == nullptr || list_ == nullptr)
+			return;  // a null ref is the caller's to test for, not ours
+		if (list_->alive(id_))
+			return;
+
+		// The epoch delta is the useful half: it says how many list mutations
+		// happened between the fetch and this dereference, which is what
+		// points at the call that did it.
+		std::fprintf(stderr,
+				"entity %u (generation %u) was removed while a reference to "
+				"it was held; the list changed %llu time(s) since it was "
+				"fetched. Re-fetch through the EntityId after any call that "
+				"can mutate the list.\n",
+				id_.index, id_.generation,
+				static_cast<unsigned long long>(list_->epoch() - epoch_));
+		assert(false && "dereferenced a reference to a removed entity");
+#endif
+	}
+
+	T *ptr_ = nullptr;
+#ifndef NDEBUG
+	const List *list_ = nullptr;
+	EntityId id_;
+	std::uint64_t epoch_ = 0;
+#endif
+};
 
 // An ordered list of entities over a slot arena.
 //
@@ -68,14 +172,18 @@ public:
 	[[nodiscard]] EntityId front() const noexcept { return head_; }
 	[[nodiscard]] EntityId back() const noexcept { return tail_; }
 
-	[[nodiscard]] T *get(EntityId id) noexcept
+	[[nodiscard]] EntityRef<T, EntityList> get(EntityId id) noexcept
 	{
-		return alive(id) ? &slot(id.index).value : nullptr;
+		return {alive(id) ? &slot(id.index).value : nullptr, this, id};
 	}
-	[[nodiscard]] const T *get(EntityId id) const noexcept
+	[[nodiscard]] EntityRef<const T, EntityList> get(EntityId id) const noexcept
 	{
-		return alive(id) ? &slot(id.index).value : nullptr;
+		return {alive(id) ? &slot(id.index).value : nullptr, this, id};
 	}
+
+	// How many times the list has been structurally changed. Only used by
+	// EntityRef's diagnostic, but cheap enough to keep in every build.
+	[[nodiscard]] std::uint64_t epoch() const noexcept { return epoch_; }
 
 	[[nodiscard]] EntityId next(EntityId id) const noexcept
 	{
@@ -141,6 +249,7 @@ public:
 		s.live = false;
 		free_.push_back(id.index);
 		--count_;
+		++epoch_;
 	}
 
 	void
@@ -160,6 +269,7 @@ public:
 		head_ = kNoEntity;
 		tail_ = kNoEntity;
 		count_ = 0;
+		++epoch_;
 	}
 
 	// Reserving up front is the point of the arena: a battle's entity count
@@ -237,6 +347,7 @@ private:
 		s.value = std::move(value);
 		s.live = true;
 		++count_;
+		++epoch_;
 		return EntityId{index, s.generation};
 	}
 
@@ -275,6 +386,7 @@ private:
 	EntityId head_ = kNoEntity;
 	EntityId tail_ = kNoEntity;
 	std::size_t count_ = 0;
+	std::uint64_t epoch_ = 0;
 };
 
 }  // namespace uqm::sim

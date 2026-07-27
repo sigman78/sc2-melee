@@ -326,6 +326,103 @@ testCameraKeepsBothShipsOnScreen()
 }
 
 void
+testCameraDoesNotJitter()
+{
+	using namespace uqm::game;
+
+	// A ship crossing the field at a constant speed must not appear to stutter.
+	// Two things used to make it: `scale` converted world to display and *then*
+	// divided by the zoom, truncating twice, and the origin was snapped to a
+	// four-world-unit grid -- which at 1:1 is a whole pixel, applied to every
+	// object at once, so the entire screen judders as the midpoint crosses a
+	// boundary.
+	//
+	// The property that catches both: with the view held still, equal steps in
+	// world space must produce screen positions that never go backwards, and
+	// whose steps never differ by more than one pixel.
+	// The view is placed once and then held, so this isolates the projection
+	// from the zoom. Re-following every frame is *also* jittery, but for a
+	// different and inherent reason -- see testContinuousZoomRescalesEveryFrame
+	// below -- and mixing the two makes neither diagnosable.
+	//
+	// Two ships in the follow, so the midpoint arithmetic runs; with one ship
+	// the centre is simply that ship and the origin path is never exercised.
+	Camera cam;
+	constexpr std::int32_t kStep = 7;  // deliberately not a multiple of 4
+	const Vec2i anchor{sim::kLogSpaceWidth / 2, sim::kLogSpaceHeight / 2};
+	const std::array<Vec2i, 2> placed{
+			Vec2i{anchor.x - 256, anchor.y}, Vec2i{anchor.x + 256, anchor.y}};
+	cam.follow(placed);
+
+	std::int32_t previous = 0;
+	std::int32_t previousDelta = -1;
+	for (int frame = 1; frame <= 200; ++frame)
+	{
+		const Vec2i at =
+				cam.toScreen(Vec2i{anchor.x + kStep * frame, anchor.y});
+		if (frame > 1)
+		{
+			const std::int32_t delta = at.x - previous;
+			CHECK(delta >= 0, "frame %d moved backwards by %ld", frame,
+					static_cast<long>(-delta));
+			if (previousDelta >= 0)
+			{
+				const std::int32_t wobble = delta > previousDelta
+						? delta - previousDelta
+						: previousDelta - delta;
+				CHECK(wobble <= 1,
+						"frame %d stepped %ld after %ld -- uneven motion is "
+						"what jitter looks like",
+						frame, static_cast<long>(delta),
+						static_cast<long>(previousDelta));
+			}
+			previousDelta = delta;
+		}
+		previous = at.x;
+	}
+}
+
+void
+testContinuousZoomRescalesEveryFrame()
+{
+	using namespace uqm::game;
+
+	// Not a bug, but worth pinning because it is what "the continuous mode
+	// looks shimmery" actually is. Recomputing a continuous zoom from a
+	// separation that changes every frame means every sprite is rescaled by a
+	// slightly different ratio every frame, so edges crawl. The stepped mode
+	// exists precisely because it does not do this: it holds one of three
+	// power-of-two zooms, where every sprite pixel lands on a screen pixel.
+	//
+	// If this ever stops being true -- if the zoom is smoothed or quantised --
+	// this test should be updated deliberately, not deleted in passing.
+	int changes = 0;
+	std::int32_t last = 0;
+	for (int frame = 1; frame <= 60; ++frame)
+	{
+		Camera cam;
+		const std::int32_t gap = 600 + 7 * frame;
+		const std::array<Vec2i, 2> ships{
+				Vec2i{sim::kLogSpaceWidth / 2 - gap / 2, sim::kLogSpaceHeight / 2},
+				Vec2i{sim::kLogSpaceWidth / 2 + gap / 2, sim::kLogSpaceHeight / 2}};
+		cam.follow(ships);
+		if (frame > 1 && cam.zoom() != last)
+			++changes;
+		last = cam.zoom();
+	}
+
+	if (kMeleeScale == MeleeScale::Continuous)
+		CHECK(changes > 30,
+				"a continuous zoom should change most frames as the ships "
+				"separate, got %d in 60 -- if this dropped, the zoom is being "
+				"smoothed and the comment above is stale",
+				changes);
+	else
+		CHECK(changes <= 2, "a stepped zoom should hold, got %d changes",
+				changes);
+}
+
+void
 testCameraMeasuresAcrossTheSeam()
 {
 	using namespace uqm::game;
@@ -360,6 +457,8 @@ main()
 	testCameraZoomsOutAsShipsSeparate();
 	testCameraKeepsBothShipsOnScreen();
 	testCameraMeasuresAcrossTheSeam();
+	testCameraDoesNotJitter();
+	testContinuousZoomRescalesEveryFrame();
 	testHeldButtonsAreSeenEveryStep();
 	testTapBetweenStepsIsNotLost();
 	testTapIsSeenExactlyOnce();
