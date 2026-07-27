@@ -260,15 +260,17 @@ Supox worked example tripped on it.
 
 ## 7. The staged plan
 
-| Stage | What | Risk |
+| Stage | What | Status |
 | --- | --- | --- |
-| E1 | `BeamGeometry` trait flag; sim-side kind dispatch → zero | trivial |
-| E2 | `ShipState` + `WeaponGuidance` sidecar components on `Battle`; `Element` slims to the universal core + tag | mechanical sweep, tests as referee |
-| E3 | App-side render components attached on SpawnEvents; draw loop iterates the store; `spritesFor` switch retired | app-only |
-| E4 | Spec literals: the two ships rewritten as designated-initializer `ShipSpec` values over named library components | cosmetic |
-| E5 (M2, per ship) | Each new mechanic lands as a component; systems formalized as the phase functions they already are | per plan |
+| E1 | `BeamGeometry` trait flag; sim-side kind dispatch → zero | **done** |
+| E2 | `ShipState` + weapon-guidance sidecars on `Battle`; `Element` slims to the universal core + tag; `doDamage` takes the battle, `deltaCrew` is a component function, `applyImpulse` is pure physics | **done** |
+| E3 | App-side render components attached at setup and on SpawnEvents; draw switches on CelPolicy; `spritesFor` retired | **done** |
+| E4 | The two ships as designated-initializer `ShipSpec` literals | **done** |
+| E5 (M2, per ship) | Each new mechanic lands as a component; the ranked gap list (§5) is the backlog, beams + segment collision first | per plan |
 
-Stages E1–E4 are this review's execution; E5 is M2 absorbing the model.
+E1–E4 executed and committed with all suites green at every stage; E5 is
+M2 absorbing the model, starting from the census's Human/Utwig/Urquan
+recommendation and §5's gap list.
 
 ## 8. Out-takes
 
