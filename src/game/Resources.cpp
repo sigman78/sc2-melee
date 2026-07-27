@@ -2,6 +2,7 @@
 
 #include "Resources.hpp"
 
+#include "engine/core/Text.hpp"
 #include "platform/File.hpp"
 
 #include <utility>
@@ -55,6 +56,38 @@ Resources::sprites(platform::Platform &window, std::string_view id)
 	}
 
 	const auto [it, inserted] = sprites_.emplace(std::string(id), std::move(set));
+	(void)inserted;
+	return it->second;
+}
+
+std::span<const platform::Sound>
+Resources::sounds(const platform::Audio &audio, std::string_view id)
+{
+	if (const auto it = sounds_.find(id); it != sounds_.end())
+		return it->second;
+
+	std::vector<platform::Sound> loaded;
+	const fs::path list = pathOf(id);
+	if (!list.empty())
+	{
+		if (const auto text = platform::readFile(list); text)
+		{
+			// One filename per line, relative to the .snd's own directory.
+			// Blank lines are skipped rather than treated as a missing file,
+			// because trailing newlines are ordinary.
+			const fs::path dir = list.parent_path();
+			forEachLine(platform::asText(*text),
+					[&](std::string_view line, std::size_t) {
+				const std::string_view name = trim(line);
+				if (name.empty())
+					return;
+				platform::Sound s = audio.load(dir / std::string(name));
+				loaded.push_back(std::move(s));
+			});
+		}
+	}
+
+	const auto [it, inserted] = sounds_.emplace(std::string(id), std::move(loaded));
 	(void)inserted;
 	return it->second;
 }

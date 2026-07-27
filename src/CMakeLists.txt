@@ -80,7 +80,7 @@ endif()
 # SDL. Single-threaded by construction: nothing in here starts a thread, and
 # the audio callback (M1.5) is the only thing that will ever run off the main
 # loop -- behind a ring buffer, never touching game state.
-add_library(uqm2_platform STATIC platform/Platform.cpp game/Resources.cpp game/SpriteSet.cpp)
+add_library(uqm2_platform STATIC platform/Audio.cpp platform/Platform.cpp game/Resources.cpp game/SpriteSet.cpp)
 target_link_libraries(uqm2_platform PUBLIC uqm2_content uqm::SDL)
 if(MSVC)
 	target_compile_options(uqm2_platform PRIVATE /W4 /utf-8)
@@ -104,6 +104,12 @@ if(UQM_WERROR)
 	target_compile_options(uqm2-melee PRIVATE ${_uqm_werror})
 endif()
 
+# A headless check that the audio path actually loads content. Not a ctest --
+# it needs the content tree and an audio device -- but it answers "did the
+# WAVs load" without a window, which a game with its own console cannot.
+add_executable(uqm2-audioprobe app/melee/audioprobe.cpp)
+target_link_libraries(uqm2-audioprobe PRIVATE uqm2_platform)
+
 # MinGW keeps libstdc++, libgcc and libwinpthread in DLLs that exist only on
 # the toolchain's PATH, so a perfectly good build dies at startup with a
 # missing-DLL box the moment it is launched from Explorer rather than from an
@@ -113,4 +119,5 @@ endif()
 if(MINGW)
 	target_link_options(uqm2-melee PRIVATE -static)
 	target_link_options(uqm2-browse PRIVATE -static)
+	target_link_options(uqm2-audioprobe PRIVATE -static)
 endif()

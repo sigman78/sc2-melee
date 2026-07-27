@@ -5,11 +5,13 @@
 
 #include "engine/content/ResourceMap.hpp"
 #include "game/SpriteSet.hpp"
+#include "platform/Audio.hpp"
 #include "platform/Platform.hpp"
 
 #include <filesystem>
 #include <map>
 #include <string>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -59,11 +61,19 @@ public:
 	[[nodiscard]] const SpriteSet &sprites(
 			platform::Platform &window, std::string_view id);
 
+	// The sounds a SNDRES id names. A .snd is a plain text list of .wav
+	// filenames, one per line, exactly as a .ani lists its .png cels -- so a
+	// ship's sounds arrive as an indexed set and the caller picks by slot.
+	// Cached by id like the sprites, since every Cruiser shares one.
+	[[nodiscard]] std::span<const platform::Sound> sounds(
+			const platform::Audio &audio, std::string_view id);
+
 private:
 	std::filesystem::path root_;
 	std::string text_;                 // owns what map_ views
 	content::ResourceMap map_;
 	std::map<std::string, SpriteSet, std::less<>> sprites_;
+	std::map<std::string, std::vector<platform::Sound>, std::less<>> sounds_;
 };
 
 }  // namespace uqm::game

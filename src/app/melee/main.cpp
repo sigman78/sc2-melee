@@ -23,6 +23,7 @@
 #include "engine/input/Input.hpp"
 #include "game/Camera.hpp"
 #include "game/Resources.hpp"
+#include "platform/Audio.hpp"
 #include "game/SpriteSet.hpp"
 #include "platform/Platform.hpp"
 #include "sim/Battle.hpp"
@@ -36,6 +37,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <span>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -186,7 +188,15 @@ struct Game
 	// Everything content-addressed. Resources owns the sets and the masks
 	// inside them, so both outlive the battle -- which is what Element::mask
 	// assumes.
+	platform::Audio audio;
 	game::Resources content;
+
+	// Sound slots, by the index the .snd list gives them. cruiser.snd is
+	// primary then secondary; battle.snd is the shared set -- getcrew,
+	// shipdies, then the booms.
+	std::span<const platform::Sound> cruiserSounds;
+	std::span<const platform::Sound> avengerSounds;
+	std::span<const platform::Sound> battleSounds;
 
 	const game::SpriteSet *cruiser = nullptr;
 	const game::SpriteSet *avenger = nullptr;
@@ -231,6 +241,9 @@ struct Game
 		std::int64_t frame = 0;
 	};
 	std::vector<Mark> marks;
+
+	// How many shots were in flight last step, so a new one can be heard.
+	std::size_t lastShots = 0;
 };
 
 // How long a contact point stays on screen, in simulation frames.
@@ -360,6 +373,22 @@ setUp(Game &g, const std::filesystem::path &content)
 	// The C picks a planet type at random per battle (load_gravity_well,
 	// cons_res.c:52-82). One fixed type until melee setup exists to choose.
 	g.world = load("planet.acid.large");
+
+	const auto loadSounds = [&](const char *id) {
+		const std::span<const platform::Sound> set =
+				g.content.sounds(g.audio, id);
+		std::size_t ok = 0;
+		for (const platform::Sound &snd : set)
+			ok += snd.valid() ? 1 : 0;
+		std::fprintf(stderr, "audio: %s -> %zu/%zu loaded\n", id, ok,
+				set.size());
+		return set;
+	};
+	g.cruiserSounds = loadSounds("ship.earthling.sounds");
+	g.avengerSounds = loadSounds("ship.ilwrath.sounds");
+	g.battleSounds = loadSounds("sounds.battle");
+	if (!g.audio.valid())
+		std::fprintf(stderr, "audio: no device; the game runs silent\n");
 
 	// The descriptors first, then the content-derived masks on top. Losing
 	// these two lines leaves a default-constructed ShipData, whose maxThrust
@@ -680,8 +709,38 @@ iterate(Game &g)
 		// Collected every frame regardless of the overlay, because the events
 		// are the simulation's and only the drawing is optional.
 		for (const sim::CollisionEvent &c : g.battle.collisions())
+		{
 			g.marks.push_back(
 					Game::Mark{c, static_cast<std::int64_t>(g.battle.frame())});
+
+			// And heard. This is the second consumer the events were recorded
+			// for rather than merely acted on -- the overlay was the first.
+			// battle.snd slot 2 is boom1.
+			if (g.battleSounds.size() > 2)
+				g.audio.play(g.battleSounds[2]);
+		}
+
+		// Weapons fired this frame. Counted by watching the list rather than
+		// by a sim callback, because a sound is presentation and the
+		// simulation should not know it exists.
+		std::size_t shots = 0;
+		for (sim::EntityId e = g.battle.elements().front(); e.valid();
+				e = g.battle.elements().next(e))
+		{
+			const auto el = g.battle.get(e);
+			if (el != nullptr && el->kind == sim::ElementKind::Weapon
+					&& any(el->flags & sim::ElementFlags::Appearing))
+				++shots;
+		}
+		if (shots > g.lastShots)
+		{
+			// Slot 0 of a ship's .snd is its primary weapon (cruiser.snd is
+			// primary then secondary).
+			const auto &set = g.cruiserSounds;
+			if (!set.empty())
+				g.audio.play(set[0]);
+		}
+		g.lastShots = shots;
 	}
 
 	// Drop what has aged out. Done here rather than while drawing so the list
