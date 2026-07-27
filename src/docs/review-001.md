@@ -448,8 +448,9 @@ collision resolution loop reshaped and should be one piece of work.
 | — | A17 dead-ship ordnance sweep | **fixed** (sweepDeadShipOrdnance on the wreck's death) |
 | — | A18 spark drift 64 directions + byte speed slice | **fixed** (Ship.cpp) |
 | — | F1 edge-trigger, varying printed battle seed, dead locals | **fixed** (melee main) |
-| — | A10, A11, A16 collision-resolution protocol (BAD NEWS repairs, earliest-collision-wins, post-impulse rescan, weapon pierce rule) | deferred — one piece of work, this document is its record |
-| — | A15 PD own-missiles policy (C shoots down its own nukes) | decide with user |
+| — | A10, A11, A16 collision-resolution protocol | **fixed** — ProcessCollisions ported whole (Battle.cpp): the BAD NEWS repairs (stationary retest, overlap-spawn execution, rotation revert via Element::priorMask/priorFacing), earliest-collision-wins recursion, post-impulse whole-list rescans, and hook-decided stopping with the weapon pierce rule (Damage.cpp, weapon.c:141-181). The born-exemption shape (A19, either-side) rode along. Tests: pierce, rotation revert, overlap-spawn execution. |
+| — | A15 PD own-missiles policy | **fixed** — decided faithful: no ownership filter, the Cruiser burns its own nukes (test testPointDefenceBurnsOwnNuke) |
+| — | POST_PROCESS protection | **fixed** — a regression fix 8 introduced and this port caught: the C's POST_PROCESS flag guards committed elements from whole-list catch-up walks (process.c:859); the live-walk commit had cleared it, so a ship firing every frame was integrated twice per frame (test testCommittedElementsAreNotIntegratedTwice) |
 | — | A19 TrackShip target stickiness (hTarget) | deferred — no effect until >2 ships |
 | — | A19 ion-trail offset (frame bottom edge vs mask height/2) | open, visual only |
 | — | A14/B blast lifetimes 9 (nuke) / 2 (flame) vs constant 5 | open, visual only (needs frame counts from content) |

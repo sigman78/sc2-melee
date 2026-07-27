@@ -1861,19 +1861,29 @@ testOverlappingShipsSeparateInsteadOfSticking()
 	a.mass = 6;
 	a.mask = &m;
 	a.current = a.next = Vec2i{4000, 4000};
-	a.velocity.setComponents(-worldToVelocity(20), 0);
 	const EntityId ia = b.spawnBack(std::move(a));
 
-	// Overlapping -- 16 world units is 4 display pixels, half a mask -- and
-	// moving apart, exactly the state an impact response leaves behind.
 	Element c;
 	c.kind = ElementKind::Ship;
 	c.playerNr = 1;
 	c.mass = 6;
 	c.mask = &m;
-	c.current = c.next = Vec2i{4016, 4000};
-	c.velocity.setComponents(worldToVelocity(20), 0);
+	c.current = c.next = Vec2i{6000, 6000};
 	const EntityId ic = b.spawnBack(std::move(c));
+
+	// Spawned far apart and established first. The distinction is the C's:
+	// an APPEARING element found overlapping something is EXECUTED on the
+	// spot (process.c:427-449), so the skip under test here applies only to
+	// elements past their spawn frame -- which post-impact ships always are.
+	b.step();
+
+	// Now manufacture the post-impact state: overlapping -- 16 world units
+	// is 4 display pixels, half a mask -- and moving apart, exactly what an
+	// impact response leaves behind.
+	b.get(ia)->current = b.get(ia)->next = Vec2i{4000, 4000};
+	b.get(ia)->velocity.setComponents(-worldToVelocity(20), 0);
+	b.get(ic)->current = b.get(ic)->next = Vec2i{4016, 4000};
+	b.get(ic)->velocity.setComponents(worldToVelocity(20), 0);
 
 	b.step();
 	CHECK(b.collisions().empty(), "an at-rest overlap is not a collision");
@@ -1916,13 +1926,15 @@ testShipShotMidFlightKeepsItsMotion()
 	const EntityId is = b.spawnBack(std::move(ship));
 
 	// A stationary shot in the ship's path. Zero damage, so the run is about
-	// motion, not crew.
+	// motion, not crew -- and damage IS mass (weapon.c:101,144), so a
+	// zero-damage shot is a massless one. The pair still collides because
+	// the ship's own mass satisfies CollisionPossible.
 	Element shot;
 	shot.kind = ElementKind::Weapon;
 	shot.flags = ElementFlags::FiniteLife;
 	shot.lifeSpan = 20;
 	shot.playerNr = 1;
-	shot.mass = 1;
+	shot.mass = 0;
 	shot.mask = &m;
 	shot.current = shot.next = Vec2i{4200, 4000};
 	shot.onCollision = weaponCollision;
@@ -1959,6 +1971,238 @@ testShipShotMidFlightKeepsItsMotion()
 	// clears the flag and it lingers one frame, flameCollision.)
 	CHECK(b.get(iw) == nullptr,
 			"a spent missile is reaped on the frame it hit");
+}
+
+void
+testToughWeaponPiercesWeakOne()
+{
+	// The pierce rule (weapon.c:161-164): a weapon whose hit points exceed a
+	// surviving finite target's mass ploughs through it and keeps flying.
+	// Nuke and flame, at one hit point each, can never do this -- Chmmr
+	// zapsats live on it.
+	static const CollisionMask m = solid(3, 3);
+	Battle b(1);
+
+	Element tough;
+	tough.kind = ElementKind::Weapon;
+	tough.flags = ElementFlags::FiniteLife;
+	tough.lifeSpan = 30;
+	tough.playerNr = 0;
+	tough.hitPoints = 3;
+	tough.mass = 2;         // damage IS mass
+	tough.mask = &m;
+	tough.current = tough.next = Vec2i{3800, 4000};
+	tough.velocity.setComponents(worldToVelocity(40), 0);
+	tough.onCollision = weaponCollision;
+	const EntityId it = b.spawnBack(std::move(tough));
+
+	Element weak;
+	weak.kind = ElementKind::Weapon;
+	weak.flags = ElementFlags::FiniteLife;
+	weak.lifeSpan = 30;
+	weak.playerNr = 1;
+	weak.hitPoints = 1;
+	weak.mass = 1;
+	weak.mask = &m;
+	weak.current = weak.next = Vec2i{4200, 4000};
+	weak.velocity.setComponents(-worldToVelocity(40), 0);
+	weak.onCollision = weaponCollision;
+	const EntityId iw = b.spawnBack(std::move(weak));
+
+	// They close at 80 a frame across 400 units: contact by frame 6.
+	for (int i = 0; i < 8; ++i)
+		b.step();
+
+	CHECK(b.get(iw) == nullptr, "the weak shot should be destroyed");
+	CHECK(b.get(it) != nullptr, "and the tough one should still be flying");
+	if (b.get(it) == nullptr)
+		return;
+	CHECK(b.get(it)->hitPoints == 2,
+			"having paid the weak shot's damage from its hit points, got %ld",
+			static_cast<long>(b.get(it)->hitPoints));
+	// They meet near x=4000 at frame 5; eight frames of unimpeded flight from
+	// 3800 is 4120 -- well past the impact point, with no truncation.
+	CHECK(b.get(it)->current.x == 3800 + 8 * 40,
+			"and carried on past the impact point unimpeded, got %ld",
+			static_cast<long>(b.get(it)->current.x));
+}
+
+void
+testTurningIntoOverlapIsReverted()
+{
+	// The overlap-repair protocol (process.c:453-506): when a silhouette
+	// CHANGE creates a standing overlap -- a ship rotating against a wall --
+	// the C reverts the frame and the facing rather than resolving a
+	// collision. You cannot rotate into a planet.
+	static std::array<CollisionMask, 2> masks = [] {
+		return std::array<CollisionMask, 2>{solid(4, 4), solid(16, 16)};
+	}();
+	static ShipData d = [] {
+		ShipData d_ = earthlingCruiser();
+		d_.turnWait = 0;
+		d_.facingMasks = std::span<const CollisionMask>(masks);
+		return d_;
+	}();
+	static const CollisionMask wall = solid(16, 16);
+
+	Battle b(1);
+
+	Element planet;
+	planet.kind = ElementKind::Planet;
+	planet.playerNr = -1;
+	planet.mass = 200;
+	planet.hitPoints = 200;
+	planet.lifeSpan = 2;
+	planet.mask = &wall;
+	planet.current = planet.next = Vec2i{4000, 4000};
+	planet.onCollision = solidCollision;
+	(void)b.spawnBack(std::move(planet));
+
+	// Adjacent at facing 0 (a 4x4 mask), overlapping at facing 1 (16x16).
+	const EntityId ship = addShip(b, d, Vec2i{4052, 4000}, 0, 0);
+	b.get(ship)->preProcess = shipPreProcess;
+	b.get(ship)->postProcess = shipPostProcess;
+	b.get(ship)->onCollision = solidCollision;
+	b.step();
+	CHECK(b.collisions().empty(), "setup: adjacent is not touching");
+
+	const std::int32_t crew = b.get(ship)->ship.crew;
+	b.get(ship)->ship.input = ShipInput::Right;
+	b.step();
+
+	CHECK(b.get(ship)->facing == 0,
+			"the turn into the wall should have been undone, facing %d",
+			b.get(ship)->facing);
+	CHECK(b.collisions().empty(),
+			"and a reverted turn is not a collision");
+	CHECK(b.get(ship)->ship.crew == crew,
+			"so it costs nothing, got %ld (was %ld)",
+			static_cast<long>(b.get(ship)->ship.crew),
+			static_cast<long>(crew));
+}
+
+int g_overlapDeaths = 0;
+
+void
+countOverlapDeath(Battle &, EntityId) noexcept
+{
+	++g_overlapDeaths;
+}
+
+void
+testSpawnInsideSomethingIsExecuted()
+{
+	// The other half of the protocol (process.c:427-449): an APPEARING solid
+	// found standing inside another solid dies on the spot, death hook and
+	// all -- an asteroid respawned onto the planet becomes rubble at once
+	// instead of drifting through it.
+	static const CollisionMask m = solid(8, 8);
+	Battle b(1);
+
+	Element planet;
+	planet.kind = ElementKind::Planet;
+	planet.playerNr = -1;
+	planet.mass = 200;
+	planet.hitPoints = 200;
+	planet.lifeSpan = 2;
+	planet.mask = &m;
+	planet.current = planet.next = Vec2i{4000, 4000};
+	planet.onCollision = solidCollision;
+	(void)b.spawnBack(std::move(planet));
+	b.step();  // established
+
+	Element rock;
+	rock.kind = ElementKind::Asteroid;
+	rock.playerNr = -1;
+	rock.hitPoints = 1;
+	rock.mass = 3;
+	rock.lifeSpan = 1;
+	rock.mask = &m;
+	rock.current = rock.next = Vec2i{4004, 4000};  // inside the planet
+	rock.onCollision = solidCollision;
+	rock.onDeath = countOverlapDeath;
+	const EntityId ir = b.spawnBack(std::move(rock));
+
+	g_overlapDeaths = 0;
+	b.step();
+
+	CHECK(b.get(ir) == nullptr,
+			"a solid spawned inside another is destroyed the same frame");
+	CHECK(g_overlapDeaths == 1,
+			"with its death hook run, got %d", g_overlapDeaths);
+}
+
+void
+testPointDefenceBurnsOwnNuke()
+{
+	// The C's point defence has no ownership filter (human.c:203-204): a
+	// Cruiser holding SPECIAL pays for and shoots down its OWN in-flight
+	// nuke. That is a real tactical constraint, not a bug -- review-001 A15,
+	// decided faithful.
+	static CollisionMask shotMask = solid(3, 3);
+	static ShipData d = [] {
+		ShipData d_ = earthlingCruiser();
+		d_.weaponMasks = std::span<const CollisionMask>(&shotMask, 1);
+		return d_;
+	}();
+
+	Battle b(1);
+	const EntityId ship = addShip(b, d, Vec2i{4000, 4000}, 0, 0);
+	b.get(ship)->preProcess = shipPreProcess;
+	b.get(ship)->postProcess = shipPostProcess;
+	b.step();
+
+	b.get(ship)->ship.input = ShipInput::Weapon;
+	b.step();
+	std::size_t weapons = 0;
+	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+		if (b.get(e)->kind == ElementKind::Weapon)
+			++weapons;
+	CHECK(weapons == 1, "setup: one nuke in flight, got %zu", weapons);
+
+	const std::int32_t energy = b.get(ship)->ship.energy;
+	b.get(ship)->ship.input = ShipInput::Special;
+	b.step();
+	b.get(ship)->ship.input = ShipInput::None;
+	b.step();  // the burned nuke's death is seen the following frame
+
+	weapons = 0;
+	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+		if (b.get(e)->kind == ElementKind::Weapon)
+			++weapons;
+	CHECK(weapons == 0, "the Cruiser's own nuke should be shot down, %zu left",
+			weapons);
+	CHECK(b.get(ship)->ship.energy == energy - 4,
+			"and the laser paid for (special cost 4), got %ld (was %ld)",
+			static_cast<long>(b.get(ship)->ship.energy),
+			static_cast<long>(energy));
+}
+
+void
+testCommittedElementsAreNotIntegratedTwice()
+{
+	// The C's POST_PROCESS flag protects a committed element from the
+	// whole-list catch-up walks (process.c:859). Without that protection, a
+	// ship firing every frame -- whose weapon triggers a catch-up from the
+	// head every post pass -- is preprocessed twice a frame: double motion,
+	// double turning, double energy clocks.
+	Battle b(1);
+	const EntityId id = addShip(b, ilwrathAvenger(), Vec2i{4000, 6000}, 0, 0);
+	b.get(id)->preProcess = shipPreProcess;
+	b.get(id)->postProcess = shipPostProcess;
+	b.step();
+
+	// Turn and fire together. The Avenger turns every turnWait+1 = 3 frames:
+	// frames 1, 4, 7, 10 -- four steps in twelve. A double-preprocessed ship
+	// turns visibly faster.
+	const int start = b.get(id)->facing;
+	b.get(id)->ship.input = ShipInput::Right | ShipInput::Weapon;
+	for (int i = 0; i < 12; ++i)
+		b.step();
+
+	CHECK(b.get(id)->facing == normalizeFacing(start + 4),
+			"twelve frames of turn-and-fire should turn exactly 4 facings, "
+			"got %d from %d", b.get(id)->facing, start);
 }
 
 void
@@ -2318,6 +2562,11 @@ main()
 	testFlyingIntoAPlanetCostsCrewOverFour();
 	testOverlappingShipsSeparateInsteadOfSticking();
 	testShipShotMidFlightKeepsItsMotion();
+	testToughWeaponPiercesWeakOne();
+	testTurningIntoOverlapIsReverted();
+	testSpawnInsideSomethingIsExecuted();
+	testPointDefenceBurnsOwnNuke();
+	testCommittedElementsAreNotIntegratedTwice();
 	testDefyPhysicsExpires();
 	testGravityMassThreshold();
 	testGravityPullsTowardTheSource();
