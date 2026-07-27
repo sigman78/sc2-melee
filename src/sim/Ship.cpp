@@ -238,7 +238,7 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			// Tail insertion: a weapon should act *after* the ship that fired
 			// it this frame. The step loop's catch-up pass picks it up, so it
 			// still moves and can hit on the frame it was fired.
-			const EntityId wid = b.spawnBack(std::move(w));
+			const EntityId wid = b.spawn(Layer::Ordnance, std::move(w));
 			b.attachWeaponSpec(wid, &spec.weapon);
 
 			// A guided shot starts with its tracking clock already wound:
@@ -453,7 +453,7 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	// Head insertion, so exhaust draws behind everything that matters.
 	// Tags attach after the spawn hands out the id; the walk reaches the
 	// trail later than this statement, so it never sees a half-built one.
-	const EntityId trail = b.spawnFront(std::move(t));
+	const EntityId trail = b.spawn(Layer::Background, std::move(t));
 	b.registry().emplace<IgnoreVelocity>(trail);
 }
 
@@ -500,7 +500,7 @@ shipTransition(Battle &b, EntityId id) noexcept
 				e->current.y - sine(angle, back)});
 		shadow.next = shadow.current;
 		shadow.velocity.zero();
-		b.spawnFront(std::move(shadow));
+		b.spawn(Layer::Background, std::move(shadow));
 	}
 
 	e = b.get(id);
@@ -620,7 +620,7 @@ explosionPreProcess(Battle &b, EntityId id) noexcept
 		// drift to 16 facings visibly banded the cloud.
 		d.velocity.setComponents(cosine(drift, worldToVelocity(speed)),
 				sine(drift, worldToVelocity(speed)));
-		b.spawnFront(std::move(d));
+		b.spawn(Layer::Background, std::move(d));
 	}
 }
 
@@ -699,7 +699,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		// its one frame of life is spent -- and drawn -- on the frame it was
 		// fired, not the one after. BeamGeometry must be tagged before that
 		// catch-up runs, which this statement order guarantees.
-		const EntityId beamId = b.spawnBack(std::move(beam));
+		const EntityId beamId = b.spawn(Layer::Ordnance, std::move(beam));
 		b.registry().emplace<IgnoreVelocity>(beamId);
 		b.registry().emplace<BeamGeometry>(beamId);
 

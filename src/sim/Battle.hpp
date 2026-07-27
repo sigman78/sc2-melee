@@ -10,6 +10,7 @@
 
 #include <entt/entity/registry.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -85,13 +86,13 @@ public:
 		return reg_.valid(id) ? reg_.try_get<Element>(id) : nullptr;
 	}
 
-	// Adds an element at the head or the tail: order is gameplay (design-notes
-	// D8). The Pkunk's phoenix is head-inserted so it preprocesses before the
-	// dead Pkunk's death hook runs (pkunk.c:498-512), which is the reincarnation.
-	// insertAfter is the C's InsertElement, kept for the ships that splice.
-	EntityId spawnFront(Element e);
-	EntityId spawnBack(Element e);
-	EntityId insertAfter(EntityId after, Element e);
+	// THE spawn: order is gameplay (design-notes D8), and the position is
+	// declared, not computed -- the caller names the stratum (Entity.hpp
+	// Layer), FIFO within it. spawnFront/spawnBack/insertAfter retired
+	// with review-005 Y2; the C's InsertElement gymnastics (pkunk.c:498-512
+	// head-inserts the phoenix to preprocess before the death hook) become
+	// a Layer declaration when that ship arrives.
+	EntityId spawn(Layer layer, Element e);
 
 	// One simulation step, 1/24 second of game time.
 	void step();
@@ -152,14 +153,16 @@ private:
 	void killOverlapSpawn(EntityId id);
 	void recordSpawn(EntityId id, const Element &e);
 
-	// The spine ops, ex-EntityList::linkAfter/remove.
-	EntityId spawn(EntityId after, Element e);
-	void linkAfter(EntityId after, EntityId id) noexcept;
+	// The spine ops, ex-EntityList::linkAfter/remove, now layer-aware.
+	void linkAtLayerTail(Layer layer, EntityId id) noexcept;
 	void removeElement(EntityId id) noexcept;
 
 	entt::registry reg_;
 	EntityId head_ = kNoEntity;
 	EntityId tail_ = kNoEntity;
+	// Tail of each layer's segment in the one chain; kNoEntity = empty.
+	std::array<EntityId, kLayerCount> layerTail_{
+			kNoEntity, kNoEntity, kNoEntity};
 	std::size_t count_ = 0;
 	Rng rng_;
 	std::uint64_t frame_ = 0;

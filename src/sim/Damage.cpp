@@ -147,7 +147,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	blast.next = blast.current;
 	// Tail, like every PutElement in the C: the post walk's catch-up ages it
 	// this frame, so its five frames start now rather than next step.
-	b.spawnBack(std::move(blast));
+	b.spawn(Layer::Ordnance, std::move(blast));
 }
 
 void

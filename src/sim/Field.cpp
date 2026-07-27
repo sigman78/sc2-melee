@@ -162,7 +162,7 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	// "is this spot inside someone else's well?" -- which is what rejects it.
 	p.mass = 0;
 
-	const EntityId id = b.spawnBack(std::move(p));
+	const EntityId id = b.spawn(Layer::Field, std::move(p));
 
 	do
 	{
@@ -221,7 +221,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	spin.backwards = (b.rng().next() & (1u << 7)) != 0;
 
 	a.next = a.current;
-	const EntityId id = b.spawnBack(std::move(a));
+	const EntityId id = b.spawn(Layer::Field, std::move(a));
 	b.registry().emplace<Spin>(id, spin);
 	return id;
 }
@@ -246,7 +246,7 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 
 	// Tail insertion: PutElement is PutQueue, which appends at the TAIL
 	// (displist.c:142-165). The pre pass's live walk still reaches it this frame.
-	(void)b.spawnBack(std::move(r));
+	(void)b.spawn(Layer::Ordnance, std::move(r));
 }
 
 }  // namespace uqm::sim

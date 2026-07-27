@@ -124,25 +124,33 @@ playerNrs(Battle &b)
 }
 
 void
-testTraversalOrderIsWhatWasAskedFor()
+testTraversalOrderIsDeclared()
 {
+	// Review-005 Y2: order is a declared stratum, not an insertion
+	// position. Layers traverse in enum order; FIFO within a layer.
 	Battle b(1);
-	const EntityId a = b.spawnBack(marked(1));
-	b.spawnBack(marked(2));
-	b.spawnBack(marked(3));
-	CHECK(playerNrs(b) == std::vector<int>({1, 2, 3}), "spawnBack appends");
+	b.spawn(Layer::Field, marked(1));
+	b.spawn(Layer::Field, marked(2));
+	CHECK(playerNrs(b) == std::vector<int>({1, 2}),
+			"a layer is FIFO within itself");
 
-	// The pkunk.c:498-512 case: head insertion so the phoenix preprocesses
-	// before the dead Pkunk's death_func runs.
-	b.spawnFront(marked(0));
-	CHECK(playerNrs(b) == std::vector<int>({0, 1, 2, 3}),
-			"spawnFront prepends");
+	// The pkunk.c:498-512 case, declared: Background walks before Field,
+	// so a phoenix-like element preprocesses before the field it precedes.
+	b.spawn(Layer::Background, marked(0));
+	CHECK(playerNrs(b) == std::vector<int>({0, 1, 2}),
+			"an earlier layer walks first, whenever it was spawned");
 
-	// Splicing into the middle, which 20 InsertElement sites do. `a` is now
-	// the list's second entry (spawnFront put 0 ahead of it).
-	b.insertAfter(a, marked(99));
-	CHECK(playerNrs(b) == std::vector<int>({0, 1, 99, 2, 3}),
-			"insertAfter splices");
+	// Ordnance after the field -- the C's tail PutElement.
+	b.spawn(Layer::Ordnance, marked(9));
+	CHECK(playerNrs(b) == std::vector<int>({0, 1, 2, 9}),
+			"a later layer walks last");
+
+	// And a Field spawn now lands BETWEEN the strata: after the field's
+	// tail, before the ordnance -- the position insertion order could only
+	// express by accident, declared here on purpose.
+	b.spawn(Layer::Field, marked(3));
+	CHECK(playerNrs(b) == std::vector<int>({0, 1, 2, 3, 9}),
+			"a spawn joins its own stratum, not the global tail");
 }
 
 void
@@ -153,14 +161,14 @@ testSlotReuseDoesNotReorder()
 	// on storage. The OrderLink spine is what keeps a new entity landing
 	// where it was asked to go, not where its recycled slot happens to sit.
 	Battle b(1);
-	b.spawnBack(marked(1));
-	const EntityId second = b.spawnBack(marked(2));
-	b.spawnBack(marked(3));
+	b.spawn(Layer::Field, marked(1));
+	const EntityId second = b.spawn(Layer::Field, marked(2));
+	b.spawn(Layer::Field, marked(3));
 
 	b.get(second)->lifeSpan = 0;
 	b.step();  // reaps the middle entry, freeing its slot for reuse
 
-	b.spawnBack(marked(4));  // which this respawn reuses
+	b.spawn(Layer::Field, marked(4));  // which this respawn reuses
 	CHECK(playerNrs(b) == std::vector<int>({1, 3, 4}),
 			"a reused slot must not drag the new entity back to the old "
 			"position");
@@ -175,7 +183,7 @@ testStaleHandlesAreDetectable()
 	// handle from reading its new tenant. entt's versioned entity id carries
 	// that promise now, in place of EntityList's own {index, generation}.
 	Battle b(1);
-	const EntityId id = b.spawnBack(marked(7));
+	const EntityId id = b.spawn(Layer::Field, marked(7));
 	CHECK(b.alive(id) && b.get(id) != nullptr, "a live handle resolves");
 
 	b.get(id)->lifeSpan = 0;
@@ -184,7 +192,7 @@ testStaleHandlesAreDetectable()
 	CHECK(b.get(id) == nullptr, "and does not resolve");
 
 	// The slot the reap just freed comes straight back.
-	const EntityId reused = b.spawnBack(marked(8));
+	const EntityId reused = b.spawn(Layer::Field, marked(8));
 	CHECK(reused != id, "the test needs a fresh handle, even if the slot "
 			"is the same one");
 	CHECK(!b.alive(id), "the stale handle must not resolve to the new one");
@@ -206,7 +214,7 @@ testTheReapKeepsTheWalkIntact()
 	Battle b(1);
 	std::vector<EntityId> ids;
 	for (int i = 0; i < 5; ++i)
-		ids.push_back(b.spawnBack(marked(i)));
+		ids.push_back(b.spawn(Layer::Field, marked(i)));
 
 	b.get(ids[1])->lifeSpan = 0;
 	b.get(ids[3])->lifeSpan = 0;
@@ -229,11 +237,11 @@ testEntityAddressesAreStable()
 	// regression here would silently corrupt whichever unrelated element got
 	// moved into the freed or reallocated slot.
 	Battle b(1);
-	const EntityId A = b.spawnBack(marked(1));
+	const EntityId A = b.spawn(Layer::Field, marked(1));
 	// B sits between the two under test, so its reap has somewhere to
 	// disturb the layout if in_place_delete were not honoured.
-	const EntityId B = b.spawnBack(marked(2));
-	const EntityId C = b.spawnBack(marked(3));
+	const EntityId B = b.spawn(Layer::Field, marked(2));
+	const EntityId C = b.spawn(Layer::Field, marked(3));
 
 	Element *pa = b.get(A);
 	Element *pc = b.get(C);
@@ -242,7 +250,7 @@ testEntityAddressesAreStable()
 	b.step();  // reaps B -- a tombstone, not a compaction
 
 	for (int i = 0; i < 100; ++i)
-		b.spawnBack(marked(100 + i));  // forces the pool to grow
+		b.spawn(Layer::Field, marked(100 + i));  // forces the pool to grow
 
 	CHECK(b.get(A) == pa, "A's address must survive B's reap and the growth");
 	CHECK(b.get(C) == pc, "and so must C's");
@@ -796,7 +804,7 @@ struct Trace
 	std::vector<int> preOrder;
 	std::vector<int> deaths;
 	EntityId spawnFrom;
-	bool spawnAtHead = false;
+	Layer spawnLayer = Layer::Ordnance;
 	bool spawned = false;
 };
 Trace g_trace;
@@ -835,10 +843,7 @@ spawnOnce(Battle &b, EntityId id) noexcept
 	// the frame they are born.
 	child.flags = ElementFlags::FiniteLife;
 	child.lifeSpan = 5;
-	if (g_trace.spawnAtHead)
-		g_trace.spawnFrom = b.spawnFront(std::move(child));
-	else
-		g_trace.spawnFrom = b.spawnBack(std::move(child));
+	g_trace.spawnFrom = b.spawn(g_trace.spawnLayer, std::move(child));
 	b.registry().emplace<PlayerShip>(g_trace.spawnFrom);
 }
 
@@ -856,10 +861,9 @@ plain(int label)
 // attaches to the id, not the value. A projectile's hook is skipped on its
 // first frame; these tests are about ordering, not that.
 EntityId
-spawnShip(Battle &b, Element e, bool atFront = false)
+spawnShip(Battle &b, Element e, Layer layer = Layer::Field)
 {
-	const EntityId id =
-			atFront ? b.spawnFront(std::move(e)) : b.spawnBack(std::move(e));
+	const EntityId id = b.spawn(layer, std::move(e));
 	b.registry().emplace<PlayerShip>(id);
 	return id;
 }
@@ -876,26 +880,28 @@ testStepVisitsInListOrder()
 	CHECK(g_trace.preOrder == std::vector<int>({1, 2, 3}),
 			"preprocess should follow list order");
 
-	// Head insertion puts the newcomer first next frame -- the pkunk.c
-	// phoenix ordering.
+	// An earlier layer puts the newcomer first next frame -- the pkunk.c
+	// phoenix ordering, declared instead of head-inserted.
 	g_trace.preOrder.clear();
-	spawnShip(b, plain(0), true);
+	spawnShip(b, plain(0), Layer::Background);
 	b.step();
 	CHECK(g_trace.preOrder == std::vector<int>({0, 1, 2, 3}),
-			"a head-inserted element preprocesses first");
+			"an earlier-layer element preprocesses first");
 }
 
 void
 testMidFrameSpawnIsCaughtUpSameFrame()
 {
-	// An element spawned during the pre pass has already been walked past.
-	// The C gives it a catch-up pass in PostProcessQueue (process.c:844-862)
-	// so a weapon created this frame can still act this frame; without it the
-	// projectile would sit inert for a frame, which at 24 Hz is visible.
-	for (const bool atHead : {false, true})
+	// An element spawned during the pre pass has already been walked past
+	// (Background: an earlier layer than the walker) or lies ahead of it
+	// (Ordnance). Either way the C gives it a catch-up pass in
+	// PostProcessQueue (process.c:844-862) so a weapon created this frame
+	// can still act this frame; without it the projectile would sit inert
+	// for a frame, which at 24 Hz is visible.
+	for (const Layer layer : {Layer::Ordnance, Layer::Background})
 	{
 		g_trace = Trace{};
-		g_trace.spawnAtHead = atHead;
+		g_trace.spawnLayer = layer;
 
 		Battle b(1);
 		Element shooter = plain(1);
@@ -908,13 +914,14 @@ testMidFrameSpawnIsCaughtUpSameFrame()
 
 		// 99 must appear exactly once: the catch-up pass runs it, and the
 		// pre pass must not have run it as well.
+		const char *which =
+				layer == Layer::Background ? "background" : "ordnance";
 		const auto count = static_cast<int>(std::count(
 				g_trace.preOrder.begin(), g_trace.preOrder.end(), 99));
 		CHECK(count == 1,
 				"%s: the mid-frame spawn should preprocess exactly once, got %d",
-				atHead ? "head" : "tail", count);
-		CHECK(b.size() == 3, "%s: all three should be alive",
-				atHead ? "head" : "tail");
+				which, count);
+		CHECK(b.size() == 3, "%s: all three should be alive", which);
 	}
 }
 
@@ -950,7 +957,7 @@ testMotionIntegratesAndWraps()
 	Element e;
 	e.current = Vec2i{100, 100};
 	e.velocity.setComponents(worldToVelocity(10), 0);
-	const EntityId id = b.spawnBack(std::move(e));
+	const EntityId id = b.spawn(Layer::Field, std::move(e));
 
 	// A newly spawned element *does* move on its first step. Appearing
 	// suppresses the preprocess hook, not the motion -- process.c:163 gates
@@ -998,7 +1005,7 @@ testCollisionPairsAreVisitedOnce()
 	// Two frames of life, because the first is spent before the test runs.
 	a.flags = ElementFlags::FiniteLife;
 	a.lifeSpan = 2;
-	const EntityId ia = b.spawnBack(std::move(a));
+	const EntityId ia = b.spawn(Layer::Field, std::move(a));
 
 	Element c;
 	c.current = Vec2i{500, 500};
@@ -1008,7 +1015,7 @@ testCollisionPairsAreVisitedOnce()
 	// At least one side must have mass, or the pair is skipped entirely
 	// (collide.h:39). Two massless things have no momentum to exchange.
 	c.mass = 6;
-	const EntityId ic = b.spawnBack(std::move(c));
+	const EntityId ic = b.spawn(Layer::Field, std::move(c));
 
 	b.step();
 	CHECK(b.get(ia)->collidedWith == ic, "a should record hitting c");
@@ -1027,7 +1034,7 @@ testCollisionPairsAreVisitedOnce()
 	f1.playerNr = 0;
 	f1.mass = 4;
 	f1.flags = ElementFlags::IgnoreSimilar;
-	const EntityId if1 = b2.spawnBack(std::move(f1));
+	const EntityId if1 = b2.spawn(Layer::Field, std::move(f1));
 	// A synthesized EntityId{index, generation} literal no longer compiles
 	// -- entt's handle has no such constructor -- so f1 stands in as its own
 	// owner, a real spawned id the second projectile below can share.
@@ -1039,7 +1046,7 @@ testCollisionPairsAreVisitedOnce()
 	// case the old same-kind test let through.
 	f2.kind = ElementKind::Ship;
 	f2.mass = 7;
-	const EntityId if2 = b2.spawnBack(std::move(f2));
+	const EntityId if2 = b2.spawn(Layer::Field, std::move(f2));
 
 	b2.step();
 	CHECK(b2.get(if1)->collidedWith == kNoEntity,
@@ -1054,11 +1061,11 @@ testCollisionPairsAreVisitedOnce()
 	// flame must be finite-life for a stationary overlap to be a hit.
 	g1.flags = ElementFlags::IgnoreSimilar | ElementFlags::FiniteLife;
 	g1.lifeSpan = 2;
-	const EntityId ig1 = b3.spawnBack(std::move(g1));
+	const EntityId ig1 = b3.spawn(Layer::Field, std::move(g1));
 
 	Element g2 = *b2.get(if2);
 	g2.collidedWith = kNoEntity;
-	const EntityId ig2 = b3.spawnBack(std::move(g2));
+	const EntityId ig2 = b3.spawn(Layer::Field, std::move(g2));
 
 	// Two distinct real owners, in place of the old EntityId{7,1} /
 	// EntityId{9,1} literals: each element owning itself is enough, since
@@ -1204,7 +1211,7 @@ addShip(Battle &b, const ShipSpec &data, Vec2i at, int facing, int player)
 	e.facing = Facing(facing);
 	e.playerNr = player;
 	e.mass = data.mass;
-	const EntityId id = b.spawnBack(std::move(e));
+	const EntityId id = b.spawn(Layer::Field, std::move(e));
 	b.registry().emplace<PlayerShip>(id);
 	b.attachShip(id, &data);
 	return id;
@@ -1494,7 +1501,7 @@ addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
 	p.current = at;
 	p.next = at;
 	p.postProcess = planetPostProcess;
-	return b.spawnBack(std::move(p));
+	return b.spawn(Layer::Field, std::move(p));
 }
 
 void
@@ -1745,7 +1752,7 @@ testPlanetsTakeNoDamage()
 	planet.mass = 200;
 	planet.hitPoints = 200;
 	planet.lifeSpan = 2;
-	const EntityId planetId = b.spawnBack(std::move(planet));
+	const EntityId planetId = b.spawn(Layer::Field, std::move(planet));
 
 	doDamage(b, planetId, 50);
 	auto p = b.get(planetId);
@@ -1760,7 +1767,7 @@ testPlanetsTakeNoDamage()
 	fleeing.kind = ElementKind::Ship;
 	fleeing.mass = kGravityMass;
 	fleeing.hitPoints = 10;
-	const EntityId fleeingId = b.spawnBack(std::move(fleeing));
+	const EntityId fleeingId = b.spawn(Layer::Field, std::move(fleeing));
 
 	doDamage(b, fleeingId, 4);
 	auto f = b.get(fleeingId);
@@ -1851,7 +1858,7 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	planet.current = Vec2i{4000, 4000};
 	planet.next = planet.current;
 	planet.onCollision = solidCollision;
-	(void)b.spawnBack(std::move(planet));
+	(void)b.spawn(Layer::Field, std::move(planet));
 
 	// Spawned clear of the planet, then moved into it. Starting them on top of
 	// each other is not a shortcut: the planet's collision is resolved before
@@ -1914,7 +1921,7 @@ testOverlappingShipsSeparateInsteadOfSticking()
 	a.mass = 6;
 	a.mask = &m;
 	a.current = a.next = Vec2i{4000, 4000};
-	const EntityId ia = b.spawnBack(std::move(a));
+	const EntityId ia = b.spawn(Layer::Field, std::move(a));
 
 	Element c;
 	c.kind = ElementKind::Ship;
@@ -1922,7 +1929,7 @@ testOverlappingShipsSeparateInsteadOfSticking()
 	c.mass = 6;
 	c.mask = &m;
 	c.current = c.next = Vec2i{6000, 6000};
-	const EntityId ic = b.spawnBack(std::move(c));
+	const EntityId ic = b.spawn(Layer::Field, std::move(c));
 
 	// Spawned far apart and established first. The distinction is the C's:
 	// an APPEARING element found overlapping something is EXECUTED on the
@@ -1975,7 +1982,7 @@ testShipShotMidFlightKeepsItsMotion()
 	ship.mass = 6;
 	ship.mask = &m;
 	ship.current = ship.next = Vec2i{4000, 4000};
-	const EntityId is = b.spawnBack(std::move(ship));
+	const EntityId is = b.spawn(Layer::Field, std::move(ship));
 	b.registry().emplace<PlayerShip>(is);
 
 	// A stationary shot in the ship's path. Zero damage, so the run is about
@@ -1991,7 +1998,7 @@ testShipShotMidFlightKeepsItsMotion()
 	shot.mask = &m;
 	shot.current = shot.next = Vec2i{4200, 4000};
 	shot.onCollision = weaponCollision;
-	const EntityId iw = b.spawnBack(std::move(shot));
+	const EntityId iw = b.spawn(Layer::Field, std::move(shot));
 
 	b.step();  // spawn frame: 50 display pixels apart, nothing touches
 
@@ -2047,7 +2054,7 @@ testToughWeaponPiercesWeakOne()
 	tough.current = tough.next = Vec2i{3800, 4000};
 	tough.velocity.setComponents(worldToVelocity(40), 0);
 	tough.onCollision = weaponCollision;
-	const EntityId it = b.spawnBack(std::move(tough));
+	const EntityId it = b.spawn(Layer::Field, std::move(tough));
 
 	Element weak;
 	weak.kind = ElementKind::Weapon;
@@ -2060,7 +2067,7 @@ testToughWeaponPiercesWeakOne()
 	weak.current = weak.next = Vec2i{4200, 4000};
 	weak.velocity.setComponents(-worldToVelocity(40), 0);
 	weak.onCollision = weaponCollision;
-	const EntityId iw = b.spawnBack(std::move(weak));
+	const EntityId iw = b.spawn(Layer::Field, std::move(weak));
 
 	// They close at 80 a frame across 400 units: contact by frame 6.
 	for (int i = 0; i < 8; ++i)
@@ -2109,7 +2116,7 @@ testTurningIntoOverlapIsReverted()
 	planet.mask = &wall;
 	planet.current = planet.next = Vec2i{4000, 4000};
 	planet.onCollision = solidCollision;
-	(void)b.spawnBack(std::move(planet));
+	(void)b.spawn(Layer::Field, std::move(planet));
 
 	// Adjacent at facing 0 (a 4x4 mask), overlapping at facing 1 (16x16).
 	const EntityId ship = addShip(b, d, Vec2i{4052, 4000}, 0, 0);
@@ -2161,7 +2168,7 @@ testSpawnInsideSomethingIsExecuted()
 	planet.mask = &m;
 	planet.current = planet.next = Vec2i{4000, 4000};
 	planet.onCollision = solidCollision;
-	(void)b.spawnBack(std::move(planet));
+	(void)b.spawn(Layer::Field, std::move(planet));
 	b.step();  // established
 
 	Element rock;
@@ -2174,7 +2181,7 @@ testSpawnInsideSomethingIsExecuted()
 	rock.current = rock.next = Vec2i{4004, 4000};  // inside the planet
 	rock.onCollision = solidCollision;
 	rock.onDeath = countOverlapDeath;
-	const EntityId ir = b.spawnBack(std::move(rock));
+	const EntityId ir = b.spawn(Layer::Field, std::move(rock));
 
 	g_overlapDeaths = 0;
 	b.step();
@@ -2268,7 +2275,7 @@ testDefyPhysicsExpires()
 	Battle b(1);
 	Element e;
 	e.flags = ElementFlags::DefyPhysics;
-	const EntityId id = b.spawnBack(std::move(e));
+	const EntityId id = b.spawn(Layer::Field, std::move(e));
 	b.step();
 	CHECK(!any(b.get(id)->flags & ElementFlags::DefyPhysics),
 			"a frame without a collision sheds DefyPhysics");
@@ -2299,7 +2306,7 @@ testPointDefenceBurnsIncomingFire()
 	shot.mass = 1;
 	shot.mask = &m;
 	shot.current = shot.next = Vec2i{4000, 4200};
-	const EntityId incoming = b.spawnBack(std::move(shot));
+	const EntityId incoming = b.spawn(Layer::Field, std::move(shot));
 
 	b.ship(ship)->input = ShipInput::Special;
 	b.step();
@@ -2342,7 +2349,7 @@ testShipWarpsInBeforeItIsSolid()
 	e.playerNr = 0;
 	e.mass = sim::earthlingCruiser().mass;
 	e.preProcess = sim::shipTransition;
-	const sim::EntityId shipId = b.spawnBack(std::move(e));
+	const sim::EntityId shipId = b.spawn(Layer::Field, std::move(e));
 	b.registry().emplace<sim::PlayerShip>(shipId);
 	b.attachShip(shipId, &sim::earthlingCruiser());
 
@@ -2667,7 +2674,7 @@ main()
 	testStreamsAreIndependent();
 	testReseedReturnsThePrevious();
 	testTruncationWidthMatters();
-	testTraversalOrderIsWhatWasAskedFor();
+	testTraversalOrderIsDeclared();
 	testSlotReuseDoesNotReorder();
 	testStaleHandlesAreDetectable();
 	testTheReapKeepsTheWalkIntact();

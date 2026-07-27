@@ -86,7 +86,7 @@ setUpBattle(Game &g)
 		e.preProcess = sim::shipTransition;
 		e.postProcess = nullptr;
 		e.onCollision = sim::solidCollision;
-		const sim::EntityId id = g.battle.spawnBack(std::move(e));
+		const sim::EntityId id = g.battle.spawn(sim::Layer::Field, std::move(e));
 		g.battle.registry().emplace<sim::PlayerShip>(id);
 		g.battle.attachShip(id, &data);
 		return id;

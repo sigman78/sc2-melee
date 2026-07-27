@@ -102,9 +102,16 @@ Battle::prev(EntityId id) const noexcept
 }
 
 void
-Battle::linkAfter(EntityId after, EntityId id) noexcept
+Battle::linkAtLayerTail(Layer layer, EntityId id) noexcept
 {
+	// The anchor is this layer's tail, or the nearest earlier layer's --
+	// an empty layer occupies no space in the chain, only a position.
+	EntityId after = kNoEntity;
+	for (int l = static_cast<int>(layer); l >= 0 && after == kNoEntity; --l)
+		after = layerTail_[static_cast<std::size_t>(l)];
+
 	OrderLink &s = reg_.get<OrderLink>(id);
+	s.layer = layer;
 	if (after == kNoEntity)
 	{
 		s.prev = kNoEntity;
@@ -114,17 +121,19 @@ Battle::linkAfter(EntityId after, EntityId id) noexcept
 		head_ = id;
 		if (tail_ == kNoEntity)
 			tail_ = id;
-		return;
 	}
-
-	OrderLink &prevLink = reg_.get<OrderLink>(after);
-	s.prev = after;
-	s.next = prevLink.next;
-	if (prevLink.next != kNoEntity)
-		reg_.get<OrderLink>(prevLink.next).prev = id;
 	else
-		tail_ = id;
-	prevLink.next = id;
+	{
+		OrderLink &prevLink = reg_.get<OrderLink>(after);
+		s.prev = after;
+		s.next = prevLink.next;
+		if (prevLink.next != kNoEntity)
+			reg_.get<OrderLink>(prevLink.next).prev = id;
+		else
+			tail_ = id;
+		prevLink.next = id;
+	}
+	layerTail_[static_cast<std::size_t>(layer)] = id;
 }
 
 void
@@ -142,6 +151,16 @@ Battle::removeElement(EntityId id) noexcept
 		reg_.get<OrderLink>(s.next).prev = s.prev;
 	else
 		tail_ = s.prev;
+
+	// A layer's tail retreats to the predecessor only if that predecessor
+	// is in the same layer; otherwise the layer just became empty.
+	if (layerTail_[static_cast<std::size_t>(s.layer)] == id)
+	{
+		const bool prevSameLayer = s.prev != kNoEntity
+				&& reg_.get<OrderLink>(s.prev).layer == s.layer;
+		layerTail_[static_cast<std::size_t>(s.layer)] =
+				prevSameLayer ? s.prev : kNoEntity;
+	}
 
 	// Bumps the entity's version, which is what turns a surviving handle
 	// into a detectable mistake instead of a read of the next tenant.
@@ -190,7 +209,7 @@ Battle::attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec)
 }
 
 EntityId
-Battle::spawn(EntityId after, Element e)
+Battle::spawn(Layer layer, Element e)
 {
 	e.flags |= ElementFlags::Appearing;
 	const EntityId id = reg_.create();
@@ -198,28 +217,9 @@ Battle::spawn(EntityId after, Element e)
 	reg_.emplace<Element>(id, std::move(e));
 	reg_.emplace<OrderLink>(id);
 	reg_.emplace<PriorSilhouette>(id);
-	linkAfter(after, id);
+	linkAtLayerTail(layer, id);
 	++count_;
 	return id;
-}
-
-EntityId
-Battle::spawnFront(Element e)
-{
-	return spawn(kNoEntity, std::move(e));
-}
-
-EntityId
-Battle::spawnBack(Element e)
-{
-	return spawn(tail_, std::move(e));
-}
-
-EntityId
-Battle::insertAfter(EntityId after, Element e)
-{
-	assert((after == kNoEntity || alive(after)) && "insert after a dead entity");
-	return spawn(after, std::move(e));
 }
 
 // PreProcess (process.c:128-186): a spawned element is seeded with next =
