@@ -57,14 +57,28 @@ tests reach them without linking SDL. `Resources` and `SpriteSet` stay in
 | Stage | What | Status |
 | --- | --- | --- |
 | R1 | `ShipDef`/`ShipArt` catalog + `MeleeArt`; Assets.cpp consumes definitions; `game_test` pins every named id to uqm.rmp | **done** |
-| R2 | `Game` loses its named asset members; a per-player roster of `Borrowed<const ShipDef>`; `visualFor`/sounds resolve through it | next |
-| R3 | `materialize(def, content, window) -> ShipSpec`: the spec copy plus its content-derived masks, one function instead of hand lines | |
-| R4 | Placeholders served by `Resources` on a miss — generated rect frames + `block` masks — retiring the `Game` mask members and per-callsite fallbacks | |
+| R2 | `Game` loses its named asset members; a per-player roster of `Borrowed<const ShipDef>`; `visualFor`/sounds resolve through it | **done** |
+| R3 | `materialize(def, content, window) -> ShipSpec`: the spec copy plus its content-derived masks, one function instead of hand lines | **done** |
+| R4 | Placeholders served by `Resources` on a miss — generated rect frames + `block` masks — retiring the `Game` mask members and per-callsite fallbacks | next |
 | R5 | Sound slots named (`ShipSound::Primary`, `BattleSound::Shipdies`…): the .snd line order is a content contract, written once | |
 
-R2–R4 are mechanical sweeps against this review; R5 is a rename. All are
-behavior-preserving under the existing suites, same proof mechanism as
-review-002's E-stages.
+All stages are behavior-preserving under the existing suites, same proof
+mechanism as review-002's E-stages. R1–R3 were each verified by full
+rebuild, 7/7 ctest, and a driven run with screenshots before committing.
+
+R2 as executed: the eight `SpriteSet` pointers, three sound spans, the
+`starArt` pointer and both named spec copies left `Game`, replaced by
+`roster` (two `Borrowed<const ShipDef>`, parallel to `ships`) and
+`shipData` (per-battle spec copies). Consumers resolve through Resources'
+id-keyed cache at attach or play time — a lookup, not a load, since
+loadAssets warms it. The laser's sound stopped naming the Cruiser: it is
+slot 1 of *the owner's* .snd, which is the same sound today and the
+correct one the day another ship mounts point defence.
+
+R3 as executed: `game::materialize` in `game/Materialize.cpp`
+(uqm2_platform — loading sprites means a window), declared beside the
+catalog in Ships.hpp. loadAssets' mask wiring is now the loop body's one
+call per roster entry.
 
 ## 4. R1 as executed
 
