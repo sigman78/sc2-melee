@@ -23,13 +23,19 @@
 		box-sizing: border-box;
 	}
 	canvas {
+		/* An explicit width, and it is load-bearing. SDL reads the canvas's
+		   laid-out size and creates its window to match, so a canvas that has
+		   only max-width inside a flex column collapses to a few pixels and
+		   SDL faithfully builds a 5x5 game. Giving it a real width first is
+		   what makes SDL_CreateWindow's 768x720 stick. */
+		width: min(92vw, 768px);
+		height: auto;
+		aspect-ratio: 256 / 240;
+
 		/* Pixel art. The simulation is 256x240 and everything above it scales
 		   by whole steps, so smoothing here would undo that. */
 		image-rendering: pixelated;
 		background: #05050c;
-		max-width: 100%;
-		max-height: 75vh;
-		aspect-ratio: 256 / 240;
 		border: 1px solid #1c1c2e;
 	}
 	#status { min-height: 1.5em; color: #6f6f8a; }
