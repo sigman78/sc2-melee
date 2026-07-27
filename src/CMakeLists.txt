@@ -23,6 +23,7 @@ add_library(uqm2_content STATIC
 	engine/content/PngImage.cpp
 	engine/content/ResourceMap.cpp
 	platform/File.cpp
+	sim/Battle.cpp
 	sim/Collision.cpp
 	sim/Spawn.cpp
 	sim/Thrust.cpp

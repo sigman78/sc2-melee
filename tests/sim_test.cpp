@@ -6,6 +6,7 @@
 // needs a running object: stream independence and reseed semantics.
 
 #include "engine/core/Pacing.hpp"
+#include "sim/Battle.hpp"
 #include "sim/Collision.hpp"
 #include "sim/EntityList.hpp"
 #include "sim/Random.hpp"
@@ -15,6 +16,7 @@
 #include "sim/Velocity.hpp"
 #include "sim/World.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -816,11 +818,224 @@ testTheTwoShipsDifferWhereTheCDoes()
 	CHECK(avenger[0].ignoreSimilar, "flame does not collide with itself");
 }
 
+// --------------------------------------------------------------------------
+// The battle step
+
+// Hooks are free functions, so the things they need to record go here.
+struct Trace
+{
+	std::vector<int> preOrder;
+	std::vector<int> deaths;
+	EntityId spawnFrom;
+	bool spawnAtHead = false;
+	bool spawned = false;
+};
+Trace g_trace;
+
+// Tags an element so the trace can name it. `mass` is unused by these tests,
+// so it doubles as a label.
+void
+recordPre(Battle &b, EntityId id) noexcept
+{
+	const Element *e = b.get(id);
+	g_trace.preOrder.push_back(static_cast<int>(e->mass));
+}
+
+void
+recordDeath(Battle &b, EntityId id) noexcept
+{
+	const Element *e = b.get(id);
+	g_trace.deaths.push_back(static_cast<int>(e->mass));
+}
+
+// A hook that spawns another element the first time it runs.
+void
+spawnOnce(Battle &b, EntityId id) noexcept
+{
+	g_trace.preOrder.push_back(static_cast<int>(b.get(id)->mass));
+	if (g_trace.spawned)
+		return;
+	g_trace.spawned = true;
+
+	Element child;
+	child.mass = 99;
+	child.preProcess = recordPre;
+	child.flags = ElementFlags::FiniteLife;
+	child.lifeSpan = 5;
+	if (g_trace.spawnAtHead)
+		g_trace.spawnFrom = b.spawnFront(std::move(child));
+	else
+		g_trace.spawnFrom = b.spawnBack(std::move(child));
+}
+
+Element
+plain(int label)
+{
+	Element e;
+	e.mass = label;
+	e.preProcess = recordPre;
+	return e;
+}
+
+void
+testStepVisitsInListOrder()
+{
+	g_trace = Trace{};
+	Battle b(1);
+	b.spawnBack(plain(1));
+	b.spawnBack(plain(2));
+	b.spawnBack(plain(3));
+	b.step();
+	CHECK(g_trace.preOrder == std::vector<int>({1, 2, 3}),
+			"preprocess should follow list order");
+
+	// Head insertion puts the newcomer first next frame -- the pkunk.c
+	// phoenix ordering.
+	g_trace.preOrder.clear();
+	b.elements().pushFront(plain(0));
+	b.step();
+	CHECK(g_trace.preOrder == std::vector<int>({0, 1, 2, 3}),
+			"a head-inserted element preprocesses first");
+}
+
+void
+testMidFrameSpawnIsCaughtUpSameFrame()
+{
+	// An element spawned during the pre pass has already been walked past.
+	// The C gives it a catch-up pass in PostProcessQueue (process.c:844-862)
+	// so a weapon created this frame can still act this frame; without it the
+	// projectile would sit inert for a frame, which at 24 Hz is visible.
+	for (const bool atHead : {false, true})
+	{
+		g_trace = Trace{};
+		g_trace.spawnAtHead = atHead;
+
+		Battle b(1);
+		Element shooter = plain(1);
+		shooter.preProcess = spawnOnce;
+		b.spawnBack(std::move(shooter));
+		b.spawnBack(plain(2));
+
+		b.step();
+		CHECK(g_trace.spawned, "the hook should have spawned");
+
+		// 99 must appear exactly once: the catch-up pass runs it, and the
+		// pre pass must not have run it as well.
+		const auto count = static_cast<int>(std::count(
+				g_trace.preOrder.begin(), g_trace.preOrder.end(), 99));
+		CHECK(count == 1,
+				"%s: the mid-frame spawn should preprocess exactly once, got %d",
+				atHead ? "head" : "tail", count);
+		CHECK(b.elements().size() == 3, "%s: all three should be alive",
+				atHead ? "head" : "tail");
+	}
+}
+
+void
+testFiniteLifeExpiresAndCallsDeath()
+{
+	g_trace = Trace{};
+	Battle b(1);
+
+	Element shot = plain(7);
+	shot.flags = ElementFlags::FiniteLife;
+	shot.lifeSpan = 3;
+	shot.onDeath = recordDeath;
+	b.spawnBack(std::move(shot));
+
+	b.step();
+	CHECK(b.elements().size() == 1, "alive after one step");
+	b.step();
+	b.step();
+	CHECK(b.elements().empty(), "a 3-frame life should be gone after 3 steps");
+	CHECK(g_trace.deaths == std::vector<int>({7}),
+			"and its death hook should have run exactly once");
+}
+
+void
+testMotionIntegratesAndWraps()
+{
+	Battle b(1);
+	Element e;
+	e.current = Vec2i{100, 100};
+	e.velocity.setComponents(worldToVelocity(10), 0);
+	const EntityId id = b.spawnBack(std::move(e));
+
+	// The first step only seeds `next` -- an Appearing element has a position
+	// but no motion yet, matching process.c:379.
+	b.step();
+	CHECK(b.get(id)->current == Vec2i({100, 100}),
+			"a newly spawned element does not move on its first step");
+
+	b.step();
+	CHECK(b.get(id)->current.x == 110, "then it moves 10 a frame, got %ld",
+			static_cast<long>(b.get(id)->current.x));
+
+	// And the arena is a torus.
+	b.get(id)->current = Vec2i{kLogSpaceWidth - 5, 0};
+	b.step();
+	CHECK(b.get(id)->current.x < 100,
+			"crossing the seam should wrap, got %ld",
+			static_cast<long>(b.get(id)->current.x));
+}
+
+void
+testCollisionPairsAreVisitedOnce()
+{
+	Battle b(1);
+	const std::vector<std::uint8_t> bits(16, 1);
+	static const CollisionMask mask(
+			Extent2u{4, 4}, Vec2i{2, 2}, bits);
+
+	Element a;
+	a.current = Vec2i{500, 500};
+	a.mask = &mask;
+	a.kind = ElementKind::Weapon;
+	a.playerNr = 0;
+	const EntityId ia = b.spawnBack(std::move(a));
+
+	Element c;
+	c.current = Vec2i{500, 500};
+	c.mask = &mask;
+	c.kind = ElementKind::Ship;
+	c.playerNr = 1;
+	const EntityId ic = b.spawnBack(std::move(c));
+
+	b.step();
+	CHECK(b.get(ia)->collidedWith == ic, "a should record hitting c");
+	CHECK(b.get(ic)->collidedWith == ia, "and c should record hitting a");
+
+	// Two projectiles from the same owner with IgnoreSimilar must not hit
+	// each other -- ilwrath.c:203, a flame stream not eating itself.
+	Battle b2(1);
+	Element f1;
+	f1.current = Vec2i{500, 500};
+	f1.mask = &mask;
+	f1.kind = ElementKind::Weapon;
+	f1.playerNr = 0;
+	f1.flags = ElementFlags::IgnoreSimilar;
+	const EntityId if1 = b2.spawnBack(std::move(f1));
+
+	Element f2 = *b2.get(if1);
+	f2.flags = ElementFlags::IgnoreSimilar;
+	const EntityId if2 = b2.spawnBack(std::move(f2));
+
+	b2.step();
+	CHECK(!b2.get(if1)->collidedWith.valid(),
+			"same-owner flames must not collide");
+	CHECK(!b2.get(if2)->collidedWith.valid(), "either way round");
+}
+
 }  // namespace
 
 int
 main()
 {
+	testStepVisitsInListOrder();
+	testMidFrameSpawnIsCaughtUpSameFrame();
+	testFiniteLifeExpiresAndCallsDeath();
+	testMotionIntegratesAndWraps();
+	testCollisionPairsAreVisitedOnce();
 	testSpawningIsRepeatable();
 	testSpawnCarriesTheShipsParameters();
 	testTheTwoShipsDifferWhereTheCDoes();
