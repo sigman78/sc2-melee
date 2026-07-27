@@ -13,25 +13,13 @@ struct SDL_AudioStream;
 
 namespace uqm::platform {
 
-// Sound effects, via SDL3.
+// Sound effects, via SDL3. SDL_AudioStream can be fed from any thread and
+// owns its own mixing, so audio needs no thread and no atomic in src/ --
+// the constraint that a device callback must never see game state.
 //
-// **This replaces the lock-free ring, and the ring is deleted.** I wrote that
-// ring on the reasoning that SDL's audio callback runs on a device thread and
-// must never see game state -- which is true, and remains the constraint. What
-// I had not checked was that SDL3 already solves it: SDL_AudioStream is fed
-// from whatever thread you like, mixes any number of streams bound to one
-// device, and owns the callback entirely. There is no callback of ours for
-// game state to leak into, so there is nothing left for the ring to protect.
-//
-// Keeping it because it was written and tested would have been carrying a
-// second, worse answer to a solved problem. The threading commitment is
-// unchanged and is in fact stronger: nothing in src/ starts a thread, and now
-// nothing in src/ has an atomic either.
-//
-// The .snd format helps as much as SDL does: it is a plain text list of .wav
-// filenames, one per line, exactly as .ani lists .png. SDL_LoadWAV reads those
-// directly, so the whole sound-effect path needs no decoder. Music is .mod and
-// voice is .ogg; both need real decoders and neither is M1.
+// .snd is a plain text list of .wav filenames, one per line (like .ani
+// lists .png), so SDL_LoadWAV covers the whole sound-effect path with no
+// decoder. Music (.mod) and voice (.ogg) need real decoders; not M1.
 
 // One decoded effect, held in memory. Move-only: it owns a buffer SDL
 // allocated.
@@ -78,20 +66,9 @@ public:
 	// "play" harmlessly.
 	[[nodiscard]] Sound load(const std::filesystem::path &wav) const;
 
-	// Starts `s`, on the stream already playing it if there is one.
-	//
-	// One voice per distinct sound, which is the part that actually controls
-	// loudness. Round-robin alone does not: the Ilwrath flame fires every
-	// frame, so it took a fresh stream every frame and a dozen copies of the
-	// same effect played on top of each other. That is additive -- roughly
-	// twelve times the amplitude -- and no gain setting fixes it, because the
-	// problem is the count of voices and not the level of each. Restarting
-	// the voice that is already playing the sound gives one flame that
-	// sustains, which is both quieter and what it should sound like.
-	//
-	// This is what the C gets from ProcessSound's per-source channels with
-	// priorities (sound.c): a source's new sound replaces its old one rather
-	// than joining it.
+	// Starts `s` on the stream already playing it, if any -- one voice per
+	// distinct sound governs loudness; round-robin alone lets a fast-repeating
+	// effect stack copies additively. Matches the C's per-source channel (sound.c).
 	//
 	// `gain` is a multiplier, 1.0 being the file's own level.
 	void play(const Sound &s, float gain = 1.0f);

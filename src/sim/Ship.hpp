@@ -68,11 +68,9 @@ struct SpecialSpec
 	std::int32_t pointDefenceRange = 0;
 };
 
-// An immutable description of a ship type.
-//
-// A *value*, and constructible in code rather than only parsed --
-// sis_ship.c:881-990 computes the flagship's whole descriptor from
-// inventory, and shofixti.c:461-517 builds a damaged variant by copying one.
+// An immutable description of a ship type: a *value*, constructible in code,
+// not only parsed -- sis_ship.c:881-990 builds the flagship's descriptor from
+// inventory, shofixti.c:461-517 a damaged variant by copying one.
 struct ShipSpec
 {
 	std::int32_t maxCrew = 0;
@@ -90,9 +88,8 @@ struct ShipSpec
 	SpecialSpec special;
 
 	// The ship's own per-frame hook, run inside shipPreProcess after energy
-	// regeneration and before turning -- RACE_DESC.preprocess_func
-	// (ship.c:232-236). The Ilwrath cloak engages here, so it wins the
-	// energy race against the same frame's shot.
+	// regen and before turning -- RACE_DESC.preprocess_func (ship.c:232-236).
+	// The Ilwrath cloak engages here, winning the energy race against the shot.
 	ElementHook preProcess = nullptr;
 
 	Borrowed<const CollisionMask> hullMask = nullptr;
@@ -112,24 +109,15 @@ struct ShipSpec
 	}
 };
 
-// The two halves of a ship's frame, matching ship.c:149-280 and 282-347.
-//
-// The split is not arbitrary: turning and thrusting happen in the pre pass so
-// the frame's motion includes them, and firing happens in the post pass so a
-// weapon spawned this frame is caught up by the step loop rather than moving
-// before its owner has.
+// The two halves of a ship's frame (ship.c:149-280, 282-347): turning and
+// thrusting in the pre pass, firing in the post pass so a spawned weapon is
+// caught up by the step loop this frame -- see design-notes D1.
 void shipPreProcess(Battle &b, EntityId id) noexcept;
 void shipPostProcess(Battle &b, EntityId id) noexcept;
 
-// TrackShip (weapon.c:319-412): steers `facing` one step toward the nearest
-// living enemy ship. Returns -1 when there is no target at all, otherwise the
-// chosen target's facing delta (0 means dead ahead) -- the C's own return,
-// and the cloak's auto-aim tests `>= 0` where the nuke ignores it, so the
-// distinction is load-bearing. `outTarget`, when non-null, receives the
-// chosen target (the C stores it in Tracker->hTarget).
-//
-// "Enemy" is by player, not by owner: a missile chases the other side's ship,
-// not merely one that is not its own.
+// TrackShip (weapon.c:319-412): steers `facing` toward the nearest living
+// enemy ship (by player, not owner). Returns -1 for no target, else the
+// facing delta -- load-bearing: cloak auto-aim tests `>= 0`, nuke ignores it.
 [[nodiscard]] int trackShip(Battle &b, EntityId tracker, Facing &facing,
 		EntityId *outTarget = nullptr) noexcept;
 
@@ -146,10 +134,9 @@ void cruiserSpecial(Battle &b, EntityId id) noexcept;
 // because the C's does -- see ShipSpec::preProcess.
 void ilwrathPreProcess(Battle &b, EntityId id) noexcept;
 
-// The Avenger's flame. The animation is the projectile: its frame advances
-// every frame it lives and the collision silhouette follows, so the fireball
-// grows (ilwrath.c:126-139) -- and on impact it lingers a frame where a
-// spent missile vanishes at once (ilwrath.c:141-148).
+// The Avenger's flame: the animation is the projectile -- its frame (and
+// collision silhouette) grows every frame it lives (ilwrath.c:126-139), and
+// lingers one frame on impact instead of vanishing (ilwrath.c:141-148).
 void flamePreProcess(Battle &b, EntityId id) noexcept;
 void flameCollision(Battle &b, EntityId id) noexcept;
 

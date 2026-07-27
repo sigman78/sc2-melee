@@ -10,10 +10,9 @@
 
 namespace uqm {
 
-// Shared text scanning. Three near-identical line splitters, two trim helpers
-// and two integer parsers existed across the content parsers before this
-// (docs/cpp-conventions.md rule 8); they are one each now, and they allocate
-// nothing.
+// Shared text scanning (docs/cpp-conventions.md rule 8): one line splitter,
+// one trim, one integer parser instead of three near-identical copies
+// across content parsers. None of it allocates.
 
 inline constexpr std::string_view kAsciiSpace = " \t\r\n";
 

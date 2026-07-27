@@ -10,10 +10,9 @@
 
 namespace uqm::sim {
 
-// How a ship's speed stands against its own maximum. Lives here rather than
-// in Thrust.hpp because an Element carries one and should not have to drag in
-// the thrust machinery to do so (docs/cpp-conventions.md rule 2 on the
-// engine's error/state surfaces staying small).
+// How a ship's speed stands against its own maximum. Lives here, not in
+// Thrust.hpp, so an Element needn't drag in thrust machinery to hold one
+// (docs/cpp-conventions.md rule 2).
 enum class SpeedState : std::uint8_t
 {
 	// Under the ship's own maximum: normal acceleration applies.
@@ -26,26 +25,13 @@ enum class SpeedState : std::uint8_t
 	BeyondMax,
 };
 
-// velocity.c, reproduced. Everything here is fixed point: a velocity
-// component is in 1/32 world units (VELOCITY_SHIFT is 5), and the sub-unit
-// remainder is carried frame to frame in a Bresenham error term so that a
-// slow drift still moves exactly one unit every N frames rather than
-// rounding to zero forever.
+// velocity.c, reproduced: fixed point, 1/32 world units (VELOCITY_SHIFT=5);
+// sub-unit remainder carries in a Bresenham error term so a slow drift still
+// moves one unit every N frames rather than rounding to zero.
 //
-// The encoding is peculiar and is kept because the arithmetic depends on it:
-// the *sign* of a component lives in a packed byte pair rather than in
-// `vector`. For a positive component `incr` is (lo=1, hi=0); for a negative
-// one it is (lo=0xFF, hi=(fract << 1)), and reconstruction is
-//
-//     component = (vector << 5) + (fract - hi(incr))
-//
-// which recovers -x for the negative case because the doubled fraction in
-// `hi` cancels `fract` and then subtracts it again. `lo(incr)` is +1 or -1 as
-// a signed byte and is what carries the accumulated fraction into whole units.
-//
-// Rewriting this as a plain signed fixed-point pair would be tidier and would
-// change trajectories: the carry, the truncation and the sign handling
-// interact, and ships are steered by integrating these every frame.
+// Sign lives in a packed byte pair, not in `vector`: positive is (lo=1,
+// hi=0), negative is (lo=0xFF, hi=fract<<1); reconstruction is
+// component = (vector << 5) + (fract - hi(incr)).
 
 inline constexpr int kVelocityShift = 5;
 inline constexpr std::int32_t kVelocityScale = 1 << kVelocityShift;  // 32
@@ -86,10 +72,9 @@ public:
 			worldToVelocity(vector_.y) + (fract_.y - hi(incr_.y))};
 	}
 
-	// Advance by `frames` and return the world-unit displacement, carrying
-	// the sub-unit remainder into the error term. Mutating: the error is
-	// state, which is why a "how far would this travel" query and an actual
-	// step are the same call in the C and stay one here.
+	// Advance by `frames`, returning the world-unit displacement and carrying
+	// the sub-unit remainder into the error term. Mutating, like the C: the
+	// error is state, so query and step are one call.
 	Vec2i advance(int frames) noexcept;
 
 	// Set from a magnitude in world units and a *facing* (0..15).

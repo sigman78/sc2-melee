@@ -78,10 +78,9 @@ thrust(Velocity &velocity, Facing facing, const ThrustProfile &profile,
 		return SpeedState::AtMax;
 	}
 
-	// Thrusting across the travel vector at maximum: this turns the vector
-	// without adding speed. Half an increment goes on along the new heading
-	// and a whole one comes off along the old, which is what keeps the
-	// magnitude roughly constant while the direction swings.
+	// Thrusting across the travel vector at max turns it without adding speed:
+	// half an increment goes on along the new heading, a whole one comes off
+	// the old, keeping the magnitude roughly constant while direction swings.
 	Velocity turned = velocity;
 	turned.deltaComponents(
 			cosine(currentAngle, increment >> 1) - cosine(travelAngle, increment),

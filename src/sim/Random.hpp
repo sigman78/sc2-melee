@@ -7,28 +7,14 @@
 
 namespace uqm::sim {
 
-// TFB_Random, bit for bit (libs/math/random.c:61-100).
-//
-// It looks like Park-Miller with Schrage's trick, and it is not. `seed` is a
-// DWORD -- uint32 -- so when `A * (s % Q) - R * (s / Q)` goes negative it
-// wraps modulo 2^32 instead of staying negative, the `seed > M` branch fires,
-// and one M is subtracted. The result is `M + t + 2` where Park-Miller gives
-// `M + t`:
+// TFB_Random, bit for bit (libs/math/random.c:61-100) -- see design-notes D9.
 //
 //     seed          2044368000   (16000 * Q, so s % Q == 0)
 //     true signed t  -45376000
 //     Park-Miller   2102107647
 //     TFB_Random    2102107649   <- +2
 //
-// So std::minstd_rand is *not* a drop-in: it agrees for the first several
-// draws from many seeds and then silently diverges. The golden vectors below
-// include that case on purpose, because a test that only checks seed 1 would
-// pass against the wrong generator.
-//
-// All arithmetic is on uint32_t, where wrapping is defined. The C relies on
-// the same wrap; it just gets there through implementation-defined promotions
-// that happen to agree because every intermediate is non-negative and the
-// products fit.
+// All arithmetic is on uint32_t; the C gets the same wrap via promotions.
 class Rng
 {
 public:
@@ -70,11 +56,9 @@ public:
 		return (seed_ = 1);
 	}
 
-	// The 16-bit truncation the call sites apply before taking a modulo:
-	// `(COUNT)TFB_Random () % 100`, `(UWORD)TFB_Random () % SPACE_WIDTH`,
-	// `LOWORD (TFB_Random ())`. It is not interchangeable with next() -- the
-	// truncation happens first and changes the result -- so it is a separate
-	// call rather than something a helper hides.
+	// The 16-bit truncation call sites apply before a modulo (e.g.
+	// `(COUNT)TFB_Random () % 100`). Not interchangeable with next(): the
+	// truncation happens first and changes the result, so it's a separate call.
 	constexpr std::uint16_t next16() noexcept
 	{
 		return static_cast<std::uint16_t>(next());

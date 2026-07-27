@@ -13,27 +13,9 @@
 
 namespace uqm::sim {
 
-// Swept per-pixel time-of-impact collision: intersec.c, rewritten.
-//
-// Open question 2 in docs/game-rewrite-plan.md, answered the way the plan
-// recommends -- keep the semantics, rewrite only the expression. This is the
-// most distinctive mechanic in the game and the most easily lost, and the
-// AI's lookahead (cyborg.c:259) is built on it, so "close enough" is not.
-//
-// Two things change, both deliberate:
-//
-// 1. **No graphics context.** intersec.c:245 opens with
-//    `if (!ContextActive () || max_time_val == 0) return 0;` -- collision
-//    silently reports "no hit" when there is no renderer. Combined with
-//    weapon.c:274-286, which rejection-loops until DrawablesIntersect
-//    succeeds, that is why a naive headless build hangs instead of producing
-//    wrong numbers. Here collision is pure sim over mask bits and cannot
-//    depend on a renderer existing.
-//
-// 2. **Masks, not canvases.** The per-pixel test (canvas.c:2047-2056) reduces
-//    to "are both pixels non-transparent", where transparent means alpha 0 or
-//    equal to the colour key. That is one bit per pixel. The sim wants that
-//    bit, not an SDL surface.
+// Swept per-pixel time-of-impact collision: intersec.c, rewritten (per-pixel
+// test canvas.c:2047-2056). AI lookahead depends on the semantics
+// (cyborg.c:259). Masks, not canvases, headless-safe -- design-notes D2.
 
 using TimeValue = std::uint16_t;
 
@@ -41,14 +23,9 @@ using TimeValue = std::uint16_t;
 inline constexpr int kTimeShift = 8;
 inline constexpr TimeValue kMaxTimeValue = (1 << kTimeShift) + 1;  // 257
 
-// A frame's 1-bit opacity, plus the hotspot that positions it.
-//
-// This is the "frame identity, not just masks" the plan asks sim/ to carve
-// out: the hotspot is part of the collision contract, since a body's position
-// is its hotspot and the mask hangs off it.
-//
-// Move-only: masks are per-frame and there are thousands of them
-// (docs/cpp-conventions.md rule 6).
+// A frame's 1-bit opacity plus the hotspot that positions it -- the hotspot
+// is part of the collision contract, since a body's position is its hotspot.
+// Move-only: masks are per-frame, there are thousands (rule 6).
 class CollisionMask
 {
 public:
@@ -59,10 +36,9 @@ public:
 	CollisionMask(CollisionMask &&) noexcept = default;
 	CollisionMask &operator=(CollisionMask &&) noexcept = default;
 
-	// `opaque` is row-major, one byte per pixel, non-zero where the pixel
-	// would collide. A byte rather than a bool because that is the shape the
-	// data arrives in -- decoded alpha, or index-vs-transparent-index -- and
-	// because std::vector<bool> is a proxy type that cannot form a span.
+	// `opaque` is row-major, one byte per pixel, non-zero where the pixel would
+	// collide: a byte, not bool, because that's the source data's shape and
+	// std::vector<bool> can't form a span.
 	CollisionMask(
 			Extent2u size, Vec2i hotspot, std::span<const std::uint8_t> opaque);
 
@@ -103,12 +79,9 @@ struct Impact
 	// callers compare and order by -- earliest impact wins.
 	TimeValue time = 0;
 
-	// Hotspot positions one sub-step BEFORE the overlap -- the last clear
-	// positions, which is what the C writes back through EndPoint
-	// (intersec.c:218-229 updates the rects only after a failed test). The
-	// caller places bodies touching, not interpenetrating. The one exception
-	// is a pair already overlapping at time 1, where there is no clear
-	// position to report and the start positions come back instead.
+	// Hotspot positions one sub-step before the overlap, matching the C's
+	// EndPoint (intersec.c:218-229): bodies land touching, not interpenetrating.
+	// Exception: already overlapping at time 1 returns the start positions.
 	Vec2i at0;
 	Vec2i at1;
 

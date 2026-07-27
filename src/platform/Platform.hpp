@@ -17,16 +17,9 @@ struct SDL_Texture;
 
 namespace uqm::platform {
 
-// The SDL3 window, renderer, event pump and clock -- the whole of what the
-// game needs from the host, in one place.
-//
-// Single-threaded, and that is a commitment rather than a convenience. The C
-// runs the game on Starcon2Main with a separate TFB render thread and a
-// draw-command queue between them, which on Emscripten forces SDL_PTHREADS on,
-// which forces SharedArrayBuffer, which forces the host to send COOP/COEP
-// headers before the page will even load. Deploying to a URL is an M1 exit
-// criterion, so that chain is a real cost and it is paid for a thread the
-// rewrite does not want. Nothing here starts one.
+// The SDL3 window, renderer, event pump and clock, single-threaded on
+// purpose: a second thread forces SDL_PTHREADS on Emscripten, which forces
+// SharedArrayBuffer and COOP/COEP headers the M1 URL-deploy goal can't pay.
 //
 // SDL types stay behind forward declarations: `renderer()` is the one place
 // they leak, and only into whoever draws.
@@ -40,16 +33,14 @@ struct Binding
 	input::Button button;
 };
 
-// Two players at one keyboard, which is what M1 asks for. Player 0 has the
-// arrow keys and the right-hand modifiers; player 1 has WASD and the
-// left-hand ones. There is no rebinding yet and no config file -- when that
-// arrives it produces one of these tables and nothing else changes.
+// Two players at one keyboard (M1): player 0 is arrow keys and right-hand
+// modifiers, player 1 is WASD and left-hand. No rebinding or config file
+// yet -- that would just produce one of these tables.
 [[nodiscard]] std::span<const Binding> defaultBindings() noexcept;
 
-// The directory the executable lives in. Needed because "where is the content"
-// cannot be answered from the working directory alone: a program launched from
-// Explorer, or from a build tree, has a working directory that says nothing
-// about where it was installed.
+// The directory the executable lives in: "where is the content" cannot be
+// answered from the working directory alone, since a program launched from
+// Explorer or a build tree has one that says nothing about install location.
 [[nodiscard]] std::filesystem::path executableDirectory();
 
 // An uploaded image. Move-only, because it owns a GPU resource and there is
@@ -87,12 +78,9 @@ public:
 	Platform(const Platform &) = delete;
 	Platform &operator=(const Platform &) = delete;
 
-	// Drains the event queue into `players`. Returns false once the user has
-	// asked to quit.
-	//
-	// Key repeat is dropped: the accumulator's sticky bit already guarantees a
-	// press is seen, and letting the OS repeat rate inject extra presses would
-	// make held-vs-tapped depend on a system setting.
+	// Drains the event queue into `players`; false once the user quits. Key
+	// repeat is dropped -- the accumulator's sticky bit already guarantees a
+	// press is seen without depending on a system repeat rate.
 	[[nodiscard]] bool pump(std::span<input::InputAccumulator> players,
 			std::span<const Binding> bindings) noexcept;
 
@@ -110,10 +98,9 @@ public:
 	[[nodiscard]] Texture upload(
 			Extent2u size, std::span<const std::uint8_t> rgba) noexcept;
 
-	// Draws `t` scaled into `dest` pixels at `topLeft`. Nearest-neighbour, set
-	// at upload: this is pixel art and smoothing it looks wrong.
-	// `alpha` is 255 for opaque. Used for the Ilwrath cloak, which is the only
-	// thing so far that is drawn as partly there.
+	// Draws `t` scaled into `dest` pixels at `topLeft` (nearest-neighbour, set
+	// at upload -- this is pixel art). `alpha` is 255 for opaque; used for the
+	// Ilwrath cloak, the only thing drawn partly-there so far.
 	void draw(const Texture &t, Vec2i topLeft, Extent2u dest,
 			std::uint8_t alpha = 255) noexcept;
 

@@ -42,11 +42,9 @@ doDamage(Element &e, std::int32_t damage) noexcept
 	{
 		if (!deltaCrew(e, -damage))
 		{
-			// Out of crew. The ship does not vanish -- it becomes its own
-			// explosion and burns for three dozen frames (ship_death ->
-			// StartShipExplosion, tactrans.c:730-750). Setting life_span to 0
-			// here, which is what this did before, deleted the ship on the
-			// spot and made a kill look like a rendering glitch.
+			// Out of crew: the ship becomes its own explosion and burns for
+			// three dozen frames (ship_death -> StartShipExplosion,
+			// tactrans.c:730-750), rather than vanishing.
 			startShipExplosion(e);
 		}
 		return;
@@ -88,11 +86,9 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
 	const std::int32_t damage = w->mass;
 
-	// weapon.c:145-158. A weapon hurts things that are either transient
-	// themselves or are at NORMAL_LIFE -- which is everything really on the
-	// field, and excludes something already dying. A target that SURVIVES
-	// the damage marks the weapon Collided ("did effect"), which is also
-	// what stops it at the impact point.
+	// weapon.c:145-158: hurts anything transient or at NORMAL_LIFE (excludes
+	// something already dying). A target that SURVIVES marks the weapon
+	// Collided ("did effect"), which also stops it at the impact point.
 	if (damage > 0
 			&& (any(target->flags & ElementFlags::FiniteLife)
 					|| target->lifeSpan == 1))
@@ -110,12 +106,9 @@ weaponCollision(Battle &b, EntityId id) noexcept
 			w->flags |= ElementFlags::Collided;
 	}
 
-	// Does the weapon die here? Against a solid target, always. Against a
-	// finite one, only if that target has not already stopped this frame and
-	// the weapon is not tough enough to plough through -- weapon.c:161-164,
-	// the pierce rule. A shot with more hit points than its victim's mass
-	// keeps flying (Chmmr zapsats live on this; nuke and flame, at one hit
-	// point each, never pierce anything).
+	// Dies here against a solid target, always; against a finite one, only if
+	// it hasn't already stopped and isn't tough enough to pierce -- hit points
+	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame don't).
 	if (target != nullptr
 			&& any(target->flags & ElementFlags::FiniteLife)
 			&& (any(target->flags & ElementFlags::Collided)
@@ -129,9 +122,8 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	w->hitPoints = 0;
 	w->lifeSpan = 0;
 	// COLLISION | NONSOLID | DISAPPEARING (weapon.c:175-181): stopped, spent,
-	// and reaped this same frame -- never drawn dead at the impact point.
-	// The flame's wrapper clears Disappearing again so the fireball lingers
-	// one frame (flameCollision; ilwrath.c:141-148).
+	// reaped this frame. The flame's wrapper clears Disappearing again so the
+	// fireball lingers one frame (flameCollision, ilwrath.c:141-148).
 	w->flags |= ElementFlags::Collided | ElementFlags::NonSolid
 			| ElementFlags::Disappearing;
 
@@ -174,15 +166,9 @@ solidCollision(Battle &b, EntityId id) noexcept
 	if (!isGravityMass(other->mass))
 		return;
 
-	// ship.c:364-367 -- `damage = hit_points >> 2`, floored at one. The trap:
-	// for a PLAYER_SHIP, `hit_points` IS `crew_level` -- they are one union
-	// field (element.h:126-133) -- so flying an 18-crew Cruiser into the
-	// planet costs 4 crew, not 1. Reading a separate hitPoints field here,
-	// which is what this did first, made every planet impact cost exactly 1
-	// because a ship's own hitPoints is never assigned.
-	//
-	// Porting rule this bought: every C `hit_points` read on a player ship
-	// is a crew read.
+	// ship.c:364-367: damage = hit_points >> 2, floored at one. For a
+	// PLAYER_SHIP, hit_points IS crew_level (one union field, element.h:126-133)
+	// -- every C hit_points read on a player ship is a crew read.
 	const std::int32_t own = any(e->flags & ElementFlags::PlayerShip)
 			? e->ship.crew
 			: e->hitPoints;

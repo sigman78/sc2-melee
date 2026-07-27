@@ -13,18 +13,9 @@ namespace uqm::sim {
 
 namespace {
 
-// DeltaEnergy: spends or restores, and reports whether it could. Firing is
-// gated on this succeeding (ship.c:296-299), so a ship with nine energy and a
-// nine-cost weapon fires and empties, and one with eight does not fire at all.
-//
-// Every success re-arms the regeneration countdown (status.c:317-323) -- and
-// that is the mechanic, not bookkeeping: firing pushes regeneration back, so
-// a ship that shoots continuously does not regenerate at all while it can
-// still afford the shots. Without this an Avenger's flame is close to
-// self-sustaining (+4 every few frames against -1 a frame) instead of a
-// 16-frame burst. A *failed* spend does not re-arm (the reset sits in the
-// C's success branch), so an empty ship's regeneration is not postponed by
-// holding the trigger.
+// Spends or restores energy, reporting whether it could; firing gates on
+// success (ship.c:296-299). Every success re-arms the regen countdown
+// (status.c:317-323); a failed spend does not.
 bool
 deltaEnergy(ShipState &s, std::int32_t delta) noexcept
 {
@@ -40,11 +31,9 @@ deltaEnergy(ShipState &s, std::int32_t delta) noexcept
 	return true;
 }
 
-// The silhouette follows the facing. In the C this is implicit -- the
-// intersect frame is whatever frame is being displayed (process.c:159-160,
-// InitIntersectFrame) -- so a ship that turns is immediately colliding as its
-// new shape. Here the coupling is explicit, because the mask lives in the
-// simulation and the sprite does not.
+// The silhouette follows the facing: implicit in the C (process.c:159-160,
+// InitIntersectFrame reads whatever frame is displayed); explicit here,
+// since the mask lives in the simulation and there's no sprite.
 void
 applyFacingMask(Element &e, const ShipSpec &spec) noexcept
 {
@@ -92,10 +81,9 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 		(void)deltaEnergy(s, spec.energyRegen);
 	}
 
-	// The ship's own hook, after regeneration and before turning -- the slot
-	// RACE_DESC.preprocess_func occupies (ship.c:232-236). The Ilwrath cloak
-	// lives here, which is what makes it win the energy race against the
-	// same frame's weapon: the C cloaks first and lets the shot fail.
+	// The ship's own hook, after regen and before turning -- RACE_DESC
+	// .preprocess_func's slot (ship.c:232-236). The Ilwrath cloak lives here,
+	// winning the energy race against the same frame's weapon.
 	if (spec.preProcess != nullptr)
 	{
 		spec.preProcess(b, id);
@@ -128,20 +116,15 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 	{
 		s.speed = thrust(e->velocity, e->facing, spec.thrust,
 				ThrustState{s.speed, s.inGravityWell});
-		// ship.c:263-267 clears the whole speed/gravity group and ORs in what
-		// inertial_thrust returned. Gravity re-sets the well flag next frame
-		// if the ship is still in one, so a ship that leaves the well loses
-		// its licence to exceed max speed on the very next thrust.
+		// ship.c:263-267 clears the whole speed/gravity group and ORs in the
+		// thrust result; gravity re-sets the well flag next frame if still inside
+		// one, so leaving the well loses the licence to exceed max speed at once.
 		s.inGravityWell = false;
 		e->thrustWait = spec.thrustWait;
 
-		// Exhaust, only on the frames the ship actually accelerates
-		// (ship.c:274) -- not on every frame the key is held.
-		//
-		// And not while FULLY cloaked: ship.c:271 gates the trail on
-		// OBJECT_CLOAKED, which is true only at black -- a half-faded ship
-		// still emits one (spawn_ion_trail builds its own POINT_PRIM,
-		// tactrans.c:792-832, so the fade of the hull does not dim it).
+		// Exhaust only on frames the ship actually accelerates (ship.c:274), and
+		// not while FULLY cloaked (ship.c:271 gates on OBJECT_CLOAKED, true only at
+		// black) -- a half-faded ship still emits one (tactrans.c:792-832).
 		if (!any(e->flags & ElementFlags::Cloaked))
 			spawnIonTrail(b, id);
 	}
@@ -199,20 +182,14 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			w.lifeSpan = sp.life;
 			w.hitPoints = sp.hitPoints;
 			w.damage = sp.damage;
-			// A weapon's mass is its damage (weapon.c:101, and the laser's is
-			// 1 at weapon.c:58). Not bookkeeping: CollisionPossible skips any
-			// pair where both masses are zero, so a massless shot cannot hit
-			// another shot -- which is how a zero here silently turned off
-			// flame-intercepts-nuke, the core interaction of this matchup.
+			// A weapon's mass is its damage (weapon.c:101; laser's is 1, weapon.c:58).
+			// Not bookkeeping: CollisionPossible skips pairs where both masses are
+			// zero, so a massless shot can't hit another shot.
 			w.mass = sp.damage;
 			w.blastOffset = sp.blastOffset;
-			// The mask follows the sprite FRAME, not the facing. For the
-			// nuke they are the same thing (sixteen facing cels, frameIndex
-			// = facing); for the flame they are not (eight ANIMATION cels,
-			// frameIndex 0), and indexing by facing made the fireball
-			// collide as whichever animation frame the launch facing
-			// happened to select. colorCycle carries the frame for the
-			// renderer and for any per-frame hook that advances it.
+			// The mask follows the sprite FRAME, not the facing: same thing for the
+			// nuke (16 facing cels, frameIndex = facing), different for the flame (8
+			// ANIMATION cels, frameIndex 0). colorCycle carries the frame.
 			w.colorCycle = sp.frameIndex;
 			w.mask = spec.weapon.masks.empty()
 					? nullptr
@@ -225,9 +202,8 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			w.preProcess = sp.preProcess != nullptr ? sp.preProcess
 													: spec.weapon.preProcess;
 			// A guided shot starts with its tracking clock already wound:
-			// initialize_nuke seeds turn_wait = TRACK_WAIT (human.c:297-299),
-			// so the first steer lands on the fourth hook frame, not the
-			// first. Zero for everything unguided.
+			// initialize_nuke seeds turn_wait = TRACK_WAIT (human.c:297-299), so the
+			// first steer lands on the fourth hook frame. Zero for anything unguided.
 			w.turnWait = spec.weapon.trackWait;
 			// The shot reads its own guidance parameters from the descriptor
 			// that fired it, so it carries the pointer. It is not a ship and
@@ -239,11 +215,9 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			w.velocity.setVector(sp.speed, sp.facing);
 			w.owner = id;  // pParent: what IGNORE_SIMILAR is tested against
 
-			// Backed off by one frame of its own muzzle velocity -- the C
-			// does this for every missile (weapon.c:126-127). The catch-up
-			// pass then integrates it forward, so the first position anyone
-			// sees is the muzzle itself, and total travel over its life is
-			// life frames of flight, not life + 1.
+			// Backed off by one frame of its own muzzle velocity, as the C does for
+			// every missile (weapon.c:126-127); the catch-up pass integrates it
+			// forward, so total travel over its life is life frames, not life + 1.
 			{
 				const Vec2i v0 = w.velocity.current();
 				w.current = wrap(Vec2i{w.current.x - velocityToWorld(v0.x),
@@ -253,10 +227,9 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 
 			if (sp.inheritsVelocity)
 			{
-				// The ship's velocity is added on top of the muzzle velocity,
-				// and the start position is backed off by one frame of it
-				// (ilwrath.c:219-222). Without the offset the first frame of
-				// flame appears ahead of where the ship actually was.
+				// The ship's velocity adds on top of the muzzle velocity, and the start
+				// position backs off by one frame of it (ilwrath.c:219-222) -- otherwise
+				// the first frame of flame appears ahead of where the ship actually was.
 				const Vec2i v = e->velocity.current();
 				w.velocity.deltaComponents(v.x, v.y);
 				w.current = wrap(Vec2i{w.current.x - velocityToWorld(v.x),
@@ -273,15 +246,9 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 		s.weaponCounter = spec.weapon.wait;
 	}
 
-	// SPECIAL. The engine's own part is only the counter (ship.c:342-343);
-	// everything a special *does* is per-ship code, which is the asymmetry
-	// that explains most of ships/. Hence a hook rather than a switch.
-	//
-	// Decrement first, *then* test -- the C decrements and lets the ship see
-	// the just-decremented value (ship.c:342-346), so a special can re-fire
-	// the frame its counter reaches zero. Gating in an else-branch instead
-	// adds a dead frame to every cycle: point defence every 10 frames
-	// instead of 9, the cloak re-armed in 14 instead of 13.
+	// SPECIAL: the engine only ticks the counter (ship.c:342-343). Decrement
+	// first, then test the just-decremented value (ship.c:342-346) -- gating
+	// in an else-branch instead adds a dead frame every cycle.
 	if (s.specialCounter > 0)
 		--s.specialCounter;
 	if (s.specialCounter == 0 && any(s.input & ShipInput::Special)
@@ -331,11 +298,8 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 		const Vec2i d = wrapDelta(Vec2i{to.x - from.x, to.y - from.y});
 		const int deltaFacing = Angle(arctan(d.x, d.y)).facing() - facing;
 
-		// Nearest target, by |dx| + |dy| -- the C's own stated approximation
-		// of the real distance (weapon.c:378-385). Selecting by *turn* size
-		// instead, which is what this did first, makes a missile prefer
-		// whatever it happens to be pointed at over whatever is actually
-		// close, and that is visible as a nuke that will not commit.
+		// Nearest target, by |dx| + |dy| -- the C's own stated approximation of
+		// the real distance (weapon.c:378-385).
 		const std::int32_t adx = d.x < 0 ? -d.x : d.x;
 		const std::int32_t ady = d.y < 0 ? -d.y : d.y;
 		const std::int32_t distance = adx + ady;
@@ -349,10 +313,9 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 		}
 	}
 
-	// The C's return is best_delta_facing: -1 when nothing was targetable at
-	// all, 0 when the chosen target is dead ahead (weapon.c:410-412). The
-	// nuke never looks, but the cloak's auto-aim gates on `>= 0`, so folding
-	// the two into one value broke the ambush snap and nothing else.
+	// The C's return is best_delta_facing: -1 when nothing was targetable,
+	// 0 when dead ahead (weapon.c:410-412). The nuke never looks, but the
+	// cloak's auto-aim gates on `>= 0`.
 	if (!found)
 		return -1;
 	if (outTarget != nullptr)
@@ -360,10 +323,9 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 	if (bestDelta == 0)
 		return 0;
 
-	// weapon.c:398-410. One step per call, and the direction depends on which
-	// side of a half-circle the target sits -- with a coin flip when it is
-	// exactly astern, because there is no shorter way round and always
-	// choosing the same one would make a missile behind you predictable.
+	// weapon.c:398-410: one step per call, direction by which side of a
+	// half-circle the target sits -- a coin flip exactly astern, since always
+	// choosing the same side would make a missile behind you predictable.
 	int turn = 0;
 	if (bestDelta == kNumFacings / 2)
 		turn = static_cast<int>((b.rng().next() & 1u) << 1) - 1;
@@ -400,13 +362,9 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 		e->facing = facing;
 		e->turnWait = spec.weapon.trackWait;
 
-		// And the mask follows the facing. Leaving it at the launch facing is
-		// what made a steering nuke look like it was tumbling rather than
-		// turning: the sprite changed cel while the rect it was drawn into kept
-		// the launch cel's size, so a tall facing got squeezed into a wide one
-		// and back. Ships had exactly this defect and it was fixed there.
-		// colorCycle is the cel the renderer draws, and for a directional
-		// missile that is the facing.
+		// The mask follows the facing too, or a steering nuke's rect keeps the
+		// launch cel's size while the sprite changes cel. colorCycle is the cel
+		// the renderer draws.
 		e->colorCycle = e->facing.raw();
 		if (!spec.weapon.masks.empty())
 			e->mask = &spec.weapon.masks[static_cast<std::size_t>(
@@ -414,10 +372,9 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 					% spec.weapon.masks.size()];
 	}
 
-	// And accelerate as it goes (human.c:148-157): speed climbs with how much
-	// of its life it has spent, capped. A nuke that has been chasing you for a
-	// while is much harder to outrun than one just launched, which is most of
-	// what makes the Cruiser feel like the Cruiser.
+	// Accelerates as it goes (human.c:148-157): speed climbs with life spent,
+	// capped -- a nuke chasing you a while is much harder to outrun than one
+	// just launched.
 	std::int32_t speed = spec.weapon.speed
 			+ (spec.weapon.life - e->lifeSpan) * spec.weapon.thrustScale;
 	if (speed > spec.weapon.maxSpeed)
@@ -432,11 +389,9 @@ flamePreProcess(Battle &b, EntityId id) noexcept
 	if (e == nullptr)
 		return;
 
-	// flame_preprocess (ilwrath.c:126-139): turn_wait and next_turn are both
-	// zero, so the fireball's frame advances every frame it lives -- and the
-	// collision silhouette follows the animation, which is why the flame
-	// GROWS as it flies. CHANGING re-inits the intersect frame in the C
-	// (process.c:159-160); here the mask update is that re-init.
+	// flame_preprocess (ilwrath.c:126-139): the frame advances every frame it
+	// lives, and the collision silhouette follows -- why the flame GROWS as it
+	// flies (mask update = the C's CHANGING re-init, process.c:159-160).
 	++e->colorCycle;
 	const ShipSpec *spec = e->ship.spec;
 	if (spec != nullptr && !spec->weapon.masks.empty())
@@ -495,10 +450,9 @@ shipTransition(Battle &b, EntityId id) noexcept
 
 	if (any(e->flags & ElementFlags::Appearing))
 	{
-		// Arriving: invisible, untouchable, and on a clock
-		// (tactrans.c:858-866). The ship is in the simulation the whole time
-		// -- it simply cannot be hit and is not drawn -- which is what stops
-		// two ships materialising inside each other.
+		// Arriving: invisible, untouchable, on a clock (tactrans.c:858-866). The
+		// ship is in the simulation the whole time -- just not hittable or drawn --
+		// which stops two ships materialising inside each other.
 		e->ship.crew = e->ship.spec->maxCrew;
 		e->ship.energy = e->ship.spec->maxEnergy;
 		e->ship.input = ShipInput::None;
@@ -509,21 +463,9 @@ shipTransition(Battle &b, EntityId id) noexcept
 		return;
 	}
 
-	// The trail *is* the ship teleporting in.
-	//
-	// Each frame drops a stationary copy of the hull *behind* the arrival
-	// point, offset by TRANSITION_SPEED for every frame still left on the
-	// clock (tactrans.c:938-950). The countdown shrinks that offset, so
-	// successive images march inward along the facing, the ship itself
-	// appears at the end of its own trail, and the trail then fades out
-	// behind it.
-	//
-	// Nothing here moves: the motion is entirely in where each image is put.
-	// Two earlier attempts got this wrong in different ways -- first a stack
-	// of points at the ship, which is invisible against the hull it sits on,
-	// then hull silhouettes flying *outward*, which reads as the ship coming
-	// apart rather than arriving. The direction and the shape both carry
-	// meaning, and the C encodes both in that one subtraction.
+	// The trail *is* the ship teleporting in: each frame drops a stationary
+	// hull copy behind the arrival point, shrinking by TRANSITION_SPEED per
+	// frame left (tactrans.c:938-950), so images march inward to the ship.
 	{
 		const Angle angle = e->facing.angle();
 		const std::int32_t back = kTransitionSpeed * (e->lifeSpan - 1);
@@ -586,9 +528,8 @@ void
 startShipExplosion(Element &e) noexcept
 {
 	// The ship becomes its own explosion rather than vanishing
-	// (tactrans.c:703-728): it stops dead, loses its energy, stops colliding,
-	// and burns for a fixed number of frames. Removing it immediately, which
-	// is what happened before, made a kill read as the ship being deleted.
+	// (tactrans.c:703-728): stops dead, loses energy, stops colliding, and
+	// burns for a fixed number of frames.
 	e.velocity.zero();
 	e.ship.energy = 0;
 	e.lifeSpan = kExplosionLife;
@@ -607,10 +548,9 @@ explosionPreProcess(Battle &b, EntityId id) noexcept
 	if (e == nullptr)
 		return;
 
-	// How many sparks this frame. The C's schedule (tactrans.c:545-575) ramps
-	// up and back down over the 26 frames it spawns for: one at the start,
-	// three through the middle, one again at the end, then nothing for the
-	// last ten frames while the sparks already thrown finish burning.
+	// How many sparks this frame: the C's schedule (tactrans.c:545-575) ramps
+	// 1/3/1 over the 26 frames it spawns for, then nothing for the last ten
+	// while thrown sparks finish burning.
 	const std::int32_t age = kExplosionLife - e->lifeSpan;
 	int count = 3;
 	if (age <= 2 || (age >= 20 && age <= 25))
@@ -626,9 +566,8 @@ explosionPreProcess(Battle &b, EntityId id) noexcept
 	const Vec2i from = e->current;
 	for (int n = 0; n < count; ++n)
 	{
-		// Scattered around the hull, not on it: a random bearing and a
-		// distance of up to eight display pixels, with a third of them thrown
-		// eight further out so the cloud has an edge rather than a rim
+		// Scattered around the hull: random bearing, up to 8 display pixels out, a
+		// third thrown 8 further so the cloud has an edge, not a rim
 		// (tactrans.c:597-604).
 		const std::uint32_t r0 = b.rng().next();
 		const Angle spot{static_cast<int>(r0 >> 16)};
@@ -636,11 +575,9 @@ explosionPreProcess(Battle &b, EntityId id) noexcept
 		if (((r0 >> 8) & 0xFFu) < 256u / 3u)
 			dist += displayToWorld(8);
 
-		// And drifting: its own bearing, unrelated to where it sits, at up to
-		// four display pixels a frame. The speed slice is HIBYTE(LOWORD()) --
-		// one byte, then the modulo (tactrans.c:607-612); slicing more bits
-		// draws a different value from an identical stream, which a replay
-		// would notice.
+		// Drifting: its own bearing, up to 4 display pixels a frame. The speed
+		// slice is HIBYTE(LOWORD()) -- one byte, then modulo (tactrans.c:607-612);
+		// slicing different bits draws a different value from the same stream.
 		const std::uint32_t r1 = b.rng().next();
 		const Angle drift{static_cast<int>(r1)};
 		const std::int32_t speed = displayToWorld(
@@ -678,10 +615,9 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 	const Vec2i from = ship->next;
 	bool paid = false;
 
-	// Every shot in range, not just the nearest. The C walks the whole list
-	// and fires a laser at each, paying once for the volley (human.c:225-236,
-	// the PaidFor flag) -- so a Cruiser surrounded by fire either clears all
-	// of it or, if it cannot afford the shot, none of it.
+	// Every shot in range, not just the nearest: the C walks the whole list
+	// and fires at each, paying once for the volley (human.c:225-236) -- a
+	// Cruiser surrounded by fire clears all of it, or none if it can't afford it.
 	for (EntityId other = b.elements().front(); other.valid();
 			other = b.elements().next(other))
 	{
@@ -694,16 +630,12 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		if (any(t->flags & ElementFlags::Cloaked))
 			continue;  // human.c:203-204
 
-		// No ownership test -- the C has none (human.c:203-204), so the
-		// Cruiser pays for and shoots down its OWN in-flight nukes within
-		// range. That is a real tactical constraint: you cannot hold SPECIAL
-		// with a nuke out. An ownership filter here was tried and reverted
-		// as an unmarked balance change (review-001 A15).
+		// No ownership test -- the C has none (human.c:203-204): the Cruiser pays
+		// for and shoots down its OWN in-flight nukes in range, a real tactical
+		// constraint (review-001 A15).
 
-		// A deliberate divergence: the C filters only on CollidingElement, so
-		// it will happily fire the laser at a planet -- which absorbs it,
-		// since do_damage exempts gravity masses. Faithful, and it looks like
-		// a malfunction. Point defence is for things that can be shot down.
+		// A deliberate divergence from the C, which will fire on a planet that
+		// just absorbs it (do_damage exempts gravity masses) -- see design-notes V4.
 		if (isGravityMass(t->mass))
 			continue;
 
@@ -724,16 +656,9 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		doDamage(*t, 1);
 
-		// The beam itself. Its only effect on the simulation is the damage
-		// above, but the *geometry* lives here rather than in the renderer:
-		// that way it is deterministic, it replays identically, and a
-		// spectator or a recording draws exactly what happened rather than
-		// something reconstructed afterwards.
-		//
-		// LASER_LIFE is 1 (weapon.c:52). `current` and `next` are its two ends
-		// rather than a position and a destination, which is how the C stores
-		// a LINE_PRIM too -- and why IgnoreVelocity is set, since those ends
-		// must not be integrated as motion.
+		// The beam is decorative -- only the damage above is real -- deterministic
+		// geometry, not the renderer's (design-notes V3). LASER_LIFE is 1
+		// (weapon.c:52); current/next are its two ends, so IgnoreVelocity is set.
 		const Vec2i beamTo = t->next;
 		Element beam;
 		beam.kind = ElementKind::Laser;
@@ -761,10 +686,9 @@ constexpr int kCloakAimLookAhead = 4;
 
 namespace {
 
-// The ambush snap (ilwrath.c:281-342): firing from full black aims the ship
-// at where the nearest enemy will be, not where it is. TrackShip picks the
-// target; the facing it steps is thrown away and recomputed from a
-// four-frame lead of both ships' velocities.
+// The ambush snap (ilwrath.c:281-342): firing from full black aims at
+// where the nearest enemy will be. TrackShip picks the target; the facing
+// it steps is thrown away and recomputed from a four-frame lead.
 void
 cloakedAutoAim(Battle &b, EntityId id) noexcept
 {
@@ -817,11 +741,10 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 	ShipState &s = e->ship;
 	const ShipSpec &spec = *s.spec;
 
-	// ilwrath_preprocess (ilwrath.c:232-394), with cloakLevel standing in
-	// for the prim type and colour. The direction of the walk is derived
-	// fresh every frame; there is no stored "cloaking" state to disagree
-	// with it.
-	//
+	// ilwrath_preprocess (ilwrath.c:232-394): cloakLevel stands in for the
+	// prim type/colour, its walk direction derived fresh each frame -- no
+	// stored "cloaking" state to disagree with it.
+
 	// The C masks SPECIAL out of a *local* flags copy when an uncloak step
 	// runs (ilwrath.c:346), which suppresses the activation block below for
 	// that frame only. A local mirrors that exactly.
@@ -837,10 +760,9 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 						&& (any(s.input & ShipInput::Special)
 								|| s.cloakLevel < kCloakFullLevel)))
 		{
-			// One step toward visible (ilwrath.c:250-348). Firing is the
-			// only trigger that works mid-debounce; a key press needs the
-			// counter spent, and "not yet black with a spent counter" keeps
-			// an interrupted ramp unwinding all the way out on its own.
+			// One step toward visible (ilwrath.c:250-348). Firing is the only trigger
+			// that works mid-debounce; a key press needs the counter spent, so an
+			// interrupted ramp keeps unwinding out on its own.
 			if (s.cloakLevel == kCloakFullLevel && weaponDischarge)
 			{
 				// Stepping off BLACK under fire is the ambush.
@@ -851,10 +773,9 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 			}
 			--s.cloakLevel;  // reaching 0 is the C's SetPrimType(STAMP)
 
-			// Every uncloak step zeroes the debounce (ilwrath.c:347), so
-			// re-cloak is available the moment the ship is solid again --
-			// and masks SPECIAL for this frame, so the same press cannot
-			// also activate below.
+			// Every uncloak step zeroes the debounce (ilwrath.c:347): re-cloak is
+			// available the moment the ship is solid again, and SPECIAL is masked
+			// this frame so the same press can't also activate below.
 			s.specialCounter = 0;
 			specialMasked = true;
 		}
@@ -874,11 +795,9 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 	else
 		e->flags &= ~ElementFlags::Cloaked;
 
-	// Activation (ilwrath.c:377-393): SPECIAL with the debounce spent, and
-	// the energy is paid again every time -- there is no free toggle-off and
-	// no half-price re-cloak. The ramp restarts at white even from mid-fade,
-	// though in practice it can only fire from solid: any earlier level
-	// either has the counter running or just masked SPECIAL above.
+	// Activation (ilwrath.c:377-393): SPECIAL with the debounce spent, paying
+	// energy every time -- no free toggle-off, no half-price re-cloak. Restarts
+	// at white even from mid-fade, though only reachable from solid in practice.
 	if (!specialMasked && any(s.input & ShipInput::Special)
 			&& s.specialCounter == 0
 			&& deltaEnergy(s, -spec.special.energyCost))

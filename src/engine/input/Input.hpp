@@ -8,27 +8,9 @@
 
 namespace uqm::input {
 
-// The input accumulator, one of M1's named forces.
-//
-// The C polls. battle.c:198-210 reads the controller's *current* state once
-// per battle frame and builds ship_input_state from it, so a press that
-// begins and ends between two frames never happened. At 24 Hz a frame is 42
-// milliseconds, and a deliberate tap is comfortably shorter than that -- this
-// is why firing a Cruiser missile sometimes just does not go off.
-//
-// It gets worse the better your hardware is. The sim runs at 24 Hz but the
-// event pump runs at display rate, so on a 144 Hz screen there are six pumps
-// per simulation step and five of them are thrown away.
-//
-// So: two bits per button rather than one. `held` is the live state, and is
-// what a continuous action like thrust reads. `pressed` is sticky -- set by
-// any press since the last step, cleared when the step consumes it -- and is
-// what guarantees a tap is seen exactly once. Not zero times, which is the
-// bug, and not twice, which would double-fire.
-//
-// This deliberately diverges from the C. It is a change to what the player
-// feels, and the melee baseline has to be re-established with it in place
-// rather than assumed to carry over.
+// The input accumulator (see design-notes.md D7, V6): `held` is live state,
+// `pressed` is sticky until a step consumes it, so a tap shorter than one
+// battle frame (the C's per-frame poll, battle.c:198-210) still fires once.
 
 enum class Button : std::uint8_t
 {
@@ -100,11 +82,9 @@ private:
 	std::uint32_t bits_ = 0;
 };
 
-// One player's accumulator.
-//
-// press/release are called from the platform event pump, as often as it likes.
-// consume() is called exactly once per simulation step and is the only thing
-// that clears the sticky half.
+// One player's accumulator. press/release run from the platform event pump
+// as often as it likes; consume() runs exactly once per simulation step and
+// is the only thing that clears the sticky half.
 class InputAccumulator
 {
 public:

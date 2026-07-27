@@ -70,15 +70,9 @@ private:
 [[nodiscard]] PhraseFile parsePhrases(
 		std::string_view text, std::vector<ContentError> *problems = nullptr);
 
-// Attaches timestamps from a .ts, replaying getstr.c:306-349 exactly: one
-// line per phrase, in order, matched with strstr.
-//
-// Returns false when the C would have given up -- and when it gives up it
-// discards *every* timestamp for the race behind one log warning, so this is
-// all-or-nothing too rather than leaving a half-populated file. `problems`
-// also records the silent case: strstr is a substring test, so a line naming
-// FOO_EXTRA satisfies phrase FOO, and the C neither notices nor complains, it
-// just stores the wrong text.
+// Replays getstr.c:306-349: one .ts line per phrase, matched by strstr,
+// all-or-nothing like the C (a short file discards every timestamp for the
+// race). `problems` also flags a substring mismatch the C stores silently.
 [[nodiscard]] bool attachTimestamps(PhraseFile &file, std::string_view ts,
 		std::vector<ContentError> *problems = nullptr);
 

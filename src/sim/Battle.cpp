@@ -12,16 +12,9 @@ namespace uqm::sim {
 
 namespace {
 
-// CollisionPossible (collide.h:34-39), which is stricter than it looks.
-//
-// The TEST element must be collidable -- the scanner's own collidability is
-// the walk's business, checked before and after each resolution. The pair is
-// skipped when BOTH are already stopped this frame, when both carry
-// IGNORE_SIMILAR and share an owner (both halves matter: `both` not `either`,
-// and `owner` not `player` or `kind` -- testing kind is what once let an
-// Ilwrath flame burn the Avenger that breathed it), and when neither side has
-// mass: a weapon's mass is its damage, and two massless things have nothing
-// to resolve.
+// CollisionPossible (collide.h:34-39): skips a pair when both are already
+// stopped, when both carry IGNORE_SIMILAR and share an owner (both, not
+// either; owner, not player or kind), or when neither side has mass.
 [[nodiscard]] bool
 collisionPossible(const Element &test, const Element &elem) noexcept
 {
@@ -37,29 +30,17 @@ collisionPossible(const Element &test, const Element &elem) noexcept
 	return true;
 }
 
-// Masks are measured in display pixels and positions are in world units, so
-// the conversion is not optional -- feeding world coordinates to the
-// intersect test makes everything four times further apart than it is and
-// nothing ever touches. The C converts at exactly this boundary, in
-// InitIntersectStartPoint/EndPoint (collide.h:44-54).
+// Masks are display pixels, positions are world units -- the conversion
+// isn't optional, or the intersect test sees everything 4x further apart.
+// The C converts at this exact boundary (collide.h:44-54).
 [[nodiscard]] Body
 bodyOf(const Element &e) noexcept
 {
 	return Body{e.mask, worldToDisplay(e.current), worldToDisplay(e.next)};
 }
 
-// Where a body stops if its hook says so -- placed in *world* units, by
-// rewinding its own motion to the impact time, not by converting the impact
-// point back from display space.
-//
-// Converting back looked equivalent and was not. displayToWorld multiplies by
-// four, so it snapped every collision to a four-unit grid and dragged each
-// body backwards by up to three world units. Two ships in contact were pulled
-// together again every frame by as much as the impulse pushed them apart, so
-// they stuck instead of separating -- and the minimum-nudge in applyImpulse
-// then fought the same battle from the other side. This is a deliberate
-// precision divergence from the C's DISPLAY_TO_WORLD(SavePt)
-// (process.c:578-595).
+// Where a body stops, rewound to the impact time in world units, not
+// converted back from display space -- see design-notes D3 (V2).
 [[nodiscard]] Vec2i
 rewindTo(Vec2i from, Vec2i to, TimeValue time) noexcept
 {
@@ -108,16 +89,10 @@ Battle::spawnBack(Element e)
 	return id;
 }
 
-// PreProcess (process.c:128-186), which is more than "call the hook".
-//
-// The ordering here was got wrong once and the tests caught it, so it is
-// worth spelling out. A newly spawned element is seeded with next = current
-// (SetUpElement, process.c:117-126) and then **still has its velocity
-// applied** -- process.c:163 gates motion on IGNORE_VELOCITY and nothing
-// else. Appearing suppresses the preprocess *hook*, not the movement. Getting
-// that wrong costs every projectile its first frame of flight, which at 24 Hz
-// is a visible stutter at the muzzle.
-//
+// PreProcess (process.c:128-186): a spawned element is seeded with next =
+// current (process.c:117-126) but still moves -- gated on IGNORE_VELOCITY
+// alone (process.c:163), not Appearing, which suppresses only the hook.
+
 // Appearing is cleared here only for player ships (process.c:150-151, "want
 // to preprocess ship"). A weapon keeps it through its first frame, so its
 // hook does not run until the second.
@@ -129,10 +104,8 @@ Battle::preProcessOne(EntityId id) noexcept
 		return;
 
 	// Death is `life_span == 0` and nothing else -- process.c:133 has no
-	// FINITE_LIFE guard. That is what lets do_damage kill an asteroid by
-	// assigning life_span = 0 (misc.c:210,221) even though an asteroid does
-	// not age. It is also why a persistent element is born with NORMAL_LIFE
-	// rather than 0: a zero would be read as "died last frame".
+	// FINITE_LIFE guard, so do_damage kills a non-aging asteroid by assigning
+	// life_span = 0 (misc.c:210,221); a persistent element is born at 1, not 0.
 	if (e->lifeSpan == 0)
 	{
 		e->flags |= ElementFlags::Disappearing;
@@ -145,30 +118,24 @@ Battle::preProcessOne(EntityId id) noexcept
 		}
 	}
 
-	// From here the C works on a *local copy* of the flags (process.c:143) and
-	// writes it back at the end, re-reading from the element only after the
-	// preprocess hook has run. That is not a detail: it is how APPEARING
-	// survives a player ship's own preprocess. The flag is cleared in the
-	// local at line 151 purely so the `!(state_flags & APPEARING)` test at 154
-	// lets the hook run, then line 158 reads it straight back off the element.
-	// APPEARING is not actually cleared until PostProcess (process.c:202).
+	// The C works on a *local copy* of the flags (process.c:143), writing back
+	// only after the hook runs -- how APPEARING survives a player ship's own
+	// preprocess. Not cleared on the element itself until PostProcess (process.c:202).
 	ElementFlags flags = e->flags;
 
 	if (!any(flags & ElementFlags::Disappearing))
 	{
-		// What this element entered the frame as -- the C's current.image.
-		// The overlap-repair protocol reverts a turn made this frame by
-		// putting these back (process.c:453-506); captured before the hook,
-		// which is where turning happens.
+		// What this element entered the frame as (the C's current.image), captured
+		// before the hook -- the overlap-repair protocol reverts a turn made this
+		// frame by putting these back (process.c:453-506).
 		e->priorMask = e->mask;
 		e->priorFacing = e->facing;
 
 		if (any(flags & ElementFlags::Appearing))
 		{
-			// SetUpElement (process.c:117-126). A laser is exempt: its
-			// `current` and `next` are the two ENDS of the beam rather than a
-			// position and a destination, and seeding next from current would
-			// collapse it to a point before its one frame on screen.
+			// SetUpElement (process.c:117-126). A laser is exempt: `current`/`next`
+			// are the beam's two ENDS, not a position and destination -- seeding next
+			// from current would collapse it to a point.
 			if (e->kind != ElementKind::Laser)
 				e->next = e->current;
 			if (any(flags & ElementFlags::PlayerShip))
@@ -184,23 +151,9 @@ Battle::preProcessOne(EntityId id) noexcept
 			flags = e->flags;
 		}
 
-		// Motion is gated on IGNORE_VELOCITY alone (process.c:163). A newly
-		// spawned element still moves on its first frame; APPEARING suppresses
-		// the hook, not the movement.
-		//
-		// Two details are the C's and both were once "tidied" away:
-		//
-		//   - Integration ADDS to `next` (process.c:172-173) rather than
-		//     rebuilding it from `current`, so a hook that nudged `next`
-		//     keeps its nudge (crew_preprocess positions drifting crew that
-		//     way).
-		//   - The result is NOT wrapped. The C wraps at the commit
-		//     (process.c:899-916), so a seam-crossing element is collision-
-		//     tested with raw coordinates: the sweep sees a short hop off the
-		//     arena's edge. Wrapping here handed the sweep a full-arena
-		//     traversal instead, which could manufacture phantom hits against
-		//     anything near that path. The cost, also the C's: a genuine
-		//     seam collision resolves one frame late.
+		// Motion gates on IGNORE_VELOCITY alone (process.c:163), so a spawned
+		// element still moves its first frame. Integration ADDS to `next`
+		// (process.c:172-173); the wrap happens at commit, not here -- design-notes D4.
 		if (!any(flags & ElementFlags::IgnoreVelocity))
 		{
 			const Vec2i delta = e->velocity.advance(1);
@@ -219,11 +172,9 @@ Battle::preProcessOne(EntityId id) noexcept
 			| ElementFlags::PreProcessed;
 }
 
-// The other half of "BAD NEWS": an APPEARING element wedged inside something
-// on its spawn frame dies on the spot (process.c:427-449) -- full damage,
-// then straight to DISAPPEARING with its death hook run now, so an asteroid
-// respawned into the planet becomes rubble immediately instead of drifting
-// through it. hit_points is crew for a ship -- the union (element.h:126-133).
+// "BAD NEWS": an APPEARING element wedged inside something on spawn dies
+// on the spot (process.c:427-449) -- full damage, then DISAPPEARING with
+// its death hook run now (hit_points is crew for a ship, element.h:126-133).
 void
 Battle::killOverlapSpawn(EntityId id)
 {
@@ -255,15 +206,9 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 	if (t == nullptr || !collisionPossible(*t, *e))
 		return false;
 
-	// A transient element does not collide on the frame it spawns
-	// (process.c:389-394). A missile is born at its ship's muzzle; test it
-	// there and it detonates on its own launcher. The exemption is the C's
-	// shape exactly: FINITE_LIFE on EITHER side, and APPEARING-with-life-left
-	// on EITHER side -- not necessarily the same element, which is what
-	// exempts the planet (APPEARING, non-finite, life 2) against a weapon on
-	// its spawn frame. The lifeSpan > 1 exception keeps point-defence fire
-	// working: born with one frame to live, the spawn frame is the only one
-	// it has, and preprocess has already decremented, same as in the C.
+	// A transient element doesn't collide on its spawn frame (process.c:389-394)
+	// -- exempts FINITE_LIFE-with-Appearing on EITHER side, so a missile can't
+	// detonate on its own muzzle; lifeSpan > 1 still lets one-frame PD fire.
 	if (any((e->flags | t->flags) & ElementFlags::FiniteLife)
 			&& ((any(e->flags & ElementFlags::Appearing) && e->lifeSpan > 1)
 					|| (any(t->flags & ElementFlags::Appearing)
@@ -274,11 +219,9 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 			!any((e->flags | t->flags) & ElementFlags::FiniteLife);
 	Impact hit = sweptIntersect(bodyOf(*e), bodyOf(*t), maxTime);
 
-	// "BAD NEWS" (process.c:397-516). Impact at time 1 between two solids is
-	// a standing overlap, not a new collision, and gets a repair protocol
-	// rather than a response -- responding again is how ships weld together.
-	// Weapons are exempt from all of it: a shot that starts inside its target
-	// has simply hit it.
+	// "BAD NEWS" (process.c:397-516): impact at time 1 between two solids is a
+	// standing overlap, not a new collision -- a repair protocol, not a
+	// response, or responding again welds ships together. Weapons are exempt.
 	while (hit.time == 1 && bothSolid)
 	{
 		if (any(e->flags & ElementFlags::Collided))
@@ -297,11 +240,9 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 		const bool tTurned = t->mask != t->priorMask;
 		if (!eTurned && !tTurned)
 		{
-			// Neither silhouette changed this frame: either a spawn wedged
-			// inside something, which dies on the spot, or the tail of an
-			// already-resolved contact, which is skipped so the impulse from
-			// the original impact can carry the pair apart
-			// (process.c:427-451, 509-515).
+			// Neither silhouette changed: either a spawn wedged inside something
+			// (dies on the spot), or the tail of an already-resolved contact, skipped
+			// so the original impulse can carry the pair apart (process.c:427-451, 509-515).
 			if (any(t->flags & ElementFlags::Appearing))
 				killOverlapSpawn(testId);
 			if (any(e->flags & ElementFlags::Appearing))
@@ -313,12 +254,9 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 			break;
 		}
 
-		// A silhouette changed into the overlap -- something rotated into a
-		// wall. Undo the turn (process.c:453-506 reverts next.image to
-		// current.image and re-reads ShipFacing from it) and ask again: with
-		// the old silhouette back, the sweep may find no contact at all, a
-		// genuine mid-frame impact, or a standing overlap that the branch
-		// above then settles.
+		// A silhouette changed into the overlap -- something rotated into a wall.
+		// Undo the turn (process.c:453-506) and ask again: the old silhouette may
+		// find no contact, a genuine impact, or a standing overlap settled above.
 		if (eTurned)
 		{
 			e->mask = e->priorMask;
@@ -338,11 +276,9 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 	const Vec2i elemStop = rewindTo(e->current, e->next, hit.time);
 	const Vec2i testStop = rewindTo(t->current, t->next, hit.time);
 
-	// Earliest-collision-wins (process.c:531-540): before resolving this pair
-	// at `hit.time`, ask whether either party hits something else EARLIER.
-	// The recursion does not merely ask -- it resolves what it finds -- and a
-	// yes on either side abandons this pair for the frame. Short-circuit
-	// order is the C's: the scanner's side first.
+	// Earliest-collision-wins (process.c:531-540): before resolving at
+	// `hit.time`, recursively resolve whether either side hits something
+	// earlier first; a yes on either side abandons this pair. Scanner's side first.
 	if (hit.time != 1)
 	{
 		const auto earlier = static_cast<TimeValue>(hit.time - 1);
@@ -449,10 +385,9 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 				processedMask);
 	}
 
-	// Keep scanning unless the scanner is now out of the game for the frame
-	// (process.c:609-618): stopped, or no longer collidable -- a ship merely
-	// hit by a missile is neither, and can still bounce off another ship
-	// this same frame.
+	// Keeps scanning unless out of the game for the frame (process.c:609-618):
+	// stopped, or no longer collidable -- a ship merely hit by a missile is
+	// neither, and can still bounce off another ship this frame.
 	e = elements_.get(elemId);
 	if (e == nullptr || any(e->flags & ElementFlags::Collided))
 		return true;
@@ -464,12 +399,9 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 	return false;
 }
 
-// ProcessCollisions (process.c:361-627): walk the candidates from `first`,
-// preprocessing anything the frame has not touched yet, and resolve what
-// `elem` hits. `processedMask` is the C's process_flags -- PreProcessed in
-// the pre pass, PreProcessed|PostProcessed in the post pass, where the
-// second flag is what stops a committed element being integrated twice by a
-// whole-list walk. Returns whether `elem` ended the walk stopped.
+// ProcessCollisions (process.c:361-627): walks candidates from `first`,
+// preprocessing stragglers via processedMask (process_flags) -- see
+// design-notes D1. Returns whether `elem` ended the walk stopped.
 bool
 Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime,
 		ElementFlags processedMask)
@@ -477,11 +409,9 @@ Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime,
 	for (EntityId testId = first; testId.valid();)
 	{
 		{
-			// The walk preprocesses each element it passes, before the pair
-			// is tested (process.c:371-373). This is what makes the test see
-			// the other side's motion for *this* frame: its `next` is
-			// otherwise still last frame's position and the sweep hits a
-			// ghost.
+			// The walk preprocesses each element before testing the pair
+			// (process.c:371-373): otherwise `next` is still last frame's
+			// position and the sweep hits a ghost.
 			auto t = elements_.get(testId);
 			if (t == nullptr)
 				break;
@@ -507,17 +437,9 @@ Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime,
 void
 Battle::preProcessPass()
 {
-	// A LIVE walk, not a snapshot -- the C's PreProcessQueue follows the real
-	// list (process.c:630-746), and the difference is observable: an element
-	// a hook appends at the tail (rubble from a death, sparks from a burning
-	// hull) is walked into by this same pass, preprocessed, and collision-
-	// tested against its successors. An element head-inserted during the walk
-	// lands behind the cursor and waits for the post pass's catch-up instead,
-	// exactly as in the C. Snapshotting the ids up front deferred every
-	// tail spawn too, which is not the C's shape.
-	//
-	// Safe to walk live because nothing removes an element mid-frame: death
-	// only marks Disappearing, and the reap happens in the post pass.
+	// A LIVE walk, not a snapshot (process.c:630-746) -- see design-notes D1.
+	// Safe because nothing removes an element mid-frame: death only marks
+	// Disappearing, and the reap happens in the post pass.
 	for (EntityId id = elements_.front(); id.valid();)
 	{
 		auto e = elements_.get(id);
@@ -542,20 +464,9 @@ Battle::preProcessPass()
 void
 Battle::catchUpFrom(EntityId first)
 {
-	// The mid-frame-spawn catch-up (process.c:843-862): from the first
-	// element the post walk found un-preprocessed, run to the tail,
-	// integrating and ageing everything new and collision-testing against
-	// the WHOLE list -- everything ahead of it already moved, so successors
-	// alone would miss most partners. This is what lets a one-frame weapon
-	// -- point-defence fire -- hit something on the only frame it has, and
-	// what gives a missile its first frame of flight on the frame the
-	// trigger was pulled. Live, like the outer walk: a weapon spawned by an
-	// element this loop preprocesses is reached by this same loop.
-	//
-	// The gate is PreProcessed OR PostProcessed, the C's PRE_PROCESS |
-	// POST_PROCESS (process.c:859): a committed element has already had its
-	// frame, and integrating it again from a whole-list walk would move and
-	// age it twice.
+	// The mid-frame-spawn catch-up (process.c:843-862): integrates and tests
+	// new elements against the WHOLE list, live like the outer walk -- see
+	// design-notes D1. Gated on PreProcessed|PostProcessed (process.c:859).
 	constexpr ElementFlags kDone =
 			ElementFlags::PreProcessed | ElementFlags::PostProcessed;
 
@@ -577,13 +488,9 @@ Battle::catchUpFrom(EntityId first)
 void
 Battle::postProcessPass()
 {
-	// The C's PostProcessQueue (process.c:798-983), with the drawing taken
-	// out, and like it a LIVE walk. The load-bearing consequence: a weapon
-	// fired by a ship's postprocess hook is appended at the tail, reached by
-	// this same walk, caught up -- so it moves on the frame it was fired --
-	// and committed, which is where its Appearing clears. Snapshotting here
-	// cost every projectile its first frame of flight and left Appearing set
-	// a frame late, which delayed its first possible hit by another frame.
+	// The C's PostProcessQueue (process.c:798-983), drawing removed, a LIVE
+	// walk like PreProcessQueue -- see design-notes D1. A weapon fired by a
+	// postprocess hook is appended, reached, and committed this same walk.
 	for (EntityId id = elements_.front(); id.valid();)
 	{
 		auto e = elements_.get(id);
@@ -596,11 +503,9 @@ Battle::postProcessPass()
 		}
 		else if (!any(e->flags & ElementFlags::Collided))
 		{
-			// A frame without a collision ends DefyPhysics
-			// (process.c:824-827). It has to expire, or the first stationary
-			// contact disables the collision stagger for good and later,
-			// unrelated contacts fall into the zero-velocity branch meant
-			// for pairs that are actually stuck.
+			// A frame without a collision ends DefyPhysics (process.c:824-827): it
+			// has to expire, or the first stationary contact disables the collision
+			// stagger for good, and later contacts fall into the stuck-pair branch.
 			e->flags &= ~ElementFlags::DefyPhysics;
 		}
 
@@ -624,23 +529,18 @@ Battle::postProcessPass()
 
 			if (e != nullptr)
 			{
-				// The wrap lives here, at the commit, matching the C
-				// (process.c:899-916) -- see the note in preProcessOne. A
-				// laser is exempt from the commit entirely: its two points
-				// are the beam, not motion.
+				// The wrap lives here, at the commit (process.c:899-916) -- see
+				// design-notes D4. A laser is exempt: its two points are the beam,
+				// not motion.
 				if (e->kind != ElementKind::Laser)
 				{
 					e->next = wrap(e->next);
 					e->current = e->next;
 				}
 
-				// PostProcessed is the C's POST_PROCESS flag: it marks "had
-				// its frame", so the whole-list walks above do not integrate
-				// a committed element a second time. The next preprocess
-				// clears it. Ageing and the death decision both live in the
-				// pre pass, matching process.c:133-141 and 180-181, so an
-				// element dies at the start of the frame after its life
-				// reached zero -- not at the end of the one that spent it.
+				// PostProcessed is POST_PROCESS: marks "had its frame" so whole-list
+				// walks don't integrate it twice (design-notes D1). Ageing/death die
+				// at frame start after life hits zero (process.c:133-141, 180-181).
 				e->flags = (e->flags
 								   & ~(ElementFlags::Appearing
 										   | ElementFlags::PreProcessed))

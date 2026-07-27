@@ -92,22 +92,9 @@ struct Extent2
 using Extent2u = Extent2<std::uint32_t>;
 using Extent2i = Extent2<std::int32_t>;
 
-// A CLOSED interval [first, last] -- `last` is the last valid element, not
-// one past it.
-//
-// That is the opposite of every range in the standard library, so it is not
-// called `Range`: a bare `Range{128, 255}` would read as half-open to any C++
-// programmer and be wrong by one everywhere. The name is the warning.
-//
-// Closed is not a preference, it is what the content is. A .ct entry says
-// "slots 10 through 10" meaning one slot, and every planets/*.ct says
-// "indices 128 through 255" meaning 128 colours; SetColorMap (cmap.c:308)
-// loops `start <= end`. Storing that half-open would need `end = 256`, which
-// does not fit in the uint8_t the format uses -- so a half-open version of
-// this type could not represent the shipped content at all.
-//
-// Deliberately has no begin()/end(): it must not work in a range-for, where
-// the half-open assumption would be silent.
+// A CLOSED interval [first, last], not half-open -- see
+// docs/cpp-conventions.md rule 7 for why (a uint8_t range over real content
+// could not represent 128..255 as half-open). No begin()/end() on purpose.
 template <class T>
 struct ClosedRange
 {

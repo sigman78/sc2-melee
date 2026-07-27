@@ -107,10 +107,9 @@ File::write(std::span<const std::byte> from)
 
 namespace {
 
-// The size comes from the directory entry rather than from seeking the
-// stream: one query instead of two, it does not disturb the stream position,
-// and it avoids ftell, whose `long` is 32 bits on Windows. The buffer is then
-// allocated once at the right size and never grown.
+// Size from the directory entry, not by seeking: one query instead of two,
+// it leaves the stream position alone, and it avoids ftell's 32-bit `long`
+// on Windows. The buffer is then allocated once, at the right size.
 std::expected<std::uintmax_t, FileError>
 sizeOnDisk(const std::filesystem::path &path)
 {

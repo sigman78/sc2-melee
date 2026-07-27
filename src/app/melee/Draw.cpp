@@ -1,14 +1,12 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 //
-// Ships, projectiles, asteroids and the planet all draw from content. Anything
-// without art yet -- blasts, mainly -- falls back to a coloured rectangle,
-// which is deliberately ugly so it reads as missing rather than as a choice.
+// Ships, projectiles, asteroids and the planet draw from content; anything
+// without art yet falls back to a coloured rectangle, deliberately ugly so
+// it reads as missing rather than as a choice.
 //
-// Everything is positioned by its cel's *hotspot*, not its centre. Each facing
-// has its own: the Cruiser's sixteen are at (7,19), (12,19), (16,15) and so
-// on, because the ship is not symmetric and each rendering sits differently in
-// its box. Centring instead makes the hull wander as it turns, and puts the
-// sprite off the collision mask, which is anchored to that same hotspot.
+// Positioning is by each cel's hotspot, not its centre -- facings are not
+// symmetric and each sits differently in its box, so centring would make
+// the hull wander and drift off the collision mask, which shares the hotspot.
 
 #include "app/melee/Draw.hpp"
 #include "app/melee/Game.hpp"
@@ -64,13 +62,9 @@ colourFor(const sim::Element &e) noexcept
 	}
 }
 
-// A 3x5 digit font, one bit per pixel, packed a row per nibble.
-//
-// Deliberately not the game's own font. That path exists -- FontDir parses
-// .fon and the browser renders them -- but wiring it in means glyph atlases,
-// kerning and a text layer, and this is a readout of two numbers per player.
-// The real status panel is M2 work and will use the real fonts; this is
-// scaffolding that says what the simulation thinks is true.
+// A 3x5 digit font (one bit per pixel), not the game's real font --
+// wiring FontDir in means atlases and kerning for two numbers per
+// player. Scaffolding until the M2 status panel uses real fonts.
 constexpr std::array<std::uint16_t, 10> kDigits{{
 		0b111'101'101'101'111,  // 0
 		0b010'110'010'010'111,  // 1
@@ -123,52 +117,29 @@ drawNumber(platform::Platform &w, std::int32_t value, Vec2i rightTop,
 	} while (value != 0);
 }
 
-// The starfield.
-//
-// Three planes, 30 big, 60 medium and 90 small (galaxy.c:37-44). The C stores
-// each plane in a coordinate space 2^plane larger than the arena and then
-// shifts all three by the *same* delta each frame (galaxy.c:405-407), so a
-// plane in a larger space slides proportionally less across the screen. That
-// is where the parallax comes from, and it is the only thing about the C's
-// implementation worth keeping: the rest of galaxy.c is an incremental
-// scroll over a y-sorted array, wrapping stars one at a time as they fall off
-// an edge, which exists to avoid recomputing 180 positions on a 386 and buys
-// nothing here.
-//
-// Stated directly instead: plane p scrolls at 1/2^p of the camera. Plane 0 is
-// nearest -- biggest, brightest, fastest -- and plane 2 is the far haze.
+// The starfield: three planes (30/60/90 stars), each scrolling at
+// 1/2^plane of the camera so nearer planes move faster (galaxy.c:37-44,
+// 405-407); plane 0 is nearest -- biggest, brightest, fastest.
 inline constexpr int kStarPlanes = 3;
 inline constexpr std::array<int, kStarPlanes> kStarsPerPlane{{30, 60, 90}};
 
-// Only a fallback, for when the art is missing. The cels carry their own
-// colour and their own brightness, and they are already graded by plane --
-// which is the whole reason they must be drawn as *frames* and not as
-// silhouettes.
-//
-// Drawing the silhouette was the defect: a silhouette is a flat fill of every
-// non-transparent pixel, and these glyphs are mostly near-black. The 11x11
-// cel is a bright core with almost-invisible diffraction arms, and the 5x5 is
-// a single bright pixel inside a faint halo. Filling them turned three subtle
-// stars into solid blobs and made the sky unreadable.
+// Fallback only, for when the art is missing: the cels carry their own
+// colour and brightness already graded by plane, which is why they draw
+// as frames rather than silhouettes.
 inline constexpr std::array<Colour, kStarPlanes> kStarColours{{
 		rgb(0x949CFC),
 		rgb(0x808CFC),
 		rgb(0xA4ACFC),
 }};
 
-// Which cel each plane draws: 11x11 near, 5x5 mid, a single pixel far.
-// star_frame_ofs (galaxy.c:316) picks the largest group for the nearest plane
-// and the smallest for the farthest, which is the same ordering.
-// Everything one size down from where it started: the 11x11 cel is simply
-// too large for a background at this resolution, so the nearest plane takes
-// what the middle one had, and the middle takes a single pixel.
+// Cel per plane -- 11x11 near, 5x5 mid, a pixel far, one size down from
+// star_frame_ofs's ordering (galaxy.c:316): the 11x11 cel is too large
+// for a background at this resolution.
 inline constexpr std::array<std::size_t, kStarPlanes> kStarCels{{0, 2, 2}};
 
-// The Ilwrath cloak ramp, converted from the C's 5-bit RGB
-// (ilwrath.c:255-275). Index 0 is unused -- level 0 means "draw the real
-// sprite" -- and the last step is invisible, so it is not listed.
-// cycle_ion_trail's colour table (tactrans.c:757-770), 5-bit RGB widened to
-// 8. Yellow-white at the muzzle through red to almost-black, one step a frame.
+// cycle_ion_trail's colour table (tactrans.c:757-770), 5-bit RGB widened
+// to 8: yellow-white at the muzzle through red to near-black, one step
+// per frame.
 constexpr std::array<Colour, 12> kIonRamp{{
 		rgb(0xFFAD00),
 		rgb(0xFF8C00),
@@ -184,6 +155,9 @@ constexpr std::array<Colour, 12> kIonRamp{{
 		rgb(0x5A0000),
 }};
 
+// The Ilwrath cloak ramp, converted from the C's 5-bit RGB
+// (ilwrath.c:255-275). Index 0 is unused: level 0 draws the real sprite,
+// and the invisible last step is omitted.
 constexpr std::array<Colour, 6> kCloakRamp{{
 		rgb(0xFFFFFF),  // unused; level 0 draws the sprite
 		rgb(0xFFFFFF),  // 1F,1F,1F
@@ -231,20 +205,9 @@ spritesFor(const Game &g, const sim::Element &e) noexcept
 	return set != nullptr && set->valid() ? set : nullptr;
 }
 
-// The background, before anything in the arena.
-//
-// Stars do not zoom and they do not scale. They are meant to be at infinity,
-// so putting them through camera.scale() was wrong twice over: it swelled
-// them as the arena zoomed, and -- because the zoom drifts continuously as the
-// ships close and separate -- it fed a moving divisor into every star's
-// position, so the whole field shimmered under any pan or zoom. That was the
-// jitter. The fix is not better rounding; it is that the zoom has no business
-// in this calculation at all.
-//
-// What is left is a plain pan. Each plane is a screen-sized torus, and the
-// camera's position enters it divided by 2^plane, so plane 0 slides a pixel
-// for every display pixel the camera travels, plane 1 half that, plane 2 a
-// quarter. Integer arithmetic throughout, one shift, nothing to round.
+// The background, before anything in the arena: stars do not zoom, since
+// they are meant to be at infinity. Each plane is a screen-sized torus;
+// the camera's position enters divided by 2^plane, a plain integer pan.
 void
 drawStars(Game &g)
 {
@@ -322,10 +285,9 @@ draw(Game &g)
 	g.window.clear(0x08, 0x08, 0x18);
 	drawStars(g);
 
-	// Every position goes through the camera, which goes through wrapDelta:
-	// the arena is a torus eight screens across, so an element just over the
-	// seam is a few pixels away, not eight screens away. Getting that wrong
-	// makes things jump the width of the display as they cross.
+	// Every position goes through the camera's wrapDelta: the arena is a
+	// torus eight screens across, so an element past the seam reads as a
+	// few pixels away, not eight screens -- get it wrong and it jumps.
 	for (sim::EntityId id = g.battle.elements().front(); id.valid();
 			id = g.battle.elements().next(id))
 	{
@@ -393,8 +355,7 @@ draw(Game &g)
 
 		const Vec2i at = g.camera.toScreen(e->current);
 
-		// The sprite shrinks with the zoom along with everything else -- one
-		// zoom, one scale, no separate LOD path.
+		// One zoom, one scale, no separate LOD path (design-notes.md D6).
 		const Extent2u mask =
 				e->mask != nullptr ? e->mask->size() : Extent2u{8, 8};
 		const std::int32_t w = std::max(
@@ -420,12 +381,9 @@ draw(Game &g)
 					&& e->ship.crew > 0)
 				continue;  // still warping in
 
-			// A dying ship keeps its own hull for the first fifteen frames
-			// and only then stops being drawn (tactrans.c:569-571). The
-			// explosion is not this element at all -- it is the swarm of
-			// sparks explosionPreProcess throws off around it, each its own
-			// Debris. Drawing one boom animation on the wreck instead, which
-			// is what this did, replaced a ship coming apart with a puff.
+			// A dying ship keeps its own hull for the first fifteen frames,
+			// then stops drawing (tactrans.c:569-571); the explosion itself
+			// is the swarm of sparks explosionPreProcess spawns as Debris.
 			if (e->ship.crew == 0
 					&& sim::kExplosionLife - e->lifeSpan >= sim::kHullVanishAge)
 				continue;
@@ -433,25 +391,17 @@ draw(Game &g)
 
 		if (const game::SpriteSet *set = spritesFor(g, *e); set != nullptr)
 		{
-			// A weapon draws the cel the simulation says it is -- colorCycle,
-			// which is the facing for a directional missile and the animation
-			// frame for the flame. Drawing by facing put the eight-frame
-			// fireball on whichever cel the launch facing selected, frozen.
+			// A weapon draws the cel colorCycle names -- the facing for a
+			// directional missile, the animation frame for the flame.
 			const std::size_t i = e->kind == sim::ElementKind::Weapon
 					? static_cast<std::size_t>(e->colorCycle)
 							% set->frames.size()
 					: static_cast<std::size_t>(e->facing.raw())
 							% set->frames.size();
 
-			// Draw from the cel's *hotspot*, not its centre.
-			//
-			// The hotspot is where the game considers the object to be, and
-			// every cel has its own -- the Cruiser's sixteen facings are at
-			// (7,19), (12,19), (16,15) and so on, because the ship is not
-			// symmetric and each rendering sits differently in its box.
-			// Centring instead makes the hull shift around as it turns, and
-			// puts the sprite off the collision mask that is anchored to the
-			// same hotspot.
+			// Draw from the cel's hotspot, not its centre: each facing's
+			// hotspot differs (the ship is asymmetric), and centring would
+			// shift the hull as it turns and offset it from the mask.
 			const Vec2i hs = set->masks[i].hotspot();
 			const Extent2u src = set->masks[i].size();
 			const std::int32_t ox = src.w != 0
@@ -463,15 +413,9 @@ draw(Game &g)
 							/ static_cast<std::int32_t>(src.h)
 					: h / 2;
 
-			// A cloaking ship is a flat silhouette stepping through a fixed
-			// colour ramp, not a faded sprite: white, cyan-white, dark cyan,
-			// blue, dark blue, gone (ilwrath.c:250-285). Uncloaking runs the
-			// same ramp backwards, and firing reverses it -- so an Avenger
-			// that shoots while hidden lights itself up.
-			// A warp-in shadow: the hull as a flat fill, stepping through the
-			// exhaust ramp as it ages. Same STAMPFILL the cloak uses -- the C
-			// uses that primitive for both, and for the same reason: what you
-			// want is the ship's outline in one colour, not the ship.
+			// A warp-in shadow: the hull as a flat fill stepping through
+			// the exhaust ramp as it ages -- the same flat-fill technique
+			// the cloak below uses, since only the outline is wanted.
 			if (e->kind == sim::ElementKind::ShipShadow)
 			{
 				const std::size_t step = static_cast<std::size_t>(
@@ -487,13 +431,9 @@ draw(Game &g)
 			const std::int32_t cloak = e->ship.cloakLevel;
 			if (cloak > 0 && i < set->silhouettes.size())
 			{
-				// Levels 1..5 are the five fill colours; kCloakFullLevel is
-				// BLACK. The C fills with BLACK_COLOR and that reads as gone
-				// against its own black space -- but this renderer clears to
-				// a dark blue, so a black fill leaves a ship-shaped hole,
-				// which is worse than no cloak at all. Drawing nothing is
-				// what the C means. (Hiding one level early, which is what
-				// this did first, cut the ramp to four visible colours.)
+				// Cloak ramp (ilwrath.c:250-285): levels 1..5 are the fill
+				// colours; kCloakFullLevel is BLACK, which the C fills but
+				// which here would show as a hole against the dark clear.
 				if (cloak >= sim::kCloakFullLevel)
 					continue;
 				const Colour c = kCloakRamp[static_cast<std::size_t>(cloak)];
@@ -521,12 +461,9 @@ draw(Game &g)
 
 namespace {
 
-// Crew and energy for both players, in the corners they own: player 0 top
-// left, player 1 top right. Crew above energy, coloured to match the ship so
-// there is nothing to read to know whose is whose.
-//
-// Drawn from the element, so a destroyed ship shows nothing rather than a
-// stale number -- which is also how you tell "dead" from "at zero crew".
+// Crew and energy per player, in the corner each owns, coloured to match
+// the ship. Drawn from the element itself, so a destroyed ship shows
+// nothing rather than a stale number -- which is how "dead" reads.
 void
 drawHud(Game &g)
 {
@@ -556,12 +493,9 @@ drawHud(Game &g)
 	}
 }
 
-// The collision overlay: what touched, where, and what the response did.
-//
-// Reads Battle::collisions() rather than anything of its own, so what is drawn
-// is exactly what the simulation resolved -- an overlay that recomputed the
-// contact point could agree with itself while disagreeing with the physics,
-// which would be worse than no overlay.
+// The collision overlay: what touched, where, and the response. Reads
+// Battle::collisions() rather than recomputing anything, so what is drawn
+// is exactly what the simulation resolved.
 void
 drawOverlay(Game &g)
 {

@@ -15,36 +15,9 @@
 
 namespace uqm::sim {
 
-// Pure spawn descriptors: engine primitive #5, and the one that fixes a live
-// defect rather than merely tidying one.
-//
-// The AI asks "would firing hit anything?" by *actually firing*.
-// cyborg.c:339-410 copies the ship element, advances a tick, calls
-// init_weapon_func on the copy, runs the intercept test, and frees the
-// results. That happens every lookahead frame, for every candidate.
-//
-// The copy is the ELEMENT. It is not the STARSHIP -- GetElementStarShip hands
-// back the shared one -- so any write a weapon-init makes through
-// RaceDescPtr survives the speculative call. And they do:
-//
-//   - umgah.c:330-341, inside initialize_cone, calls SetCustomShipData
-//     (an HFree plus an HMalloc) and rewrites ship_data.special[0]. Every AI
-//     lookahead frame therefore churns the heap and mutates the ship's
-//     sprite, from a call whose results are thrown away.
-//   - orz.c:249-253 is the compensating hack for the same shape: it bumps
-//     TurretPtr->turn_wait before ship_intelligence and decrements it after,
-//     to undo a side effect it knows is coming.
-//
-// The fix is to make the write impossible rather than discouraged. A spawn
-// function takes a ShipView by const reference and fills a caller-owned
-// buffer with values. It cannot allocate, cannot touch the ship, and running
-// it a hundred times costs the same as running it once -- which is what
-// lookahead needs.
-//
-// Umgah's cached prevFacing disappears in the process. It exists only to
-// avoid resetting the cone's animation frame, but the frame is a pure
-// function of the facing, so it can simply be computed. The state was there
-// to work around the mutation, not to hold anything.
+// Pure spawn descriptors: engine primitive #5. AI lookahead used to mutate
+// real ship state via a copied ELEMENT (umgah.c:330-341 leaks a write;
+// orz.c:249-253 compensates); a spawn fn takes const ShipView, no write path.
 
 // What a spawn function may read. Deliberately small: if a weapon needs
 // something not here, that is a conversation about the interface, not a
@@ -86,17 +59,14 @@ struct Spawn
 	// source (IGNORE_SIMILAR).
 	bool ignoreSimilar = false;
 
-	// True where the shot rides the ship's own velocity rather than leaving it
-	// behind. The Ilwrath flame does (ilwrath.c:219-222): its muzzle velocity
-	// is added to the ship's, and its start position is backed off by one
-	// frame of that, so the stream trails the Avenger instead of hanging in
-	// space behind it. Per-ship, not universal -- the Cruiser's nuke does not.
+	// True where the shot rides the ship's own velocity, not left behind. The
+	// Ilwrath flame does this (ilwrath.c:219-222), backed off one frame so the
+	// stream trails the Avenger; the Cruiser's nuke does not.
 	bool inheritsVelocity = false;
 
-	// Per-frame behaviour, if the shot has any. A function pointer keeps the
-	// descriptor a pure value -- still trivially copyable, still safe to
-	// produce a hundred times for an AI lookahead and throw away -- while
-	// letting a guided missile be guided. Null for a shot that just flies.
+	// Per-frame behaviour, if any: a function pointer keeps the descriptor a
+	// pure value, safe to produce a hundred times for a lookahead and discard,
+	// while still letting a guided missile be guided. Null if the shot just flies.
 	ElementHook preProcess = nullptr;
 
 	friend bool operator==(const Spawn &, const Spawn &) = default;
@@ -106,10 +76,8 @@ struct Spawn
 inline constexpr std::size_t kMaxSpawnsPerShot = 6;
 using SpawnBuffer = std::array<Spawn, kMaxSpawnsPerShot>;
 
-// A ship's primary-weapon spawn. Const view in, values out, count returned.
-//
-// The signature is the guarantee: there is no non-const path to the ship, so
-// the Umgah pattern does not compile.
+// A ship's primary-weapon spawn: const view in, values out, count returned.
+// No non-const path to the ship, so the Umgah mutation pattern can't compile.
 using SpawnFn = std::size_t (*)(const ShipView &, std::span<Spawn>) noexcept;
 
 // Where a projectile appears: `muzzleOffset` pixels along the facing from the

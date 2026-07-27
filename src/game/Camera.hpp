@@ -11,28 +11,15 @@
 
 namespace uqm::game {
 
-// The melee camera: where the view is centred and how far out it is zoomed.
-//
-// This is the `optMeleeScale` cleanup the plan says to do in M1 or never. In
-// the C that option forks CalcReduction (process.c:206-281) and CalcView
-// (283-358) into two entirely different cameras -- one stepping through
-// power-of-two reductions with hysteresis, one computing a continuous zoom
-// factor in 1/256ths -- and it forks the sprite LOD path as well, because
-// stepped mode picks one of three pre-rendered sizes and continuous mode
-// scales. A user-facing option that changes what the renderer *is*.
-//
-// Both behaviours are kept, because they genuinely look different and the
-// choice is a matter of taste. What is not kept is the fork: both policies now
-// produce the same thing, a zoom in 1/256ths, and everything downstream reads
-// only that. Stepped mode simply emits 256, 512 or 1024 instead of a
-// continuum.
+// The melee camera: where the view is centred and how far out it is
+// zoomed -- the `optMeleeScale` unification (design-notes.md D6).
+// process.c:206-358 is CalcReduction/CalcView, the two forked C cameras.
 
 enum class MeleeScale
 {
-	// TFB_SCALE_STEP. Three discrete zoom levels with hysteresis on the way
-	// in, so the view does not oscillate when the ships hover at a boundary.
-	// This is the 3DO behaviour and the sharper of the two, since at a
-	// power-of-two reduction every sprite pixel lands on a screen pixel.
+	// TFB_SCALE_STEP: three discrete zoom levels with hysteresis so the view
+	// does not oscillate at a boundary -- the 3DO behaviour, sharper since a
+	// power-of-two reduction lands every sprite pixel on a screen pixel.
 	Step,
 
 	// The default in the C. A continuous zoom, smoother to watch and blurrier,
@@ -74,11 +61,9 @@ public:
 
 	// Recentres on the ships and picks a zoom that keeps them all on screen.
 	//
-	// The C walks the element list and folds each player ship in as it goes
-	// (process.c:670-697): the origin snaps to the first ship, then moves
-	// halfway toward each subsequent one, which for the two-ship case lands on
-	// the midpoint. The separation that drives the zoom is the full one, not
-	// the half.
+	// process.c:670-697 folds each ship in by walking halfway toward it (the
+	// origin lands on the midpoint for two ships); zoom uses the full
+	// separation, not the half.
 	void
 	follow(std::span<const Vec2i> ships) noexcept
 	{
@@ -125,15 +110,9 @@ public:
 	[[nodiscard]] std::int32_t
 	scale(std::int32_t worldLength) const noexcept
 	{
-		// One division, and rounded.
-		//
-		// Converting world to display *first* and then dividing by the zoom
-		// truncates twice. The first throws away two bits of position, and the
-		// second divides by up to four again, so a ship drifting a few world
-		// units a frame lands on screen positions that step unevenly -- which
-		// reads as jitter rather than as motion, and makes sprite sizes
-		// breathe by a pixel as the zoom drifts. Doing it in one rounded
-		// division keeps the full world precision until the last moment.
+		// One rounded division, not world-to-display-then-divide-by-zoom:
+		// that truncates twice (throws away two bits, then divides by up to
+		// four more), which reads as jitter and breathes sprite sizes by a pixel.
 		const std::int64_t denom = std::int64_t{sim::kScaledOne} * zoom_;
 		const std::int64_t num = std::int64_t{worldLength} * kZoomOne;
 		const std::int64_t half = denom / 2;
@@ -142,19 +121,9 @@ public:
 	}
 
 private:
-	// The C snaps the origin to a whole display pixel here (DISPLAY_ALIGN,
-	// process.c:337-342, "to reduce the amount of object positioning jitter").
-	// That is the right fix for a renderer that truncates world coordinates to
-	// display pixels, because an unaligned origin then shifts objects by a
-	// pixel inconsistently.
-	//
-	// It is the wrong fix here, and was actively causing the thing it is meant
-	// to prevent. `scale` keeps full world precision now, so snapping the
-	// origin to a four-world-unit grid makes the centre jump in steps -- and
-	// because every object is drawn relative to it, the *whole screen* judders
-	// by a pixel together each time the midpoint crosses a boundary. Not
-	// aligning is smoother, which is only true because the arithmetic below it
-	// got more precise.
+	// The C aligns the origin to a display pixel here (DISPLAY_ALIGN,
+	// process.c:337-342). Not done here: `scale` keeps full world precision,
+	// so snapping the origin would judder the whole screen by a pixel instead.
 
 	// process.c:222-243.
 	[[nodiscard]] std::int32_t

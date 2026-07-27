@@ -13,24 +13,15 @@
 
 namespace uqm::sim {
 
-// One battle's simulation state, and its step.
+// One battle's simulation state and its step: RedrawQueue (process.c:1013)
+// with drawing removed -- shared by melee, hyperspace (hyper.c:1368) and
+// interplanetary (ipdisp.c:567).
 //
-// This is RedrawQueue (process.c:1013) with the drawing taken out. The name is
-// a lie in the C: PreProcessQueue and PostProcessQueue *are* the simulation,
-// shared by melee, hyperspace (hyper.c:1368), interplanetary (ipdisp.c:567)
-// and -- via a fork -- the lander. Building it for melee is what buys
-// hyperspace's loop in M3.
-//
-// Deterministic and self-contained: no wall clock, no I/O, no globals. The
-// RNG is a member, so a battle replays from its seed and presentation cannot
-// perturb it by drawing from the same stream (commanim.c currently does).
-// What happened when two things touched.
-//
-// Recorded rather than merely acted on, because more than one consumer needs
-// it and none of them belong in the collision code: the debug overlay draws
-// contact points and response vectors, and the sound layer needs to know an
-// impact happened and how hard. Observational only -- nothing here feeds back
-// into the step, so recording it cannot change the simulation.
+// Deterministic and self-contained: no wall clock, no I/O, no globals: the
+// RNG is a battle member so a replay is exact -- see design-notes V8.
+
+// What happened when two things touched. Observational only -- see
+// design-notes D5.
 struct CollisionEvent
 {
 	EntityId a;
@@ -48,10 +39,8 @@ struct CollisionEvent
 	Vec2i afterB;
 };
 
-// Something entered the simulation this step. The audio layer reads these to
-// start effects; scanning the list for Appearing flags afterwards was the
-// alternative, and it silently depended on a step-loop bug that left the flag
-// set one frame too long. Observational only, like CollisionEvent.
+// Something entered the simulation this step; the audio layer reads these to
+// start effects. Observational only, like CollisionEvent -- see design-notes D5.
 struct SpawnEvent
 {
 	EntityId id;
@@ -80,10 +69,9 @@ public:
 		return elements_.get(id);
 	}
 
-	// Adds an element at the head or the tail. Head insertion matters: the
-	// Pkunk's phoenix is head-inserted so it preprocesses *before* the dead
-	// Pkunk's death hook runs (pkunk.c:498-512), and that ordering is the
-	// reincarnation.
+	// Adds an element at the head or the tail: order is gameplay (design-notes
+	// D8). The Pkunk's phoenix is head-inserted so it preprocesses before the
+	// dead Pkunk's death hook runs (pkunk.c:498-512), which is the reincarnation.
 	EntityId spawnFront(Element e);
 	EntityId spawnBack(Element e);
 
@@ -112,12 +100,9 @@ private:
 	void catchUpFrom(EntityId first);
 	void preProcessOne(EntityId id) noexcept;
 
-	// ProcessCollisions (process.c:361-627): walk the candidates from `first`,
-	// preprocessing stragglers (`processedMask` is the C's process_flags --
-	// PreProcessed in the pre pass, PreProcessed|PostProcessed in the post
-	// pass, which is what stops a committed element being integrated twice),
-	// and resolve what `elem` hits. Returns whether `elem` ended the walk
-	// stopped (the C's COLLISION return).
+	// ProcessCollisions (process.c:361-627): walks candidates from `first`,
+	// preprocessing stragglers via processedMask (process_flags) -- see
+	// design-notes D1. Returns whether `elem` ended the walk stopped.
 	bool processCollisions(EntityId elem, EntityId first, TimeValue maxTime,
 			ElementFlags processedMask);
 	bool resolveAgainst(EntityId elem, EntityId test, EntityId succ,

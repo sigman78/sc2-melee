@@ -30,11 +30,9 @@ namespace uqm::melee {
 // A solid rectangular collision mask, standing in for a sprite's real one.
 [[nodiscard]] sim::CollisionMask block(std::uint32_t w, std::uint32_t h);
 
-// Randomness enters the simulation here or not at all: the sim never reads a
-// clock, so a battle is exactly as random as its seed. Printed, because
-// determinism is the property and sameness was the bug -- a fixed literal
-// here replayed the identical battle every launch, and a seed nobody knows
-// cannot be replayed at all.
+// Randomness enters the simulation here or not at all: the sim never reads
+// a clock, so a battle is exactly as random as its seed. Printed so a
+// battle can be replayed from the logged value.
 [[nodiscard]] std::uint32_t battleSeed();
 
 // Total stars across all three parallax planes; see Draw.cpp for the field
@@ -89,10 +87,9 @@ struct Game
 	sim::CollisionMask rockMask = block(8, 8);
 	sim::CollisionMask planetMask = block(28, 28);
 
-	// Per-battle copies of the ship descriptors, so their weapons can be given
-	// the collision mask cut from the projectile art. The shared ones in sim/
-	// are static and content-free by design; wiring a mask into them would
-	// make sim/ depend on what has been loaded.
+	// Per-battle copies, so their weapons can carry the mask cut from the
+	// projectile art. sim/'s shared descriptors stay content-free by
+	// design; wiring a mask into them would make sim/ depend on content.
 	sim::ShipSpec cruiserData;
 	sim::ShipSpec avengerData;
 
@@ -125,33 +122,17 @@ struct Game
 // How long a contact point stays on screen, in simulation frames.
 inline constexpr std::int64_t kMarkLife = 24;
 
-// Everything is at half level for now. The .wav files are mastered loud, and
-// with a dozen streams a flame stream alone will clip.
-// Halved once already and still too loud, because the real multiplier was
-// the number of simultaneous voices rather than the level of each -- see
-// platform/Audio.hpp. With one voice per effect this is an honest level.
+// Half level: the .wav files are mastered loud enough that a dozen
+// streams would clip. With one voice per effect (platform/Audio.hpp)
+// this level is honest, not a blanket fix for voice-count overlap.
 inline constexpr float kEffectGain = 0.35f;
 
 // battle.snd is getcrew, shipdies, then the four booms.
 inline constexpr std::size_t kBoomFirstSlot = 2;
 
-// How large a patch the field tiles over, in display pixels.
-//
-// The C cannot be copied directly here. galaxy.c:248-259 puts each star at
-// `rand % SPACE_WIDTH << factor` with factor = ONE_SHIFT + MAX_REDUCTION
-// (BACKGROUND_SHIFT is 3, so that term is zero), which makes plane 0's space
-// exactly LOG_SPACE_WIDTH -- the whole arena -- and then draws it at whatever
-// reduction the camera is at. So the C's on-screen density *varies with
-// zoom*: about three stars at 1:1, and all 180 when zoomed fully out, because
-// the view grows to cover the arena while the stars stay put.
-//
-// This field is deliberately zoom-independent -- that is what removed the
-// shimmer -- so it cannot have both ends of that range, and has to pick one
-// number. Tiling over the screen gave all 180 at once, which is the fully
-// zoomed-out density applied at every zoom, and reads as a nebula. Tiling
-// over the arena gave the 1:1 density, which is two or three stars. Four
-// screens' worth lands between them at around 45 in view, which is what the
-// melee actually looks like at the zooms it spends its time at.
+// How large a patch the field tiles over, in display pixels. The C
+// varies on-screen density with zoom (galaxy.c:248-259); this field is
+// zoom-independent, so it tiles over four screens for ~45 stars in view.
 inline constexpr std::int32_t kStarFieldWidth = sim::kSpaceWidth * 2;
 inline constexpr std::int32_t kStarFieldHeight = sim::kSpaceHeight * 2;
 
@@ -160,9 +141,8 @@ inline constexpr std::int32_t kStarFieldHeight = sim::kSpaceHeight * 2;
 void setUp(Game &g, const std::filesystem::path &content);
 
 // One pass of the outer loop: drain input, run whatever simulation time is
-// owed, draw once. Never more than one draw per call, and never a simulation
-// step that is not due -- the two rates are independent and only this function
-// knows both.
+// owed, draw once. Never more than one draw per call, and never a step
+// that is not due -- the two rates are independent, and only this knows both.
 void iterate(Game &g);
 
 }  // namespace uqm::melee

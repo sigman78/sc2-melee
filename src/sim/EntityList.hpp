@@ -33,25 +33,9 @@ struct EntityId
 
 inline constexpr EntityId kNoEntity{};
 
-// A borrowed pointer to a live entity, checked in debug builds.
-//
-// Stable addresses (see EntityList below) removed one hazard and left another.
-// Allocating no longer moves anyone, so holding a pointer across a spawn is
-// safe. But a hook can *remove* the entity underneath you, and then the
-// pointer refers to a default-constructed T -- not undefined behaviour, just
-// silently wrong, which is worse to find. The discipline is to go back through
-// the handle after anything that can mutate the list, and the discipline is
-// what failed: a ship wrote its own weapon cooldown through a stale pointer
-// and fired every frame.
-//
-// So the check is mechanical rather than remembered. Every dereference asserts
-// the entity is still alive, and the message says how many times the list
-// changed since the pointer was handed out -- which is the number that tells
-// you which call did it. In release this is a T* with no extra members and
-// every method inlines away.
-//
-// There is deliberately no implicit conversion to T*, so `auto e = // list.get(id)` does not compile and `auto e = list.get(id)` does. Opting out
-// means writing `.raw()`, which is visible in review.
+// A borrowed pointer to a live entity, checked in debug builds: removal can
+// leave it pointing at a silently-wrong default T rather than UB. No
+// implicit conversion to T* -- opt out explicitly with `.raw()`.
 template <class T, class List>
 class EntityRef
 {
@@ -133,35 +117,7 @@ private:
 #endif
 };
 
-// An ordered list of entities over a slot arena.
-//
-// Two structures rather than one, because the game needs both and they do not
-// agree. The arena gives stable ids across insertion and removal; the
-// intrusive order gives the traversal sequence, and **the order is
-// observable behaviour, not a detail**:
-//
-//   - `disp_q` is spliced into the middle at 20 InsertElement sites, about 13
-//     of them at the head;
-//   - pkunk.c:498-512 head-inserts the phoenix specifically so it preprocesses
-//     *before* the dead Pkunk's death_func runs, which is what starts the
-//     reincarnation;
-//   - the AI's target selection depends on traversal order.
-//
-// So an arena alone will not do: slot order is arbitrary the moment the free
-// list reuses anything, and it would silently reorder the phoenix. Hence
-// pushFront/insertAfter, and iteration that follows the links rather than the
-// slots.
-//
-// **Entity addresses are stable.** Storage is chunked rather than one flat
-// vector, so allocating never moves a live entity. This is not an
-// optimisation, it is a correctness requirement: hooks spawn while holding a
-// pointer to themselves -- a ship fires and then writes its own weapon
-// cooldown -- and with a reallocating vector that write lands in moved-from
-// memory. The C has the property for free (element.c allocates from a fixed
-// pool, so an ELEMENT* is good for the element's whole life) and every ship in
-// ships/ is written assuming it. Handles are still the currency across a hook
-// call, because `remove` can happen underneath you; stability only means the
-// address does not move while the entity is alive.
+// An ordered list of entities over a slot arena -- see design-notes D8.
 template <class T>
 class EntityList
 {

@@ -13,12 +13,9 @@
 namespace uqm::sim {
 namespace {
 
-// DISPLAY_ALIGN_X/Y (units.h:85-86). The random word is first truncated to 16
-// bits -- COUNT is an unsigned short -- then folded into the arena and snapped
-// down to a display pixel. The truncation is reproduced because it changes
-// which positions a given draw produces (65536 % 8192 == 0, so on X it does
-// not even bias the distribution -- but the *value* differs from a 31-bit
-// modulo, and replays care about values).
+// DISPLAY_ALIGN_X/Y (units.h:85-86): the random word truncates to 16 bits
+// (COUNT) before folding into the arena and snapping to a pixel -- the
+// truncated *value* differs from a 31-bit modulo, and replays care about values.
 [[nodiscard]] std::int32_t
 displayAlignX(std::uint32_t r) noexcept
 {
@@ -33,11 +30,9 @@ displayAlignY(std::uint32_t r) noexcept
 			(static_cast<std::uint16_t>(r) % kLogSpaceHeight) & ~(kScaledOne - 1));
 }
 
-// asteroid_preprocess (misc.c:107-128). An asteroid does nothing but tumble.
-// `thrustWait` is not a thrust delay here: bit 7 is the spin direction and the
-// low seven bits are the period. The C keeps the rotation in the sprite's
-// frame index; there is no sprite in the simulation, so it lives in `facing`,
-// which is what a facing means for something with no heading.
+// asteroid_preprocess (misc.c:107-128): tumbles only. `thrustWait` isn't a
+// thrust delay -- bit 7 is spin direction, low seven bits the period. The
+// C's rotation lives in the sprite frame; here, with no sprite, in `facing`.
 void
 asteroidPreProcess(Battle &b, EntityId id) noexcept
 {
@@ -160,10 +155,9 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	p.onCollision = solidCollision;
 	p.velocity.zero();
 
-	// Mass is assigned only *after* placement in the C (misc.c:71), and that
-	// ordering is the point: while the loop runs the planet is not yet a
-	// gravity source, so calculateGravity asks the other question -- "is this
-	// spot inside someone else's well?" -- which is what rejects it.
+	// Mass is assigned only *after* placement (misc.c:71): while the loop runs
+	// the planet isn't yet a gravity source, so calculateGravity asks only
+	// "is this spot inside someone else's well?" -- which is what rejects it.
 	p.mass = 0;
 
 	const EntityId id = b.spawnBack(std::move(p));
@@ -194,10 +188,9 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	a.onCollision = solidCollision;
 	a.onDeath = asteroidDeath;
 
-	// Six draws, in the order misc.c:156-191 makes them. The comment there
-	// about temporaries and argument evaluation order is not stylistic --
-	// getting this sequence wrong desynchronises a network game, and here it
-	// would desynchronise a replay.
+	// Six draws, in the order misc.c:156-191 makes them -- not stylistic:
+	// getting the sequence wrong desynchronised network play there, and would
+	// desynchronise a replay here.
 	const std::uint32_t edge = b.rng().next();
 	if ((edge & (1u << 0)) != 0)
 	{
@@ -220,8 +213,6 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 
 	// The seventh draw is the spin *direction*: bit 7 ORed into thrust_wait
 	// and only there (misc.c:192-193) -- turn_wait keeps just the period.
-	// Dropping this draw made every asteroid spin forward and left the
-	// stream one draw short per asteroid.
 	a.thrustWait |= static_cast<std::int32_t>(b.rng().next() & (1u << 7));
 
 	a.next = a.current;
@@ -246,11 +237,8 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	r.onDeath = rubbleDeath;
 	r.mask = dead->mask;
 
-	// Tail insertion. An earlier comment here claimed the C head-inserts
-	// because PutElement is called before the element is filled in
-	// (misc.c:90) -- but PutElement is PutQueue, which appends at the TAIL
-	// (displist.c:142-165); the call order changes nothing about position.
-	// The pre pass's live walk still reaches it this frame.
+	// Tail insertion: PutElement is PutQueue, which appends at the TAIL
+	// (displist.c:142-165). The pre pass's live walk still reaches it this frame.
 	(void)b.spawnBack(std::move(r));
 }
 

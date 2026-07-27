@@ -14,33 +14,21 @@
 
 namespace uqm::content {
 
-// Turning decoded content into something both the renderer and the simulation
-// can use.
-//
-// The browser had this logic first and kept it to itself, which was fine while
-// it was the only consumer. It is not any more: the game needs exactly the
-// same expansion, and a second copy would be a second place for the
-// colormap-versus-PLTE distinction to drift. That distinction is not cosmetic
-// -- docs/content-formats.md records that a `.ct` and a PNG `PLTE` disagree by
-// construction, `(v << 2) | (v >> 4)` against `v << 2`, so a sprite coloured
-// through the wrong one is visibly wrong rather than subtly so.
+// Turning decoded content into something both the renderer and the
+// simulation can use, so the colormap-versus-PLTE distinction has one
+// implementation. docs/content-formats.md: a `.ct` and a PNG `PLTE` disagree
+// by construction, `(v << 2) | (v >> 4)` against `v << 2` -- the wrong one
+// colours a sprite visibly wrong.
 
-// Expands a decoded PNG to 8-bit RGBA.
-//
-// Indexed images are coloured through `palette` when one is supplied -- the
-// colormap slot named by the cel -- and fall back to the PNG's own PLTE when
-// it is not. An index with no colour anywhere comes out magenta rather than
-// silently black, because a missing colormap should look like a bug.
+// Expands a decoded PNG to 8-bit RGBA. Coloured through `palette` when
+// given, else the PNG's own PLTE; an index with no colour anywhere comes
+// out magenta, not black, so a missing colormap looks like a bug.
 [[nodiscard]] std::vector<std::uint8_t> toRgba(
 		const PngImage &img, const Palette *palette = nullptr);
 
-// One byte per pixel, 1 where the pixel is not fully transparent.
-//
-// This is what a collision mask is built from, and building it from the sprite
-// rather than from a bounding box is the whole point of per-pixel collision --
-// intersec.c tests the actual silhouettes, so a Cruiser's nose misses where its
-// bounding box would hit. Returned as bytes rather than as a CollisionMask
-// because that type belongs to sim/, and content does not depend on sim.
+// One byte per pixel, 1 where not fully transparent. Built from the sprite,
+// not a bounding box, per intersec.c's actual-silhouette test (see
+// design-notes.md#D2). Bytes, not CollisionMask: that type belongs to sim/.
 [[nodiscard]] std::vector<std::uint8_t> opacityBits(
 		std::span<const std::uint8_t> rgba, Extent2u size);
 

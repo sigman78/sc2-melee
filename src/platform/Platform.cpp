@@ -75,10 +75,9 @@ Platform::Platform(const char *title, Extent2u logical, int scale)
 	if (renderer_ == nullptr)
 		fatal("SDL_CreateRenderer");
 
-	// Everything downstream draws in 320x240 and SDL does the scaling. This is
-	// the decision the plan wanted taken in M1 or never: the world is 320x240
-	// and the window is a presentation detail. Letterbox rather than stretch,
-	// so the aspect cannot change under the game.
+	// Everything downstream draws in 320x240; SDL does the scaling -- the
+	// world is a fixed logical size and the window is a presentation detail.
+	// Letterbox, not stretch, so the aspect cannot change under the game.
 	if (!SDL_SetRenderLogicalPresentation(renderer_,
 				static_cast<int>(logical.w),
 				static_cast<int>(logical.h),

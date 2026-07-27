@@ -24,12 +24,9 @@ namespace {
 using uqm::input::Button;
 using uqm::input::InputAccumulator;
 
-// What the accumulator reports, in the simulation's vocabulary.
-//
-// This mapping lives here rather than in sim/ or engine/ because it is the
-// only place that legitimately knows both. Left beats right, which is what
-// battle.c:201-204 does with its `else if` -- pressing both is not a way to
-// turn twice as fast, or to turn not at all.
+// What the accumulator reports, in the simulation's vocabulary. Lives here
+// because only this layer knows both. Left beats right (battle.c:201-204's
+// else-if): pressing both doesn't turn twice as fast, or not at all.
 [[nodiscard]] sim::ShipInput
 toShipInput(input::Buttons b) noexcept
 {
@@ -109,10 +106,9 @@ setUpBattle(Game &g)
 		return sim::Facing(static_cast<int>(g.battle.rng().next() & 0xFF));
 	};
 
-	// Two ships dropped anywhere can land next to each other, and a melee that
-	// opens with the ships already touching is not a melee. 1024 world units
-	// is what the fixed opening used to be -- far enough to fly at each other,
-	// close enough that the camera holds both.
+	// Minimum separation so a melee doesn't open with the ships touching
+	// (design-notes.md V7): 1024 world units, far enough to close on each
+	// other, close enough for the camera to hold both.
 	constexpr std::int32_t kMinSeparation = 1024;
 
 	g.ships[0] = addShip(g.cruiserData, Vec2i{0, 0}, randomFacing(), 0);
@@ -120,13 +116,9 @@ setUpBattle(Game &g)
 	g.ships[1] = addShip(g.avengerData, Vec2i{0, 0}, randomFacing(), 1);
 	sim::placeShipAtRandom(g.battle, g.ships[1], kMinSeparation);
 
-	// The field goes in *after* the ships, not before.
-	//
-	// spawnPlanet rejects any position that overlaps something or sits in a
-	// gravity well (misc.c:63-70), and it can only reject what already exists.
-	// Placing it first meant it had nothing to avoid, so it could and did land
-	// on a ship -- which, now that masks are the real silhouettes rather than
-	// 12x12 blocks, means a ship starting *inside* a planet.
+	// The field spawns after the ships: spawnPlanet rejects any position
+	// overlapping something or in a gravity well (misc.c:63-70), and can
+	// only reject what already exists to avoid.
 	const sim::CollisionMask *planetMask =
 			g.world->maskFor(0) != nullptr ? g.world->maskFor(0) : &g.planetMask;
 	const sim::CollisionMask *rockMask =
@@ -168,8 +160,8 @@ iterate(Game &g)
 	const int steps = g.pacer.stepsDue(g.window.now());
 	for (int i = 0; i < steps; ++i)
 	{
-		// Input is consumed once per simulation step, not once per display
-		// frame. That is what makes a tap land on exactly one step.
+		// Input is consumed once per step, not once per frame, so a tap
+		// lands exactly once (design-notes.md D7, V6).
 		for (std::size_t p = 0; p < g.players.size(); ++p)
 		{
 			const input::Buttons b = g.players[p].consume();
@@ -187,8 +179,8 @@ iterate(Game &g)
 		}
 		g.battle.step();
 
-		// Collected every frame regardless of the overlay, because the events
-		// are the simulation's and only the drawing is optional.
+		// Collision events are step()'s output regardless of the overlay
+		// (design-notes.md D5); only drawing them is optional.
 		for (const sim::CollisionEvent &c : g.battle.collisions())
 		{
 			g.marks.push_back(
@@ -205,10 +197,9 @@ iterate(Game &g)
 		return now - m.frame > kMarkLife;
 	});
 
-	// A ship is gone when its element is: doDamage sets life_span to 0 and the
-	// step loop reaps it. Deciding this from the element rather than from a
-	// crew count means a ship destroyed by any means counts, not just one shot
-	// to death.
+	// A ship is gone when its element is: doDamage zeroes life_span and the
+	// step loop reaps it, so any means of destruction counts, not just one
+	// shot to death.
 	if (g.winner < 0)
 	{
 		const bool alive0 = g.battle.get(g.ships[0]) != nullptr;

@@ -332,12 +332,9 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 	while (t0 <= t1)
 	{
 		++t0;
-		// The C reports the last CLEAR positions, not the overlapping ones:
-		// frame_intersect copies its walk coordinates into the rects only
-		// after a *failed* test (intersec.c:218-229), so on a hit the rects
-		// still hold the sub-step before contact, and that is what
-		// DrawablesIntersect writes back through EndPoint. Callers therefore
-		// place bodies touching, not interpenetrating.
+		// The C reports the last CLEAR positions, not the overlap: rects update
+		// only after a *failed* test (intersec.c:218-229), so a hit leaves them
+		// at the sub-step before contact -- bodies land touching, not interpenetrating.
 		const Vec2i clear0 = w0.corner;
 		const Vec2i clear1 = w1.corner;
 		const bool moved0 = w0.step();

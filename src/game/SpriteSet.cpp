@@ -68,15 +68,9 @@ loadSprites(platform::Platform &window, const fs::path &ani,
 	if (index.cels.empty())
 		return out;
 
-	// Ship cels name a slot in the *global* table (colortable.main =
-	// base/uqm.ct); there is no .ct in any ship directory.
-	//
-	// Both M1 ships happen to render identically with and without it -- their
-	// own PLTEs already carry the intended colours, which is why the Ilwrath
-	// Avenger is legitimately a magenta-purple crescent and not, as it first
-	// appears, a missing-colormap failure. The slot lookup is wired anyway,
-	// because ships whose art *is* a neutral ramp exist and will need it, and
-	// finding that out sprite-by-sprite later is worse than carrying it now.
+	// Ship cels name a slot in the global table (colortable.main =
+	// base/uqm.ct), not a per-ship .ct. Wired even though both M1 ships'
+	// own PLTEs already carry the right colours, since other art needs it.
 	const SlotMap slots = loadColormaps(colortable);
 
 	const fs::path dir = ani.parent_path();
@@ -115,10 +109,9 @@ loadSprites(platform::Platform &window, const fs::path &ani,
 		}
 		platform::Texture fill = window.upload(img->size(), white);
 
-		// The hotspot is the .ani's, not the image centre. It is where the
-		// game considers the object to *be* -- the C positions everything by
-		// it, and a sprite drawn from its corner sits visibly off its own
-		// collision mask.
+		// The hotspot is the .ani's, not the image centre -- where the C
+		// positions everything from. A sprite drawn from its corner sits
+		// visibly off its own collision mask.
 		out.masks.emplace_back(img->size(), cel.hotspot,
 				content::opacityBits(rgba, img->size()));
 		out.frames.push_back(std::move(tex));

@@ -18,12 +18,9 @@ calculateGravity(Battle &b, EntityId id)
 	const bool selfHasGravity =
 			self->collidable() && isGravitySource(self->mass);
 
-	// Which endpoint to measure from. The C decides this once, from *self's*
-	// PRE_PROCESS flag, and then applies it to both sides of every pair
-	// (gravity.c:50-63) -- so a test element that has not been preprocessed
-	// yet still gets read through `next`. That is not obviously intentional,
-	// but it decides which frame the pull lands on, so it is reproduced rather
-	// than tidied.
+	// Which endpoint to measure from: the C decides once, from self's
+	// PRE_PROCESS flag, applied to both sides of every pair (gravity.c:50-63)
+	// -- reproduced as-is, since it decides which frame the pull lands on.
 	const bool useNext = any(self->flags & ElementFlags::PreProcessed);
 	const Vec2i from = useNext ? self->next : self->current;
 

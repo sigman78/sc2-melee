@@ -108,10 +108,9 @@ loadAssets(Game &g, const std::filesystem::path &content)
 	if (!g.audio.valid())
 		std::fprintf(stderr, "audio: no device; the game runs silent\n");
 
-	// The descriptors first, then the content-derived masks on top. Losing
-	// these two lines leaves a default-constructed ShipSpec, whose
-	// thrust.max is 0 and whose turnWait is 0 -- a ship that cannot
-	// accelerate and spins every frame, with no crew and no weapon.
+	// Descriptors first, then the content-derived masks on top: skipping
+	// these leaves a default ShipSpec with thrust.max = 0 and turnWait = 0,
+	// a ship that cannot accelerate and spins every frame.
 	g.cruiserData = sim::earthlingCruiser();
 	g.avengerData = sim::ilwrathAvenger();
 

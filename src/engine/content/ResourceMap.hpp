@@ -25,20 +25,18 @@ struct Resource
 	std::string_view type;  // STRTAB, BINTAB, CONVERSATION, GFXRES, ...
 	std::string_view path;  // relative to the content root
 
-	// Not every value is a path. `ship.supox.code = SHIP:16` names an index
-	// into a table compiled into the binary (dummy.c:157), because a ship's
-	// code is code. A caller that stats every `path` reports all 28 of them
-	// as missing, which is exactly what happened.
+	// Not every value is a path: `ship.supox.code = SHIP:16` indexes a table
+	// compiled into the binary (dummy.c:157), not a file -- so `isPath`
+	// excludes SHIP entries before anything stats a nonexistent path.
 	[[nodiscard]] bool isPath() const noexcept { return type != "SHIP"; }
 };
 
 // LIFETIME: every view points into the text passed to parse(), which must
 // outlive the map.
 //
-// A sorted flat array rather than std::map: 963 keys meant 963 separately
-// allocated nodes and two std::strings each, to answer a question that binary
-// search over one contiguous allocation answers faster
-// (docs/cpp-conventions.md rules 1 and 5).
+// A sorted flat array, not std::map: 963 keys as tree nodes meant 963
+// allocations plus two strings each; binary search over one buffer
+// answers the same question faster (docs/cpp-conventions.md rules 1, 5).
 class ResourceMap
 {
 public:

@@ -1,25 +1,11 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 //
-// uqm2-browse -- a content browser for the formats in
-// docs/content-formats.md.
-//
-// The plan (docs/game-rewrite-plan.md, M0) asks for a sprite/font/colormap
-// browser on the grounds that "every byte-level surprise in the project lives
-// here and this is the cheapest place to find it". This is that, as a CLI
-// that writes PNG contact sheets rather than a window: it needs no platform
-// layer beyond files, it runs headless, and its output is something you can
-// attach to a bug report.
-//
-// This is also where the prose lives. The content library reports a
-// ContentError -- a code and three numbers -- and every English sentence
-// about content is formatted here, at the point it is shown
-// (docs/cpp-conventions.md rules 2 and 3).
-//
-// The sprite sheets are the interesting part. A UQM sprite is an indexed PNG
-// whose *displayed* colours come from a colormap slot named in the .ani and
-// supplied by a .ct -- supox.ani says slot 10, supox.ct declares 10..10 --
-// and nothing in the tree checks that those two agree. Rendering a sheet
-// through the colormap makes that binding visible, and a broken one obvious.
+// uqm2-browse -- a content browser (docs/content-formats.md,
+// docs/game-rewrite-plan.md M0), writing PNG contact sheets rather than a
+// window. Also where the prose lives: ContentError is a code and three
+// numbers (docs/cpp-conventions.md rules 2, 3), formatted into English
+// here. Sheets render sprites through their colormap, since nothing else
+// checks that an .ani's slot and its .ct actually agree.
 
 #include "engine/content/AniFile.hpp"
 #include "engine/content/BinaryTable.hpp"
@@ -232,10 +218,9 @@ loadColormaps(const fs::path &ct)
 // --------------------------------------------------------------------------
 // Drawing content
 
-// Expansion lives in the content library now (engine/content/Sprite.hpp), so
-// the browser and the game colour a cel the same way. That matters more than
-// it sounds: a `.ct` colormap and a PNG's own PLTE disagree by construction,
-// so a second copy of this would be a second place for the two to drift.
+// Expansion lives in the content library (engine/content/Sprite.hpp), so
+// the browser and the game colour a cel identically; a `.ct` colormap and
+// a PNG's own PLTE disagree by construction, so a second copy would drift.
 void
 blit(Canvas &c, const PngImage &img, Vec2u origin, const Palette *palette)
 {
@@ -340,9 +325,9 @@ cmdInventory(const fs::path &content)
 	{
 		++byType[res.type];
 
-		// Not every value is a path: a SHIP value is an index into a table
-		// compiled into the binary. Checking those for existence reports all
-		// 28 of them as dangling, which is how the exception was found.
+		// Not every value is a path: a SHIP value indexes a table compiled
+		// into the binary, and checking those for existence reports all 28
+		// as dangling.
 		if (!res.isPath())
 			continue;
 

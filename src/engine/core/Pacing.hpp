@@ -16,31 +16,18 @@ inline constexpr Ticks kOneSecond = 840;
 inline constexpr Ticks kBattleFrameRate = kOneSecond / 24;  // 35
 inline constexpr Ticks kBattleHz = 24;
 
-// A fixed-step accumulator: how many simulation steps are owed at `now`.
+// Fixed-step accumulator: advances the deadline by a period, never resets
+// it to `now` -- the naive reset form silently drops a 24 Hz step to 20 Hz
+// on faster display loops. tests/engine_test.cpp asserts both rates.
 //
-// The whole reason this is a type with a test rather than three lines in the
-// main loop is the failure the plan calls out. The naive form
-//
-//     if (now >= next + period) { step(); next = now; }
-//
-// resets the deadline to *now* rather than advancing it by a period, so it
-// cannot run a step until a full period has elapsed since the last one --
-// and on a display-rate loop that means waiting for the next whole frame.
-// At 60 Hz a frame is 14 ticks and a battle step is 35, so steps land on
-// ticks 42, 84, 126: every 42 ticks, which is 20 Hz, not 24. A 17% global
-// slowdown, browser-only, and invisible on desktop because nothing in the
-// tree vsyncs. tests/engine_test.cpp asserts both rates so the naive form
-// cannot come back.
-//
-// No wall clock is read here: `now` is a parameter, so this is testable with
+// No wall clock read here: `now` is a parameter, so this is testable with
 // synthetic time and usable from sim/ without breaking its purity rule.
 class Pacer
 {
 public:
-	// `maxSteps` bounds catch-up. A debugger pause or a backgrounded tab can
-	// hand back an arbitrarily large `now`, and running thousands of steps to
-	// "catch up" turns a hitch into a hang; the simulation deliberately loses
-	// that time instead.
+	// `maxSteps` bounds catch-up: an arbitrarily large `now` (a debugger
+	// pause, a backgrounded tab) must not turn thousands of catch-up steps
+	// into a hang, so the simulation deliberately loses that time instead.
 	constexpr explicit Pacer(
 			Ticks period = kBattleFrameRate, int maxSteps = 5) noexcept
 		: period_(period), maxSteps_(maxSteps), dueAt_(period)

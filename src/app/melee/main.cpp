@@ -1,13 +1,12 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 //
-// The M1 vertical slice: Human Cruiser against Ilwrath Avenger, two players at
-// one keyboard, on a real window.
+// The M1 vertical slice: Human Cruiser against Ilwrath Avenger, two players
+// at one keyboard, on a real window.
 //
-// The loop is the plan's `main` + `iterate()`: one function that advances
-// everything by whatever time has passed, called from a driver that differs
-// per platform. Emscripten cannot own the outer while-loop -- it has to return
-// to the browser between frames -- and writing that shape from the start is
-// what stops the desktop build growing a structure the web build cannot use.
+// The loop is the plan's `main` + `iterate()`, called from a per-platform
+// driver: Emscripten cannot own the outer while-loop, since it must return
+// to the browser between frames -- so this shape works for both from the
+// start.
 
 #include "app/melee/Assets.hpp"
 #include "app/melee/Game.hpp"

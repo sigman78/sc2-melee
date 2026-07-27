@@ -35,21 +35,9 @@ strtokStep(std::string_view &rest, std::string_view delims) noexcept
 	return token;
 }
 
-// getstr.c:523-546, reproduced rather than approximated. The exact strtok
-// behaviour matters more than it looks:
-//
-//   "#(NAME)\tclip.ogg"  -> name "NAME", clip "clip.ogg"
-//   "#()"                -> no token at all; strtok skips both parens and
-//                           runs off the end, so `if (s)` fails and the line
-//                           is skipped *entirely* -- not appended as body
-//                           text either, because the append is the `else if`
-//                           arm of the same `if (line[0] == '#')`.
-//                           base/gamestrings.txt relies on this; treating
-//                           these as empty-named phrases would shift every
-//                           ordinal after them.
-//   "# comment"          -> name " comment". A '#' line with no parens is a
-//                           phrase header with a silly name, not a comment.
-//                           There are no comments in this format.
+// getstr.c:523-546, reproduced exactly: "#()" yields no token, so strtok's
+// NULL drops the line entirely (not even as body text) -- base/gamestrings.txt
+// relies on this. A bare '#' line is a header with a silly name, not a comment.
 std::optional<Header>
 parseHeader(std::string_view line) noexcept
 {
@@ -89,17 +77,9 @@ parsePhrases(std::string_view text, std::vector<ContentError> *problems)
 {
 	PhraseFile file;
 
-	// The body is a view rather than a rebuilt string: remember where it
-	// starts and where its last non-blank line ends, which is also how
-	// getstr.c:284-292 trims.
-	//
-	// A view requires the body to be contiguous, and there is exactly one way
-	// it might not be: the C *drops* a "#()" line and appends what follows to
-	// the same phrase, so a slice would wrongly include the "#()" itself. In
-	// every file in the tree a "#()" is followed only by blank lines, which
-	// the trailing trim removes anyway, so the view is exact. `skipped`
-	// tracks the case that would break it, and it is reported rather than
-	// silently mis-sliced.
+	// Body is a view, not a rebuilt string (trimmed per getstr.c:284-292);
+	// see docs/cpp-conventions.md rule 5 for why a dropped "#()" line still
+	// lets a view work here. `skippedInBody` flags the one case that would not.
 	const char *bodyBegin = nullptr;
 	const char *bodyEnd = nullptr;
 	bool skippedInBody = false;

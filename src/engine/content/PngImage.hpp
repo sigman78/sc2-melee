@@ -17,11 +17,9 @@ namespace uqm::content {
 
 enum class PixelFormat : std::uint8_t
 {
-	// One byte per pixel, meaningful only against a palette. Which palette is
-	// the interesting part: the PNG's own PLTE is a preview, but what the
-	// game draws with is the colormap slot named by the .ani. Keeping art
-	// indexed is the whole reason this is not just "decode everything to
-	// RGBA".
+	// One byte per pixel, valid only against a palette -- the PNG's own PLTE
+	// is just a preview; the game colours with the .ani's colormap slot
+	// instead. Keeping art indexed instead of always decoding to RGBA is the point.
 	Indexed8,
 
 	// Straight RGBA, for images that cannot stay indexed: greyscale, true
@@ -29,10 +27,9 @@ enum class PixelFormat : std::uint8_t
 	Rgba8,
 };
 
-// Move-only. It holds up to megabytes, and a silent copy is a frame-time
-// cliff nobody finds by reading (docs/cpp-conventions.md rule 6). Returning
-// one by value moves; `auto img = other` is a compile error, which is the
-// point.
+// Move-only: a silent multi-megabyte copy is a frame-time cliff nobody
+// finds by reading (docs/cpp-conventions.md rule 6). Returning by value
+// moves; `auto img = other` is a compile error, which is the point.
 class PngImage
 {
 public:
@@ -103,12 +100,9 @@ private:
 	std::uint8_t sourceBitDepth_ = 0;
 };
 
-// Decodes a whole PNG from memory.
-//
-// The classification follows png2sdl.c:213-300, which is the C's own careful
-// mapping of libpng's transform calls onto spng's format flags. Reproduced
-// rather than reinvented: getting "when does indexed art stop being indexed"
-// wrong would silently change how every sprite is coloured.
+// Decodes a whole PNG. Classification follows png2sdl.c:213-300's mapping
+// of libpng transforms onto spng flags, reproduced rather than reinvented --
+// wrong here silently recolors every sprite.
 [[nodiscard]] std::expected<PngImage, ContentError> decodePng(Bytes bytes);
 
 // Encodes 8-bit RGBA. Used by the browser to write contact sheets; the game

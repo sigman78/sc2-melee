@@ -9,25 +9,14 @@
 
 namespace uqm::sim {
 
-// The game's angle model and its trig tables (units.h:180-212, trans.c).
+// The game's angle model (units.h:180-212, trans.c): a circle is 64 units,
+// 16 facings; tables are integer and exact (not std::sin), since a
+// one-count difference is a different trajectory.
 //
-// A circle is 64 units, not 360 degrees and not radians. Facings are 16, so
-// four angle units to a facing. Everything is integer: the tables are the
-// definition of sine here, not an approximation of it, and the rewrite
-// reproduces them exactly rather than calling std::sin -- ships turn in whole
-// angle units and a one-count difference in a table entry is a different
-// trajectory.
+//     angle 0=up(-y)  16=right(+x)  32=down(+y)  48=left(-x)
 //
-// The convention, which is worth stating because it is not the usual one:
-//
-//     angle 0  = up      (-y)      SINE(0,m) == -m,  COSINE(0,m) == 0
-//     angle 16 = right   (+x)
-//     angle 32 = down    (+y)
-//     angle 48 = left    (-x)
-//
-// so angles increase clockwise from straight up, in screen coordinates. That
-// falls out of the table being -cos rather than sin: sinetab[a] is
-// -cos(2*pi*a/64), which is sin shifted by a quarter turn.
+// Clockwise from up, because sinetab[a] is -cos(2*pi*a/64): sin shifted a
+// quarter turn.
 
 inline constexpr int kCircleShift = 6;
 inline constexpr int kFullCircle = 1 << kCircleShift;   // 64
@@ -110,14 +99,9 @@ inline constexpr std::array<std::uint8_t, 33> kArcTanTab{
 	7, 7, 7, 7, 7, 8, 8, 8,
 };
 
-// The angle of (dx, dy), 0..63.
-//
-// EXCEPT for the zero vector, where it returns kFullCircle -- 64, which is
-// *not* a normalized angle. That is the C's behaviour (trans.c:134-135) and
-// it is a sentinel meaning "no direction", so callers have to notice it. A
-// caller that feeds it straight to sinVal() would read past the table; the
-// assert in sinVal's normalizeAngle folds it to 0 instead, which is a
-// direction, so the check belongs at the call site.
+// The angle of (dx, dy), 0..63, except the zero vector returns kFullCircle
+// (64) -- the C's sentinel for "no direction" (trans.c:134-135), not a
+// normalized angle. Feeding it to sinVal() folds to 0; check at the call site.
 [[nodiscard]] constexpr int
 arctan(int dx, int dy) noexcept
 {
@@ -151,20 +135,10 @@ arctan(int dx, int dy) noexcept
 
 // --------------------------------------------------------------------------
 // Directional integers as types (docs/cpp-conventions.md rule 7).
-//
-// A facing (0..15) and an angle (0..63) convert through a shift and, as bare
-// ints, transpose silently. Both wrap in their constructors -- the same
-// masking the C applies at every use -- so arithmetic cannot escape the
-// circle. A DELTA between two of them is deliberately an int, not another
-// direction: a count of steps, compared against half-circle constants.
-//
-// The one int that stays an int: Velocity::travelAngle(), whose value
-// kFullCircle (64) is ARCTAN's "no direction" sentinel -- unequal to every
-// real angle in comparisons, yet folded to 0 by the C's table indexing when
-// it reaches trig. Angle's wrapping constructor reproduces the fold, so
-// sentinel-fed trig stays C-exact; the comparisons stay in int at the
-// sentinel's three boundary sites (thrust, impulse) rather than behind a
-// type that would have to lie about one value.
+
+// A facing (0..15) and an angle (0..63) convert through a shift; both wrap
+// in their constructors so arithmetic can't escape the circle. Velocity's
+// travelAngle stays a plain int: wrapping would fold away ARCTAN's sentinel.
 
 class Facing;
 

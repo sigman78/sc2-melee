@@ -114,11 +114,9 @@ decodePng(Bytes bytes)
 			plte.entries[i].blue};
 	}
 
-	// SPNG_FMT_PNG keeps the file's own packing, so 1/2/4-bpp rows arrive
-	// packed and have to be widened. Widened, not rescaled: these are
-	// indices, and scaling them would silently recolour the image
-	// (png2sdl.c:120-132 makes the same point). Three files in the tree take
-	// this path, so it is exercised rather than theoretical.
+	// SPNG_FMT_PNG keeps the file's packing, so sub-8-bit rows must be
+	// widened, not rescaled -- these are indices, and scaling would recolor
+	// the image (png2sdl.c:120-132). Three files in the tree exercise this path.
 	if (ihdr.bit_depth == 8)
 	{
 		image.pixels_ = std::move(raw);

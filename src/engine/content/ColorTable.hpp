@@ -26,8 +26,7 @@ inline constexpr std::size_t kPaletteSize = 256;   // NUMBER_OF_PLUTVALS
 inline constexpr std::size_t kRgbSize = 3;         // PLUTVAL_BYTE_SIZE
 
 // A palette is a fixed-size value: 256 x 3 bytes, no allocation, trivially
-// copyable, and byte-for-byte the layout the file already has. What was wrong
-// before was the `std::vector` around it, not the array
+// copyable, and byte-for-byte the file's own layout
 // (docs/cpp-conventions.md rule 1).
 using Palette = std::array<Rgb, kPaletteSize>;
 
@@ -37,14 +36,9 @@ static_assert(sizeof(Palette) == kPaletteSize * kRgbSize,
 
 inline constexpr std::size_t kPaletteBytes = sizeof(Palette);
 
-// A .ct entry, in one of the two shapes docs/content-formats.md describes.
-//
-// The shape is NOT recoverable from the bytes. Both open with two bytes that
-// look like a range and neither carries a tag, so the same entry parses one
-// way as a run of full palettes and another as a partial one -- Supox's entry
-// says "10..10", which is 768 bytes of palette under one reading and 3 bytes
-// under the other. The caller says which it expects, and it knows because it
-// knows which resource key it asked for.
+// A .ct entry's shape (docs/content-formats.md) is not recoverable from the
+// bytes -- both open with an untagged range-like pair, so Supox's "10..10"
+// is 768 bytes as a palette run but 3 as a partial one. Caller says which.
 enum class ColorTableShape : std::uint8_t
 {
 	// [startSlot, endSlot] + one full 256-entry palette per slot. What

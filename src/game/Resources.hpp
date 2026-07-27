@@ -17,21 +17,9 @@
 
 namespace uqm::game {
 
-// Content, addressed by resource id rather than by path.
-//
-// uqm.rmp is the only link between a name and a file, and the indirection is
-// load-bearing rather than decorative:
-//
-//   - directory names and resource names do not agree. blackur/ loads
-//     comm.kohrah.*, slyland/ loads comm.probe.*. Convention cannot shortcut
-//     this because there is no convention to follow.
-//   - it is what an addon overrides. Replacing a ship's art means shipping a
-//     different uqm.rmp entry, not shipping a file at a path the game happens
-//     to hardcode. Hardcoding paths silently removes that ability, and the
-//     removal is invisible until someone tries to use it.
-//
-// The melee app hardcoded paths for a while and worked, which is exactly why
-// this is worth writing down: it works right up until it has to not.
+// Content, addressed by resource id, not path: uqm.rmp is the only
+// name<->file link (blackur/ loads comm.kohrah.*, not matching by
+// directory), and it's what an addon overrides instead of a hardcoded path.
 //
 // LIFETIME: this owns the text uqm.rmp was parsed from, because every key,
 // type and path in ResourceMap is a view into it.
@@ -53,18 +41,15 @@ public:
 	// not a path).
 	[[nodiscard]] std::filesystem::path pathOf(std::string_view id) const;
 
-	// Loads and caches the sprites a GFXRES id names. Returns an empty set the
-	// caller can still draw nothing from, rather than failing the frame.
-	//
-	// Cached by id, so two ships naming the same art upload it once -- which
-	// they do: every asteroid in the field shares one set.
+	// Loads and caches the sprites a GFXRES id names -- an empty set on
+	// failure, so the caller draws nothing rather than losing the frame.
+	// Cached by id: every asteroid in the field shares one upload.
 	[[nodiscard]] const SpriteSet &sprites(
 			platform::Platform &window, std::string_view id);
 
-	// The sounds a SNDRES id names. A .snd is a plain text list of .wav
-	// filenames, one per line, exactly as a .ani lists its .png cels -- so a
-	// ship's sounds arrive as an indexed set and the caller picks by slot.
-	// Cached by id like the sprites, since every Cruiser shares one.
+	// The sounds a SNDRES id names: a .snd lists .wav filenames one per
+	// line, like a .ani lists cels, so sounds arrive as an indexed set the
+	// caller picks by slot. Cached by id, like sprites.
 	[[nodiscard]] std::span<const platform::Sound> sounds(
 			const platform::Audio &audio, std::string_view id);
 

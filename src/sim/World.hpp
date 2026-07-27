@@ -9,23 +9,9 @@
 
 namespace uqm::sim {
 
-// The battlefield's coordinate space, and its topology.
-//
-// This is open question 4 in docs/game-rewrite-plan.md, settled the cheap
-// way. The plan worried that ScreenWidth/ScreenHeight are *runtime globals*
-// feeding LOG_SPACE_WIDTH and WRAP_X/WRAP_Y -- the battlefield's topology,
-// not merely where things spawn -- and called it not retrofittable.
-//
-// It turns out there is nothing to retrofit. `ScreenWidth = 320;
-// ScreenHeight = 240;` at sdl2_pure.c:312-313 is the only assignment to
-// either in the whole tree; --res moves ScreenWidthActual, which is the
-// window. So the "runtime global" never varies, and making it a constant is
-// behaviourally a no-op that removes a whole class of "does the arena change
-// size at 4K" bug.
-//
-// If resolution independence is ever wanted, it has to be a deliberate change
-// to *this* file with the melee baseline re-established afterwards -- not
-// something that falls out of a window resize.
+// The battlefield's coordinate space and topology: ScreenWidth/ScreenHeight
+// are compile-time constants, not runtime globals -- the only assignment is
+// sdl2_pure.c:312-313, and --res moves only ScreenWidthActual (the window).
 
 inline constexpr std::int32_t kScreenWidth = 320;
 inline constexpr std::int32_t kScreenHeight = 240;
@@ -80,10 +66,9 @@ inline constexpr std::int32_t kLogSpaceHeight =
 static_assert(kLogSpaceWidth == 8192, "the arena width the C computes today");
 static_assert(kLogSpaceHeight == 7680, "the arena height the C computes today");
 
-// The battlefield wraps. WRAP_VAL (units.h:214-216) folds by one period only,
-// which is all a single step can need since nothing moves a whole arena in a
-// frame -- and asserting that is cheaper than a modulo on every axis of every
-// entity every step.
+// The battlefield wraps. WRAP_VAL (units.h:214-216) folds by one period
+// only -- enough since nothing moves a whole arena in a frame, and cheaper
+// than a modulo every axis, every entity, every step.
 constexpr std::int32_t
 wrapX(std::int32_t x) noexcept
 {

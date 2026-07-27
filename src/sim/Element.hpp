@@ -68,27 +68,17 @@ struct ShipState
 
 	SpeedState speed = SpeedState::Normal;
 
-	// SHIP_IN_GRAVITY_WELL (races.h:71). Its own bit in the C, orthogonal to
-	// the at-max/beyond-max pair rather than a fourth value of them: while it
-	// is set a ship may accelerate past its own maximum, up to the hard
-	// kMaxAllowedSpeed ceiling (ship.c:82, 106-112). Gravity sets it, and the
-	// next thrust clears it (ship.c:263-267).
+	// SHIP_IN_GRAVITY_WELL (races.h:71): orthogonal to the at-max/beyond-max
+	// pair. Lets a ship accelerate past its own max, up to kMaxAllowedSpeed
+	// (ship.c:82,106-112); gravity sets it, next thrust clears it (ship.c:263-267).
 	bool inGravityWell = false;
 
-	// Where the ship is in the cloak's colour walk. This is the prim state of
-	// ilwrath_preprocess, made an index:
-	//
+	// Where the ship is in the cloak's colour walk, as an index:
 	//     0            STAMP -- solid, visible, machine idle
 	//     1..5         STAMPFILL fills: white, cyan-white, dark cyan, blue,
-	//                  dark blue (ilwrath.c:349-374 going in, 255-273 out)
+	//                  dark blue (ilwrath.c:349-374 in, 255-273 out)
 	//     kCloakFullLevel (6)   BLACK -- fully cloaked
-	//
-	// The Ilwrath cloak is not a fade: the C walks this fixed sequence one
-	// step per frame, and runs it backwards to uncloak. The walk itself, and
-	// everything that reverses it, lives in ilwrathPreProcess (Ship.cpp) --
-	// the direction is derived each frame from the inputs and the counter,
-	// exactly as the C derives it from the prim colour, so there is no
-	// separate "cloaking" bool to fall out of step with it.
+	// Not a fade: walked one step per frame, reversed to uncloak (Ship.cpp).
 	std::int32_t cloakLevel = 0;
 };
 
@@ -123,9 +113,9 @@ enum class ElementFlags : std::uint32_t
 	// Already collided this frame; the step will not test it again.
 	Collided = 1u << 5,
 
-	// Already preprocessed this frame. This is the flag that distinguishes
-	// elements present at the start of the frame from ones spawned during
-	// it, and it is load-bearing -- see Step.hpp.
+	// Already preprocessed this frame: distinguishes elements present at
+	// the frame's start from ones spawned during it -- load-bearing, see
+	// design-notes D1.
 	PreProcessed = 1u << 6,
 
 	// Already postprocessed this frame.
@@ -143,15 +133,9 @@ enum class ElementFlags : std::uint32_t
 	// A player's ship, as opposed to a projectile or a rock.
 	PlayerShip = 1u << 9,
 
-	// OBJECT_CLOAKED. Invisible to weapon targeting (weapon.c:344) and to the
-	// Cruiser's point defence (human.c:202), and drawn differently. It does
-	// *not* stop collisions -- a cloaked Avenger still hits an asteroid.
-	//
-	// Set only at FULL black: OBJECT_CLOAKED in the C is "STAMPFILL and
-	// BLACK" (element.h:201-204), so a ship is targetable through the whole
-	// fade, in both directions. Setting it for any partial fade, which is
-	// what this did first, made the Avenger missile-proof from the frame
-	// SPECIAL landed -- a significant unmarked buff.
+	// OBJECT_CLOAKED: invisible to weapon targeting (weapon.c:344) and PD
+	// (human.c:202), but does not stop collisions. Set only at full black
+	// (element.h:201-204), so targetable through the whole fade either way.
 	Cloaked = 1u << 11,
 };
 
@@ -188,23 +172,9 @@ any(ElementFlags f) noexcept
 	return static_cast<std::uint32_t>(f) != 0;
 }
 
-// Mass, and the two different questions the C asks about it.
-//
-// GRAVITY_MASS (element.h:198) is `mass > MAX_SHIP_MASS * 10`, i.e. > 100.
-// But gravity.c never calls it on the mass itself -- always on `mass + 1`
-// (gravity.c:34,45). The off-by-one is deliberate and it is not about planets,
-// which have mass 200 (misc.c:53,71) and clear either test.
-//
-// It is about a ship running away. DoRunAway sets mass_points to exactly 100
-// (battle.c:92), which fails `> 100` but passes `+ 1 > 100`. So a fleeing ship
-// reads as a gravity *source* to gravity.c -- and because gravity skips any
-// pair whose answers agree, the planet stops pulling on it. You cannot be
-// dragged into a planet while escaping. collide.c asks WITH the `+ 1` too
-// (collide.c:102, 139), so the same fleeing ship also takes no impulse --
-// only do_damage (misc.c:214) asks without it, so the ship stays damageable.
-//
-// Two names, because they are two predicates and conflating them is a bug
-// waiting to be reintroduced.
+// GRAVITY_MASS (element.h:198) is `mass > 100`; gravity.c/collide.c ask
+// `mass + 1 > 100` instead (gravity.c:34,45, collide.c:102,139) -- exempting
+// a fleeing ship (battle.c:92) from gravity/impulse but not damage (misc.c:214).
 inline constexpr std::int32_t kMaxShipMass = 10;              // element.h:197
 inline constexpr std::int32_t kGravityMass = kMaxShipMass * 10;  // 100
 
@@ -222,13 +192,9 @@ isGravitySource(std::int32_t massPoints) noexcept
 	return massPoints + 1 > kGravityMass;
 }
 
-// What kind of thing this is.
-//
-// The plan's engine primitive #3: a real tag, not a frame pointer. The C
-// identifies element types by comparing FRAME pointers (cyborg.c:1222-1227)
-// and by reaching into another ship's header to name its constants --
-// shofixti.c:251-253 does `#include "../orz/orz.h"` to recognise an Orz
-// turret. Both stop being expressible once the type is a field.
+// What kind of thing this is: a real tag, not a frame-pointer comparison
+// (cyborg.c:1222-1227) or a cross-ship header include for constants
+// (shofixti.c:251-253 pulls in orz.h to recognise a turret).
 enum class ElementKind : std::uint8_t
 {
 	Unknown = 0,
@@ -239,10 +205,8 @@ enum class ElementKind : std::uint8_t
 	Blast,
 	Turret,
 
-	// A beam. Unlike everything else its `current` and `next` are the two
-	// *ends* of the thing rather than where it was and where it is going --
-	// which is exactly what the C does with a LINE_PRIM (weapon.c:44-85), and
-	// why it can reuse the same element for it.
+	// A beam: `current`/`next` are its two *ends*, not before/after positions --
+	// matching the C's LINE_PRIM reuse of one element for it (weapon.c:44-85).
 	Laser,
 
 	// A single point of a ship's exhaust, and the shadow a ship leaves while
@@ -250,10 +214,9 @@ enum class ElementKind : std::uint8_t
 	// (tactrans.c:756-790), which is why they share a kind here.
 	IonTrail,
 
-	// A fading silhouette of a ship, shed while it warps in. Ship-shaped, not
-	// a point: the C draws the ship's own image as a STAMPFILL_PRIM
-	// (tactrans.c:893-930). It shares the ion trail's colour ramp but not its
-	// geometry -- and the geometry is what makes the effect visible at all.
+	// A fading silhouette shed while warping in: ship-shaped, not a point --
+	// the C draws it as a STAMPFILL_PRIM (tactrans.c:893-930), sharing the ion
+	// trail's colour ramp but not its geometry.
 	ShipShadow,
 
 	// One spark of a dying ship. The explosion is a *swarm* of these thrown
@@ -262,11 +225,9 @@ enum class ElementKind : std::uint8_t
 	Debris,
 };
 
-// Hooks. Free functions taking the battle and the element's own id, so they
-// have no captured state and cannot outlive it. The C stores these as
-// per-instance function pointers and ships mutate their own -- chmmr.c:773
-// deletes its hook and pkunk.c:282 reinstalls one -- which the plan
-// deliberately gives up in favour of explicit state machines.
+// Free functions taking the battle and the element's id: no captured state,
+// so they can't outlive it. The C mutates per-instance hooks at runtime
+// (chmmr.c:773 deletes its hook, pkunk.c:282 reinstalls one); this doesn't.
 using ElementHook = void (*)(Battle &, EntityId) noexcept;
 
 struct Element
@@ -299,10 +260,9 @@ struct Element
 	// it (weapon.c:202-208).
 	std::int32_t blastOffset = 0;
 
-	// Where an element is in whatever colour or frame sequence it animates
-	// through: the ion trail's twelve-step fade, an explosion's frames. The C
-	// calls this colorCycleIndex and keeps it on every element for the same
-	// reason -- the alternative is a parallel table keyed by entity.
+	// Where an element is in its colour/frame sequence (ion trail fade,
+	// explosion frames). The C's colorCycleIndex, kept per-element for the
+	// same reason: the alternative is a parallel table keyed by entity.
 	std::int32_t colorCycle = 0;
 
 	// Frames until the ship may turn or thrust again. A collision adds to
@@ -314,12 +274,9 @@ struct Element
 	// Not owned: masks live with the content and outlive the battle.
 	Borrowed<const CollisionMask> mask = nullptr;
 
-	// The silhouette and facing this element ENTERED the frame with, captured
-	// by the step before any hook runs. The overlap-repair protocol
-	// (process.c:453-506) uses them to undo a rotation made this frame that
-	// turned the element into a wall: the C reverts next.image to
-	// current.image and re-reads ShipFacing from it, and these two fields are
-	// that current.image for a sim without images.
+	// The silhouette/facing this element ENTERED the frame with, captured before
+	// any hook runs: the overlap-repair protocol (process.c:453-506) reverts to
+	// these to undo a rotation that turned the element into a wall.
 	Borrowed<const CollisionMask> priorMask = nullptr;
 	Facing priorFacing;
 
@@ -334,11 +291,9 @@ struct Element
 	// What this element hit, valid only inside a collision hook.
 	EntityId collidedWith;
 
-	// The ship this came from, and pParent in the C (element.h:192). A ship
-	// owns itself. This is what IGNORE_SIMILAR is tested against: the C skips
-	// a pair when both carry the flag *and share an owner*, which is what
-	// stops a flame burning the Avenger that breathed it. Owner, not player --
-	// two ships of the same species on one side still shoot each other.
+	// The ship this came from: pParent in the C (element.h:192); a ship owns
+	// itself. IGNORE_SIMILAR skips a pair sharing an owner (stops a flame
+	// burning its own ship) -- owner, not player, so allied ships still collide.
 	EntityId owner;
 
 	// Only meaningful when kind == Ship; `ship.spec` is null otherwise.

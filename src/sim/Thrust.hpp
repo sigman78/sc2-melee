@@ -10,21 +10,9 @@
 
 namespace uqm::sim {
 
-// inertial_thrust (ship.c:55-147), with its two hidden inputs made explicit.
-//
-// This is engine primitive #1 from docs/game-rewrite-plan.md, and the reason
-// it is a prerequisite rather than a nicety: the C reads the facing out of
-// STARSHIP->ShipFacing and the speed state out of
-// STARSHIP->cur_status_flags. A ship that wants to thrust in any direction
-// other than the one it is pointing -- Supox's omni-thrust, Umgah's retro --
-// therefore has to save ShipFacing, overwrite it, call in, hand-merge the
-// returned flags and restore. That is sixty lines in supox.c:242-271 for
-// twelve lines of intent, and every ship that does it re-imports the same
-// shape.
-//
-// Here the facing is an argument and the speed state is a value in and a
-// value out. Supox's special becomes: pick a facing delta, call thrust with
-// it. Nothing to save, nothing to restore.
+// inertial_thrust (ship.c:55-147): facing and speed state are explicit
+// args, not read from STARSHIP-global state -- no save/restore dance for
+// ships that thrust off their own facing (Supox, supox.c:242-271).
 
 // SpeedState is in Velocity.hpp -- the plan's primitive #2, flags derived
 // from |v| against max_thrust rather than hand-patched by each ship

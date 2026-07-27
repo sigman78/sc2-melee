@@ -10,21 +10,13 @@
 
 namespace uqm::sim {
 
-// Collision response: collide() from collide.c, and engine primitive #2.
+// Collision response: collide() from collide.c, engine primitive #2. Momentum
+// exchange along the impact axis, scaled by how head-on the hit was.
 //
-// Momentum exchange along the impact axis, scaled by how head-on the
-// collision was. Two details in the C are load-bearing and easy to lose:
-//
-//   - a glancing hit is *promoted to head-on* (collide.c:54-62). If the
-//     relative travel is within a quadrant of the impact axis the shapes only
-//     scraped, and leaving it alone means they scrape again next frame, and
-//     the frame after. The fudge is what stops two ships grinding along each
-//     other forever.
-//   - two elements that did not move before colliding get DefyPhysics rather
-//     than an impulse (collide.c:72-92), because there is no relative motion
-//     to exchange. If they *both* already defy physics, their velocities are
-//     zeroed and the impact angles are skewed by an octant, which is what
-//     eventually pushes two stuck objects apart.
+// A glancing hit is promoted to head-on (collide.c:54-62), or two shapes
+// scrape again next frame. Elements with no relative motion get DefyPhysics
+// instead of an impulse (collide.c:72-92); if both already defy physics,
+// velocities zero and the impact angle skews by an octant to separate them.
 
 inline constexpr std::int32_t kCollisionTurnWait = 1;    // collide.h:28
 inline constexpr std::int32_t kCollisionThrustWait = 3;  // collide.h:29
@@ -33,25 +25,14 @@ inline constexpr std::int32_t kCollisionThrustWait = 3;  // collide.h:29
 // are not pushed. isGravityMass is in Element.hpp, next to the gravity.c
 // variant it must not be confused with.
 
-// Deterministic integer square root. UQM's square_root (libs/math/sqrt.c) is
-// a bit-restoring routine, and it computes exactly floor(sqrt(v)) -- verified
-// across ~4M values including the top of the 32-bit range. So the *result* is
-// what has to match, not the algorithm. Integer rather than std::sqrt because
-// sim/ has to give the same answer on every target, including wasm.
+// Deterministic integer square root: matches UQM's square_root
+// (libs/math/sqrt.c), floor(sqrt(v)), verified across ~4M values. Integer,
+// not std::sqrt, so every target (incl. wasm) gives the same answer.
 [[nodiscard]] std::uint32_t isqrt(std::uint32_t value) noexcept;
 
-// The speed state implied by a velocity, rather than a flag someone patched.
-//
-// This is what the plan means by "derived from |v| vs max_thrust": with it
-// available, chmmr.c:398-409, druuge.c:266 and mmrnmhrm.c:436-450 -- all of
-// which hand-set these flags -- have nothing to hand-set.
-//
-// NOTE: applyImpulse *resets* the state the way collide.c:104-110 does
-// (to Normal, unconditionally, on any impulsed player ship), rather than
-// leaving callers to re-derive it. Switching to derivation is a one-line
-// change at the call site and a deliberate behaviour change, because the C's
-// flags can be stale by a frame. Kept separate so the switch is visible
-// rather than smuggled in with the port.
+// The speed state implied by velocity vs max thrust, not a hand-set flag
+// (chmmr.c:398-409, druuge.c:266, mmrnmhrm.c:436-450). applyImpulse resets
+// it to Normal unconditionally (collide.c:104-110); the C's flags go stale.
 [[nodiscard]] SpeedState deriveSpeedState(
 		const Velocity &v, const ThrustProfile &profile) noexcept;
 

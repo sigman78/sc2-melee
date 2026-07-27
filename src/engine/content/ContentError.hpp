@@ -12,15 +12,13 @@ namespace uqm::content {
 
 // Why a content file would not parse.
 //
-// Malformed content is a real error rather than a bug (docs/cpp-conventions.md
-// rule 3): a human has to go and fix a file, so it earns a report. Broken
-// invariants -- an index past a bound the caller was told to check -- are
-// asserts, and get none.
+// Malformed content is a real error (docs/cpp-conventions.md rule 3): a
+// human fixes the file, so it earns a report; a broken invariant is an
+// assert instead.
 //
-// What it is *not* is prose. The engine branches on the code and carries no
-// message; `uqm2-browse` and the tests turn one of these into English with
-// std::format at the point it is shown. That keeps ~40 string literals and
-// the code that concatenates them out of the shipping binary.
+// The engine branches on the code only, no prose -- `uqm2-browse` and the
+// tests format one with std::format at the point it is shown, keeping ~40
+// string literals out of the shipping binary.
 enum class ContentErrorCode : std::uint8_t
 {
 	Empty,

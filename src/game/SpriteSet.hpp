@@ -15,31 +15,20 @@ namespace uqm::game {
 // A set of cels -- a ship's sixteen facings, a projectile's frames, a rock --
 // uploaded, with collision masks to match.
 //
-// The C ships three pre-rendered sizes per object -- cruiser-big, -med, -sml
-// -- and picks one from the camera's reduction, which is the sprite-LOD half
-// of the optMeleeScale fork. Only `-big` is loaded here. The camera is a
-// single continuous zoom now (see Camera.hpp), so there is no reduction level
-// to index with, and scaling one sprite with nearest-neighbour is what a
-// continuous zoom implies. The smaller cels stay in the content and are
-// available if the stepped camera ever wants them back.
+// Only `-big` is loaded: the C's three pre-rendered sizes, picked by camera
+// reduction under the old sprite-LOD fork, collapse to one continuous zoom
+// (Camera.hpp, design-notes.md D6); smaller cels stay in the content unused.
 //
-// **Collision masks come from `-big` and do not change with zoom.** In the C
-// they do: intersec.c tests whatever frame is currently displayed, so hitboxes
-// shrink as the view pulls out and two ships that would touch at 1:1 pass
-// through each other at 4:1. That is a presentation detail reaching into the
-// simulation, which the plan forbids -- so the silhouette is fixed at the 1:1
-// one. This is a deliberate divergence and it changes collisions at range.
+// Collision masks come from `-big` and do not change with zoom
+// (design-notes.md V1).
 struct SpriteSet
 {
 	std::vector<platform::Texture> frames;
 	std::vector<sim::CollisionMask> masks;
 
-	// The same cels with every opaque pixel forced white, so colour-mod turns
-	// them into a flat fill of any colour. That is STAMPFILL_PRIM, which is
-	// how the C draws a cloaking Ilwrath: not a faded sprite but a solid
-	// silhouette stepping through a fixed colour ramp (ilwrath.c:250-285).
-	// Tinting the real cels instead only darkens them, because colour-mod
-	// multiplies -- a dark hull stays dark and the effect disappears.
+	// Every opaque pixel forced white, so colour-mod tints to a flat fill --
+	// STAMPFILL_PRIM, how the C draws a cloaking Ilwrath (ilwrath.c:250-285).
+	// Tinting the real cels instead only darkens them; colour-mod multiplies.
 	std::vector<platform::Texture> silhouettes;
 
 	[[nodiscard]] bool
@@ -59,12 +48,9 @@ struct SpriteSet
 	}
 };
 
-// Loads `ani` and everything it names, relative to the .ani's own directory.
-// Returns an empty ShipSprites if anything is missing -- content problems are
-// reported by the browser and by the resource-graph check in CI, so there is
-// nothing useful to say here that is not already said louder elsewhere.
-// `colortable` is the global palette table (colortable.main, base/uqm.ct);
-// cels name a slot in it rather than in any .ct beside them.
+// Loads `ani` and everything it names, relative to the .ani's directory;
+// empty on failure (content problems are reported louder by the browser and
+// CI). `colortable` is the global palette table; cels name a slot in it.
 [[nodiscard]] SpriteSet loadSprites(platform::Platform &window,
 		const std::filesystem::path &ani,
 		const std::filesystem::path &colortable);

@@ -17,15 +17,13 @@ using Bytes = std::span<const std::byte>;
 
 // The content pack is big-endian throughout (docs/content-formats.md).
 //
-// One load plus std::byteswap, not a shift-and-or loop: byteswap is an
-// intrinsic and lowers to a single bswap/rev, and the endianness test folds
-// away at compile time. Parameterised over the integer type rather than over
-// a byte count, so there is exactly one body and no loop to unroll.
+// One load plus std::byteswap (an intrinsic; folds away at compile time on
+// big-endian), not a shift-and-or loop. Parameterised on the integer type,
+// not a byte count, so there is exactly one body to unroll.
 //
-// Bounds are the caller's business. Reading past the end is a broken
-// invariant, not malformed content -- the caller was supposed to have asked
-// `fits()` first -- so it asserts rather than returning an error
-// (docs/cpp-conventions.md rule 3).
+// Bounds are the caller's business: reading past the end is a broken
+// invariant, not malformed content, so it asserts rather than returning an
+// error once the caller skips `fits()` (docs/cpp-conventions.md rule 3).
 template <class T>
 	requires std::unsigned_integral<T>
 [[nodiscard]] inline T

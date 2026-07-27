@@ -138,10 +138,9 @@ Audio::play(const Sound &s, float gain)
 	SDL_AudioStream *stream = streams_[slot];
 	playing_[slot] = &s;
 
-	// Clear before putting. Without it a sound that fires every frame queues
-	// behind itself and drifts further and further from the thing that caused
-	// it -- the flame would be seconds behind the picture within a few
-	// seconds of holding the trigger.
+	// Clear before putting: otherwise a sound firing every frame queues behind
+	// itself and drifts from what caused it -- seconds behind the picture
+	// within moments of holding the trigger.
 	SDL_ClearAudioStream(stream);
 
 	SDL_AudioSpec src{};
