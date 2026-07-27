@@ -111,7 +111,7 @@ Audio::load(const std::filesystem::path &wav) const
 }
 
 void
-Audio::play(const Sound &s)
+Audio::play(const Sound &s, float gain)
 {
 	if (streams_.empty() || !s.valid())
 		return;
@@ -131,6 +131,7 @@ Audio::play(const Sound &s)
 	src.freq = s.rate_;
 	SDL_SetAudioStreamFormat(stream, &src, nullptr);
 
+	SDL_SetAudioStreamGain(stream, gain);
 	SDL_PutAudioStreamData(stream, s.data_, static_cast<int>(s.length_));
 }
 

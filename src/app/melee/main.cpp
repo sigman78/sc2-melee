@@ -249,6 +249,25 @@ struct Game
 // How long a contact point stays on screen, in simulation frames.
 constexpr std::int64_t kMarkLife = 24;
 
+// Everything is at half level for now. The .wav files are mastered loud, and
+// with a dozen streams a flame stream alone will clip.
+constexpr float kEffectGain = 0.5f;
+
+// battle.snd is getcrew, shipdies, then the four booms.
+constexpr std::size_t kBoomFirstSlot = 2;
+
+// The Ilwrath cloak ramp, converted from the C's 5-bit RGB
+// (ilwrath.c:255-275). Index 0 is unused -- level 0 means "draw the real
+// sprite" -- and the last step is invisible, so it is not listed.
+constexpr std::array<Colour, 6> kCloakRamp{{
+		Colour{0xFF, 0xFF, 0xFF},  // unused; level 0 draws the sprite
+		Colour{0xFF, 0xFF, 0xFF},  // 1F,1F,1F
+		Colour{0x52, 0xFF, 0xFF},  // 0A,1F,1F
+		Colour{0x00, 0xA5, 0xA5},  // 00,14,14
+		Colour{0x52, 0x52, 0xFF},  // 0A,0A,1F
+		Colour{0x00, 0x00, 0xA5},  // 00,00,14
+}};
+
 // Which sprite set an element draws from. Ownership decides the weapon art,
 // because a missile belongs to whoever fired it.
 const game::SpriteSet *
@@ -537,15 +556,23 @@ draw(Game &g)
 							/ static_cast<std::int32_t>(src.h)
 					: h / 2;
 
-			// A cloaked ship is drawn faintly rather than not at all. The C
-			// makes it genuinely invisible, but at this stage seeing where
-			// your own cloaked ship is matters more than the tactical
-			// fidelity -- and a ship you cannot see is indistinguishable from
-			// one that has stopped being simulated.
-			const std::uint8_t alpha =
-					any(e->flags & sim::ElementFlags::Cloaked) ? 0x50 : 0xFF;
-			g.window.draw(
-					set->frames[i], Vec2i{at.x - ox, at.y - oy}, dest, alpha);
+			// A cloaking ship is a flat silhouette stepping through a fixed
+			// colour ramp, not a faded sprite: white, cyan-white, dark cyan,
+			// blue, dark blue, gone (ilwrath.c:250-285). Uncloaking runs the
+			// same ramp backwards, and firing reverses it -- so an Avenger
+			// that shoots while hidden lights itself up.
+			const std::int32_t cloak = e->ship.cloakLevel;
+			if (cloak > 0 && i < set->silhouettes.size())
+			{
+				if (cloak >= static_cast<std::int32_t>(kCloakRamp.size()))
+					continue;  // fully hidden
+				const Colour c = kCloakRamp[static_cast<std::size_t>(cloak)];
+				g.window.drawTinted(set->silhouettes[i],
+						Vec2i{at.x - ox, at.y - oy}, dest, c.r, c.g, c.b);
+				continue;
+			}
+
+			g.window.draw(set->frames[i], Vec2i{at.x - ox, at.y - oy}, dest);
 			continue;
 		}
 
@@ -715,32 +742,59 @@ iterate(Game &g)
 
 			// And heard. This is the second consumer the events were recorded
 			// for rather than merely acted on -- the overlay was the first.
-			// battle.snd slot 2 is boom1.
-			if (g.battleSounds.size() > 2)
-				g.audio.play(g.battleSounds[2]);
+			//
+			// Which boom depends on how hard the hit was: the C picks
+			// TARGET_DAMAGED_FOR_1_PT + (damage >> 1), capped at the 6-plus
+			// slot (weapon.c:168-172, ship.c:369-371). battle.snd lists them
+			// in that order after getcrew and shipdies, so slot 2 is a scratch
+			// and slot 5 is a nuke going off. Playing slot 2 for everything,
+			// which is what this did first, makes every impact sound trivial.
+			std::int32_t damage = 0;
+			for (const sim::EntityId side : {c.a, c.b})
+				if (const auto el = g.battle.get(side); el != nullptr)
+					damage = std::max(damage, el->damage);
+
+			const std::size_t slot = std::min<std::size_t>(
+					kBoomFirstSlot + static_cast<std::size_t>(damage >> 1),
+					kBoomFirstSlot + 3);
+			if (g.battleSounds.size() > slot)
+				g.audio.play(g.battleSounds[slot], kEffectGain);
 		}
 
-		// Weapons fired this frame. Counted by watching the list rather than
-		// by a sim callback, because a sound is presentation and the
-		// simulation should not know it exists.
+		// Weapons fired this frame, and beams. Counted by watching the list
+		// rather than by a callback from the simulation, because a sound is
+		// presentation and the simulation should not know it exists.
 		std::size_t shots = 0;
+		std::size_t beams = 0;
 		for (sim::EntityId e = g.battle.elements().front(); e.valid();
 				e = g.battle.elements().next(e))
 		{
 			const auto el = g.battle.get(e);
-			if (el != nullptr && el->kind == sim::ElementKind::Weapon
-					&& any(el->flags & sim::ElementFlags::Appearing))
+			if (el == nullptr || !any(el->flags & sim::ElementFlags::Appearing))
+				continue;
+			if (el->kind == sim::ElementKind::Weapon)
+			{
 				++shots;
-		}
-		if (shots > g.lastShots)
-		{
-			// Slot 0 of a ship's .snd is its primary weapon (cruiser.snd is
-			// primary then secondary).
-			const auto &set = g.cruiserSounds;
-			if (!set.empty())
-				g.audio.play(set[0]);
+				// Whose weapon: the Cruiser's nuke and the Avenger's flame are
+				// different sounds, and both are slot 0 of their own ship's
+				// .snd. Playing the Cruiser's for everything made the flame
+				// sound like a missile launch every frame.
+				const auto &set = el->playerNr == 0 ? g.cruiserSounds
+													: g.avengerSounds;
+				if (!set.empty())
+					g.audio.play(set[0], kEffectGain);
+			}
+			else if (el->kind == sim::ElementKind::Laser)
+			{
+				++beams;
+				// cruiser.snd slot 1: secondary.wav, the point-defence laser
+				// (human.c:232-234).
+				if (g.cruiserSounds.size() > 1)
+					g.audio.play(g.cruiserSounds[1], kEffectGain);
+			}
 		}
 		g.lastShots = shots;
+		(void)beams;
 	}
 
 	// Drop what has aged out. Done here rather than while drawing so the list

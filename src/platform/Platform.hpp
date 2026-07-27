@@ -117,6 +117,11 @@ public:
 	void draw(const Texture &t, Vec2i topLeft, Extent2u dest,
 			std::uint8_t alpha = 255) noexcept;
 
+	// Draws `t` multiplied by a colour. With a white-filled texture that is a
+	// flat silhouette of any colour, which is what the C's STAMPFILL_PRIM is.
+	void drawTinted(const Texture &t, Vec2i topLeft, Extent2u dest,
+			std::uint8_t r, std::uint8_t g, std::uint8_t b) noexcept;
+
 	// A one-pixel line. Only the debug overlay uses this -- the game draws
 	// sprites -- but drawing a vector is how you see a vector.
 	void drawLine(Vec2i from, Vec2i to, std::uint8_t r, std::uint8_t g,

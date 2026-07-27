@@ -34,6 +34,14 @@ struct SpriteSet
 	std::vector<platform::Texture> frames;
 	std::vector<sim::CollisionMask> masks;
 
+	// The same cels with every opaque pixel forced white, so colour-mod turns
+	// them into a flat fill of any colour. That is STAMPFILL_PRIM, which is
+	// how the C draws a cloaking Ilwrath: not a faded sprite but a solid
+	// silhouette stepping through a fixed colour ramp (ilwrath.c:250-285).
+	// Tinting the real cels instead only darkens them, because colour-mod
+	// multiplies -- a dark hull stays dark and the effect disappears.
+	std::vector<platform::Texture> silhouettes;
+
 	[[nodiscard]] bool
 	valid() const noexcept
 	{

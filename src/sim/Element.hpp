@@ -72,7 +72,19 @@ struct ShipState
 	// kMaxAllowedSpeed ceiling (ship.c:82, 106-112). Gravity sets it, and the
 	// next thrust clears it (ship.c:263-267).
 	bool inGravityWell = false;
+
+	// How far through the cloak ramp the ship is, 0 = solid and visible.
+	//
+	// The Ilwrath cloak is not a fade: ilwrath.c:250-285 walks a fixed
+	// sequence of fill colours -- white, cyan-white, dark cyan, blue, dark
+	// blue, then gone -- one step per frame, and runs the same sequence
+	// backwards to uncloak. Firing reverses it, so a cloaked Avenger that
+	// shoots gives itself away. The renderer needs the step, not a fraction.
+	std::int32_t cloakLevel = 0;
 };
+
+// The cloak ramp's length: five visible fill colours, then invisible.
+inline constexpr std::int32_t kCloakSteps = 6;
 
 // What an element is doing this frame. The C keeps these in one
 // ELEMENT_FLAGS word (element.h); the ones the step loop itself reasons about

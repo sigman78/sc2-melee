@@ -251,6 +251,21 @@ Platform::draw(const Texture &t, Vec2i topLeft, Extent2u dest,
 }
 
 void
+Platform::drawTinted(const Texture &t, Vec2i topLeft, Extent2u dest,
+		std::uint8_t r, std::uint8_t g, std::uint8_t b) noexcept
+{
+	if (!t.valid() || dest.empty())
+		return;
+	const SDL_FRect to{static_cast<float>(topLeft.x),
+			static_cast<float>(topLeft.y), static_cast<float>(dest.w),
+			static_cast<float>(dest.h)};
+	SDL_SetTextureColorMod(t.handle_, r, g, b);
+	SDL_RenderTexture(renderer_, t.handle_, nullptr, &to);
+	// Restored: the texture is shared across every facing of the ship.
+	SDL_SetTextureColorMod(t.handle_, 255, 255, 255);
+}
+
+void
 Platform::drawLine(Vec2i from, Vec2i to, std::uint8_t r, std::uint8_t g,
 		std::uint8_t b) noexcept
 {

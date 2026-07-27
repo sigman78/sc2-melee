@@ -82,7 +82,8 @@ public:
 	// streams, so there is a small pool and the oldest is recycled -- a flame
 	// firing every frame would otherwise queue itself into an ever-growing
 	// delay.
-	void play(const Sound &s);
+	// `gain` is a multiplier, 1.0 being the file's own level.
+	void play(const Sound &s, float gain = 1.0f);
 
 private:
 	std::vector<SDL_AudioStream *> streams_;

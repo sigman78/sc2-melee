@@ -82,6 +82,7 @@ loadSprites(platform::Platform &window, const fs::path &ani,
 	const fs::path dir = ani.parent_path();
 	out.frames.reserve(index.cels.size());
 	out.masks.reserve(index.cels.size());
+	out.silhouettes.reserve(index.cels.size());
 
 	for (const content::Cel &cel : index.cels)
 	{
@@ -102,6 +103,18 @@ loadSprites(platform::Platform &window, const fs::path &ani,
 		if (!tex.valid())
 			return SpriteSet{};
 
+		// The fill version: same alpha, every visible pixel white.
+		std::vector<std::uint8_t> white = rgba;
+		for (std::size_t i = 0; i + 3 < white.size(); i += 4)
+		{
+			if (white[i + 3] == 0)
+				continue;
+			white[i] = 255;
+			white[i + 1] = 255;
+			white[i + 2] = 255;
+		}
+		platform::Texture fill = window.upload(img->size(), white);
+
 		// The hotspot is the .ani's, not the image centre. It is where the
 		// game considers the object to *be* -- the C positions everything by
 		// it, and a sprite drawn from its corner sits visibly off its own
@@ -109,6 +122,7 @@ loadSprites(platform::Platform &window, const fs::path &ani,
 		out.masks.emplace_back(img->size(), cel.hotspot,
 				content::opacityBits(rgba, img->size()));
 		out.frames.push_back(std::move(tex));
+		out.silhouettes.push_back(std::move(fill));
 	}
 
 	return out;

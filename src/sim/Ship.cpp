@@ -70,6 +70,34 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 		return;
 	}
 
+	// The cloak ramp (ilwrath.c:239-285). One step a frame toward invisible
+	// while the special is running, and back toward solid otherwise --
+	// including while the trigger is held, because firing gives you away. The
+	// C expresses this as a chain of colour comparisons on the fill primitive;
+	// here it is the index into that same sequence.
+	{
+		// Direction comes from the special counter, not from the Cloaked flag.
+		// Reading the flag here instead deadlocks: the ramp would only wind
+		// down once the flag was clear, and the flag only clears once the ramp
+		// reaches zero, so a cloaked ship stays cloaked forever.
+		const bool firing = any(s.input & ShipInput::Weapon)
+				&& s.energy >= d.weaponEnergyCost;
+		const bool hiding = s.specialCounter > 0 && !firing;
+
+		if (hiding && s.cloakLevel < kCloakSteps - 1)
+			++s.cloakLevel;
+		else if (!hiding && s.cloakLevel > 0)
+			--s.cloakLevel;
+
+		// Untargetable for as long as anything of the ship is faded. Partly
+		// cloaked is still cloaked, which is what makes firing costly: the
+		// ramp has to walk all the way back before you are hidden again.
+		if (s.cloakLevel > 0)
+			e->flags |= ElementFlags::Cloaked;
+		else
+			e->flags &= ~ElementFlags::Cloaked;
+	}
+
 	// Energy regeneration, gated by its own counter (ship.c:225-230).
 	if (s.energyCounter > 0)
 	{
@@ -214,10 +242,10 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 		--s.specialCounter;
 		if (s.specialCounter == 0)
 		{
-			// The cloak lasts exactly as long as the counter and nothing else
-			// clears it, so this is where it lifts.
-			if (auto self = b.get(id); self != nullptr)
-				self->flags &= ~ElementFlags::Cloaked;
+			// The counter running out stops the ship *hiding*; the ramp then
+			// walks it back to solid over the next few frames, and clearing
+			// the flag is that ramp's job rather than this one's. Clearing it
+			// here would snap a half-faded Avenger back to opaque.
 		}
 	}
 	else if (any(s.input & ShipInput::Special) && d.special != nullptr)
@@ -240,6 +268,7 @@ trackShip(Battle &b, EntityId tracker, int &facing) noexcept
 	const Vec2i from = useNext ? self->next : self->current;
 
 	int bestDelta = 0;
+	std::int32_t bestDistance = 0;
 	bool found = false;
 
 	for (EntityId id = b.elements().front(); id.valid();
@@ -261,11 +290,22 @@ trackShip(Battle &b, EntityId tracker, int &facing) noexcept
 
 		const Vec2i to = useNext ? t->next : t->current;
 		const Vec2i d = wrapDelta(Vec2i{to.x - from.x, to.y - from.y});
-		const int want = angleToFacing(arctan(d.x, d.y));
-		const int delta = normalizeFacing(want - facing);
-		if (!found || delta < bestDelta)
+		const int deltaFacing = normalizeFacing(
+				angleToFacing(arctan(d.x, d.y)) - facing);
+
+		// Nearest target, by |dx| + |dy| -- the C's own stated approximation
+		// of the real distance (weapon.c:378-385). Selecting by *turn* size
+		// instead, which is what this did first, makes a missile prefer
+		// whatever it happens to be pointed at over whatever is actually
+		// close, and that is visible as a nuke that will not commit.
+		const std::int32_t adx = d.x < 0 ? -d.x : d.x;
+		const std::int32_t ady = d.y < 0 ? -d.y : d.y;
+		const std::int32_t distance = adx + ady;
+
+		if (!found || distance < bestDistance)
 		{
-			bestDelta = delta;
+			bestDistance = distance;
+			bestDelta = deltaFacing;
 			found = true;
 		}
 	}
@@ -273,11 +313,20 @@ trackShip(Battle &b, EntityId tracker, int &facing) noexcept
 	if (!found || bestDelta == 0)
 		return 0;
 
-	// One step, the short way round. A guided missile turns at a rate; it does
-	// not snap onto its target.
-	facing = normalizeFacing(
-			facing + (bestDelta <= kNumFacings / 2 ? 1 : -1));
-	return 1;
+	// weapon.c:398-410. One step per call, and the direction depends on which
+	// side of a half-circle the target sits -- with a coin flip when it is
+	// exactly astern, because there is no shorter way round and always
+	// choosing the same one would make a missile behind you predictable.
+	int turn = 0;
+	if (bestDelta == kNumFacings / 2)
+		turn = static_cast<int>((b.rng().next() & 1u) << 1) - 1;
+	else if (bestDelta < kNumFacings / 2)
+		turn = 1;
+	else
+		turn = -1;
+
+	facing = normalizeFacing(facing + turn);
+	return bestDelta;
 }
 
 void
@@ -349,6 +398,13 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		if (t->playerNr == ship->playerNr)
 			continue;  // its own fire is not a threat
 
+		// A deliberate divergence: the C filters only on CollidingElement, so
+		// it will happily fire the laser at a planet -- which absorbs it,
+		// since do_damage exempts gravity masses. Faithful, and it looks like
+		// a malfunction. Point defence is for things that can be shot down.
+		if (isGravityMass(t->mass))
+			continue;
+
 		const Vec2i dv = wrapDelta(
 				Vec2i{t->next.x - from.x, t->next.y - from.y});
 		const std::int32_t dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
@@ -410,6 +466,8 @@ avengerSpecial(Battle &b, EntityId id) noexcept
 	// second press to turn it off (ilwrath.c:377-393).
 	ship->flags |= ElementFlags::Cloaked;
 	ship->ship.specialCounter = d.specialWait;
+	if (ship->ship.cloakLevel == 0)
+		ship->ship.cloakLevel = 1;  // start the ramp
 }
 
 // --------------------------------------------------------------------------
