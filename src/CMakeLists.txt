@@ -93,7 +93,13 @@ endif()
 
 # The M1 vertical slice. Cruiser against Avenger on a real window, drawn as
 # rectangles until M1.4 wires the sprites up.
-add_executable(uqm2-melee app/melee/main.cpp)
+add_executable(uqm2-melee
+	app/melee/Assets.cpp
+	app/melee/Draw.cpp
+	app/melee/Game.cpp
+	app/melee/Sound.cpp
+	app/melee/main.cpp
+)
 target_link_libraries(uqm2-melee PRIVATE uqm2_platform)
 if(MSVC)
 	target_compile_options(uqm2-melee PRIVATE /W4 /utf-8)
