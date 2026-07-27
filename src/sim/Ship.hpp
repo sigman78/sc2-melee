@@ -169,13 +169,6 @@ struct ShipState
 	// (ship.c:82,106-112); gravity sets it, next thrust clears it (ship.c:263-267).
 	bool inGravityWell = false;
 
-	// Where the ship is in the cloak's colour walk, as an index:
-	//     0            STAMP -- solid, visible, machine idle
-	//     1..5         STAMPFILL fills: white, cyan-white, dark cyan, blue,
-	//                  dark blue (ilwrath.c:349-374 in, 255-273 out)
-	//     kCloakFullLevel (6)   BLACK -- fully cloaked
-	// Not a fade: walked one step per frame, reversed to uncloak (Ship.cpp).
-	std::int32_t cloakLevel = 0;
 };
 
 // The weapon-guidance component: which WeaponSpec a shot flies by
@@ -190,6 +183,26 @@ struct WeaponGuidance
 // The cloak walk: five visible fill colours (levels 1..5), then black.
 inline constexpr std::int32_t kCloakVisibleColours = 5;
 inline constexpr std::int32_t kCloakFullLevel = kCloakVisibleColours + 1;
+
+// The cloak as its own component (review-004 X5): only a ship that has one
+// carries it -- every ShipState used to hold an Ilwrath field, which is
+// exactly the state pollution the census's component library exists to end.
+// `level` is where the ship is in the colour walk, as an index:
+//     0            STAMP -- solid, visible, machine idle
+//     1..5         STAMPFILL fills: white, cyan-white, dark cyan, blue,
+//                  dark blue (ilwrath.c:349-374 in, 255-273 out)
+//     kCloakFullLevel (6)   BLACK -- fully cloaked
+// Not a fade: walked one step per frame, reversed to uncloak (Ship.cpp).
+struct Cloak
+{
+	std::int32_t level = 0;
+};
+
+// OBJECT_CLOAKED, derived: hidden from weapon targeting (weapon.c:344) and
+// PD (human.c:202) only at full black (element.h:201-204). Computed from
+// the component, never stored beside it -- the flag this replaces violated
+// review-002's stored-vs-derived rule by construction.
+[[nodiscard]] bool isCloaked(const Battle &b, EntityId id) noexcept;
 
 // The two halves of a ship's frame (ship.c:149-280, 282-347): turning and
 // thrusting in the pre pass, firing in the post pass so a spawned weapon is

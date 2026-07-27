@@ -55,20 +55,12 @@ enum class ElementFlags : std::uint32_t
 	// relative motion to exchange (collide.c:84-85). DEFY_PHYSICS in the C.
 	DefyPhysics = 1u << 8,
 
-	// OBJECT_CLOAKED: invisible to weapon targeting (weapon.c:344) and PD
-	// (human.c:202), but does not stop collisions. Set only at full black
-	// (element.h:201-204), so targetable through the whole fade either way.
-	//
-	// Still a flag, deliberately: it is a projection of the cloak machine's
-	// state (ShipState::cloakLevel), and the census's Cloak *component* is
-	// where it belongs -- storing it as a tag beside that state would be
-	// the sync hazard review-002 warns about (the POINT_DEFENSE case).
-	Cloaked = 1u << 11,
-
-	// Bits 9, 10 and 12 (PlayerShip, IgnoreVelocity, BeamGeometry) left
-	// this enum in review-004 X4: a trait an element has for its whole
-	// life is a tag component now. What stays here is the step protocol
-	// and the cloak projection above.
+	// Bits 9-12 left this enum in review-004 X4/X5. PlayerShip,
+	// IgnoreVelocity and BeamGeometry are tag components: a trait an
+	// element has for its whole life. Cloaked became a *derived* predicate
+	// over the Cloak component (Ship.hpp isCloaked) -- stored nowhere, so
+	// it cannot disagree with the machine's state. What stays here is the
+	// step protocol: state the frame machinery toggles every frame.
 };
 
 // Traits as types: any(flags & X) became registry().all_of<X>(id), and the
@@ -233,11 +225,10 @@ struct Element
 	// Not owned: masks live with the content and outlive the battle.
 	Borrowed<const CollisionMask> mask = nullptr;
 
-	// The silhouette/facing this element ENTERED the frame with, captured before
-	// any hook runs: the overlap-repair protocol (process.c:453-506) reverts to
-	// these to undo a rotation that turned the element into a wall.
-	Borrowed<const CollisionMask> priorMask = nullptr;
-	Facing priorFacing;
+	// The silhouette/facing this element entered the frame with is NOT here:
+	// it is the overlap-repair protocol's own scratch (process.c:453-506),
+	// so it lives as a component private to Battle.cpp (review-004 X5) --
+	// hooks cannot even name it, let alone corrupt it.
 
 	ElementHook preProcess = nullptr;
 	ElementHook postProcess = nullptr;

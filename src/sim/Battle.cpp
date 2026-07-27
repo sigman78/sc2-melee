@@ -13,6 +13,20 @@ namespace uqm::sim {
 
 namespace {
 
+// The silhouette/facing an element ENTERED the frame with, captured before
+// any hook runs: the overlap-repair protocol (process.c:453-506) reverts to
+// these to undo a rotation that turned the element into a wall. Anonymous
+// namespace on purpose -- this is the protocol's own scratch, and a
+// component type only this file can name is as private as C++ gets
+// (review-004 X5's worked example of a split with a real ownership win).
+struct PriorSilhouette
+{
+	static constexpr auto in_place_delete = true;
+
+	Borrowed<const CollisionMask> mask = nullptr;
+	Facing facing;
+};
+
 // CollisionPossible (collide.h:34-39): skips a pair when both are already
 // stopped, when both carry IGNORE_SIMILAR and share an owner (both, not
 // either; owner, not player or kind), or when neither side has mass.
@@ -70,6 +84,7 @@ Battle::Battle(std::uint32_t seed) : rng_(seed)
 	// kChunkSize); the reserve keeps the steady-state step allocation-free.
 	reg_.storage<Element>().reserve(64);
 	reg_.storage<OrderLink>().reserve(64);
+	reg_.storage<PriorSilhouette>().reserve(64);
 }
 
 EntityId
@@ -182,6 +197,7 @@ Battle::spawn(EntityId after, Element e)
 	recordSpawn(id, e);
 	reg_.emplace<Element>(id, std::move(e));
 	reg_.emplace<OrderLink>(id);
+	reg_.emplace<PriorSilhouette>(id);
 	linkAfter(after, id);
 	++count_;
 	return id;
@@ -245,8 +261,9 @@ Battle::preProcessOne(EntityId id) noexcept
 		// What this element entered the frame as (the C's current.image), captured
 		// before the hook -- the overlap-repair protocol reverts a turn made this
 		// frame by putting these back (process.c:453-506).
-		e->priorMask = e->mask;
-		e->priorFacing = e->facing;
+		PriorSilhouette &prior = reg_.get<PriorSilhouette>(id);
+		prior.mask = e->mask;
+		prior.facing = e->facing;
 
 		if (any(flags & ElementFlags::Appearing))
 		{
@@ -352,8 +369,10 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 				break;
 		}
 
-		const bool eTurned = e->mask != e->priorMask;
-		const bool tTurned = t->mask != t->priorMask;
+		const PriorSilhouette &ePrior = reg_.get<PriorSilhouette>(elemId);
+		const PriorSilhouette &tPrior = reg_.get<PriorSilhouette>(testId);
+		const bool eTurned = e->mask != ePrior.mask;
+		const bool tTurned = t->mask != tPrior.mask;
 		if (!eTurned && !tTurned)
 		{
 			// Neither silhouette changed: either a spawn wedged inside something
@@ -375,13 +394,13 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 		// find no contact, a genuine impact, or a standing overlap settled above.
 		if (eTurned)
 		{
-			e->mask = e->priorMask;
-			e->facing = e->priorFacing;
+			e->mask = ePrior.mask;
+			e->facing = ePrior.facing;
 		}
 		if (tTurned)
 		{
-			t->mask = t->priorMask;
-			t->facing = t->priorFacing;
+			t->mask = tPrior.mask;
+			t->facing = tPrior.facing;
 		}
 		hit = sweptIntersect(bodyOf(*e), bodyOf(*t), maxTime);
 	}

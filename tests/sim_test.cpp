@@ -2495,7 +2495,7 @@ testCloakHidesFromTracking()
 	// yet. OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204), so
 	// the whole five-colour fade is still targetable -- being missile-proof
 	// from the frame SPECIAL lands would be a sizeable unearned buff.
-	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
+	CHECK(!isCloaked(b, avenger),
 			"activation alone must not hide the ship");
 	Facing fadeFacing{8};
 	CHECK(trackShip(b, hunter, fadeFacing) >= 0,
@@ -2504,7 +2504,7 @@ testCloakHidesFromTracking()
 	// Five walk steps later it is black, and hidden.
 	for (int i = 0; i < 5; ++i)
 		b.step();
-	CHECK(any(b.get(avenger)->flags & ElementFlags::Cloaked),
+	CHECK(isCloaked(b, avenger),
 			"fully faded should be cloaked");
 
 	Facing cloakedFacing{8};
@@ -2520,7 +2520,7 @@ testCloakHidesFromTracking()
 	b.ship(avenger)->input = ShipInput::None;
 	for (int i = 0; i < 40; ++i)
 		b.step();
-	CHECK(any(b.get(avenger)->flags & ElementFlags::Cloaked),
+	CHECK(isCloaked(b, avenger),
 			"a cloak stays on until it is switched off, not until a timer "
 			"runs out");
 
@@ -2530,7 +2530,7 @@ testCloakHidesFromTracking()
 	b.ship(avenger)->input = ShipInput::None;
 	for (int i = 0; i < 20; ++i)
 		b.step();
-	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
+	CHECK(!isCloaked(b, avenger),
 			"a second press should uncloak it (ilwrath.c:251-253)");
 
 	// And firing gives you away, permanently -- the ramp runs all the way
@@ -2540,7 +2540,7 @@ testCloakHidesFromTracking()
 	b.ship(avenger)->input = ShipInput::None;
 	for (int i = 0; i < 20; ++i)
 		b.step();
-	CHECK(any(b.get(avenger)->flags & ElementFlags::Cloaked),
+	CHECK(isCloaked(b, avenger),
 			"it should be hidden again before the firing check");
 
 	b.ship(avenger)->input = ShipInput::Weapon;
@@ -2548,7 +2548,7 @@ testCloakHidesFromTracking()
 	b.ship(avenger)->input = ShipInput::None;
 	for (int i = 0; i < 20; ++i)
 		b.step();
-	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
+	CHECK(!isCloaked(b, avenger),
 			"firing should drop the cloak and it should not come back on its "
 			"own");
 }
@@ -2574,7 +2574,7 @@ testCloakedFiringSnapAims()
 	b.ship(avenger)->input = ShipInput::None;
 	for (int i = 0; i < 5; ++i)
 		b.step();
-	CHECK(any(b.get(avenger)->flags & ElementFlags::Cloaked),
+	CHECK(isCloaked(b, avenger),
 			"setup: the Avenger should be hidden");
 
 	// Point it the wrong way, then fire from the dark.
@@ -2588,7 +2588,7 @@ testCloakedFiringSnapAims()
 	CHECK(b.get(avenger)->facing == Facing(4),
 			"firing from full black should snap the facing onto the target, "
 			"got %d", b.get(avenger)->facing.raw());
-	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
+	CHECK(!isCloaked(b, avenger),
 			"and the discharge steps the cloak off black");
 	CHECK(b.ship(avenger)->specialCounter == 0,
 			"and zeroes the special debounce, so re-cloak is immediate once "

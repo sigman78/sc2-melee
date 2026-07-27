@@ -128,7 +128,7 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 		// Exhaust only on frames the ship actually accelerates (ship.c:274), and
 		// not while FULLY cloaked (ship.c:271 gates on OBJECT_CLOAKED, true only at
 		// black) -- a half-faded ship still emits one (tactrans.c:792-832).
-		if (!any(e->flags & ElementFlags::Cloaked))
+		if (!isCloaked(b, id))
 			spawnIonTrail(b, id);
 	}
 }
@@ -295,7 +295,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 		// Nor cloaked ones (weapon.c:344-348). This is the whole tactical
 		// point of the Ilwrath cloak: not that it is hard to see, but that a
 		// guided weapon has nothing to steer toward.
-		if (any(t->flags & ElementFlags::Cloaked))
+		if (isCloaked(b, id))
 			continue;
 
 		const Vec2i to = useNext ? t->next : t->current;
@@ -644,7 +644,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		auto t = b.get(other);
 		if (t == nullptr || !t->collidable())
 			continue;
-		if (any(t->flags & ElementFlags::Cloaked))
+		if (isCloaked(b, other))
 			continue;  // human.c:203-204
 
 		// No ownership test -- the C has none (human.c:203-204): the Cruiser pays
@@ -763,16 +763,20 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 	ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
 
-	// ilwrath_preprocess (ilwrath.c:232-394): cloakLevel stands in for the
-	// prim type/colour, its walk direction derived fresh each frame -- no
-	// stored "cloaking" state to disagree with it.
+	// ilwrath_preprocess (ilwrath.c:232-394): the Cloak component's level
+	// stands in for the prim type/colour, its walk direction derived fresh
+	// each frame -- no stored "cloaking" state to disagree with it, and
+	// OBJECT_CLOAKED is isCloaked(), derived from the same level.
+	// get_or_emplace: the machine owns its component, so only ships that
+	// run this hook ever carry one.
+	Cloak &cloak = b.registry().get_or_emplace<Cloak>(id);
 
 	// The C masks SPECIAL out of a *local* flags copy when an uncloak step
 	// runs (ilwrath.c:346), which suppresses the activation block below for
 	// that frame only. A local mirrors that exactly.
 	bool specialMasked = false;
 
-	if (s.cloakLevel > 0)  // the prim is STAMPFILL: the machine is engaged
+	if (cloak.level > 0)  // the prim is STAMPFILL: the machine is engaged
 	{
 		const bool weaponDischarge = any(s.input & ShipInput::Weapon)
 				&& s.energy >= spec.weapon.energyCost;
@@ -780,12 +784,12 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 		if (weaponDischarge
 				|| (s.specialCounter == 0
 						&& (any(s.input & ShipInput::Special)
-								|| s.cloakLevel < kCloakFullLevel)))
+								|| cloak.level < kCloakFullLevel)))
 		{
 			// One step toward visible (ilwrath.c:250-348). Firing is the only trigger
 			// that works mid-debounce; a key press needs the counter spent, so an
 			// interrupted ramp keeps unwinding out on its own.
-			if (s.cloakLevel == kCloakFullLevel && weaponDischarge)
+			if (cloak.level == kCloakFullLevel && weaponDischarge)
 			{
 				// Stepping off BLACK under fire is the ambush.
 				cloakedAutoAim(b, id);
@@ -793,7 +797,7 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 				if (e == nullptr)
 					return;
 			}
-			--s.cloakLevel;  // reaching 0 is the C's SetPrimType(STAMP)
+			--cloak.level;  // reaching 0 is the C's SetPrimType(STAMP)
 
 			// Every uncloak step zeroes the debounce (ilwrath.c:347): re-cloak is
 			// available the moment the ship is solid again, and SPECIAL is masked
@@ -801,21 +805,13 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 			s.specialCounter = 0;
 			specialMasked = true;
 		}
-		else if (s.cloakLevel < kCloakFullLevel)
+		else if (cloak.level < kCloakFullLevel)
 		{
 			// One step toward black (ilwrath.c:349-374). At black, nothing:
 			// the ship stays hidden until something above fires.
-			++s.cloakLevel;
+			++cloak.level;
 		}
 	}
-
-	// OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204): hidden
-	// from tracking and point defence only when fully faded, in either
-	// direction of the walk.
-	if (s.cloakLevel == kCloakFullLevel)
-		e->flags |= ElementFlags::Cloaked;
-	else
-		e->flags &= ~ElementFlags::Cloaked;
 
 	// Activation (ilwrath.c:377-393): SPECIAL with the debounce spent, paying
 	// energy every time -- no free toggle-off, no half-price re-cloak. Restarts
@@ -824,9 +820,20 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 			&& s.specialCounter == 0
 			&& deltaEnergy(s, -spec.special.energyCost))
 	{
-		s.cloakLevel = 1;  // WHITE, the walk's first colour
+		cloak.level = 1;  // WHITE, the walk's first colour
 		s.specialCounter = spec.special.wait;
 	}
+}
+
+bool
+isCloaked(const Battle &b, EntityId id) noexcept
+{
+	// OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204): hidden
+	// only when fully faded, in either direction of the walk.
+	const Cloak *c = b.registry().valid(id)
+			? b.registry().try_get<const Cloak>(id)
+			: nullptr;
+	return c != nullptr && c->level == kCloakFullLevel;
 }
 
 // --------------------------------------------------------------------------

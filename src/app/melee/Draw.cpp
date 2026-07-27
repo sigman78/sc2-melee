@@ -465,9 +465,10 @@ draw(Game &g)
 				continue;
 			}
 
-			const sim::ShipState *cloakState = g.battle.ship(id);
+			const sim::Cloak *cloakState =
+					g.battle.registry().try_get<sim::Cloak>(id);
 			const std::int32_t cloak =
-					cloakState != nullptr ? cloakState->cloakLevel : 0;
+					cloakState != nullptr ? cloakState->level : 0;
 			if (cloak > 0 && i < set->silhouettes.size())
 			{
 				// Cloak ramp (ilwrath.c:250-285): levels 1..5 are the fill
