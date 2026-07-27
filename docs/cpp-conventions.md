@@ -147,6 +147,12 @@ the `first`/`last` pairs the colour tables are full of. These live in
 `Extent2` is deliberately not `Vec2`: adding two sizes is meaningless and
 `size.x` reads worse than `size.w`. The type separation is the point.
 
+The same rule catches *directional integers*: a facing (0..15, wraps) and an
+angle (0..63, wraps) are different quantities that convert through a shift,
+and as bare `int`s they transpose silently. `Facing` and `Angle` are types
+with wrapping arithmetic and explicit conversions. Likewise a colour is one
+value, not three channels: `rgb(0xFF8C00)` over `{0xFF, 0x8C, 0x00}`.
+
 **Name a type against the convention it breaks.** The range type is
 `ClosedRange`, not `Range`, because `[first, last]` is inclusive and every
 range in the standard library is half-open — a bare `Range{128, 255}` reads
@@ -204,6 +210,62 @@ Applied with a tokenizer, not a regex: a plain regex also rewrote English
 inside comments ("the plan (docs/…)" → "the plan(docs/…)") and text inside
 string literals. The two remaining ` (` in `src/` are a `>` comparison and a
 `>>` shift, which are correct as they stand.
+
+## 10. Comments: a citation, a constraint, or gone
+
+A port carries three kinds of comment, and they get different treatment:
+
+- **Spec citations** — "decrement, then let the ship code see the result
+  (ship.c:342-346)". These are the port's oracle and they stay in the
+  source, compressed to the claim plus the citation. **Three lines at
+  most.**
+- **Design rationale** — why the step loop walks a live list, why collision
+  is masks and not canvases. Prose that long lives in
+  `src/docs/design-notes.md`; the source keeps one line and a pointer.
+- **History** — what the code did before, which bug a change fixed, what
+  surprised whom. Deleted. Git holds it, and a comment addressed to a
+  reviewer is noise the moment the change lands.
+
+Any comment past three lines gets scrutinized for one of those three moves —
+and is often a defect signal: the longest comments in this tree stood in for
+constraints the types could not express, and the right fix was the type.
+
+## 11. A field does not restate its type
+
+`ThrustProfile::maxThrust` says thrust twice; `thrust.max` says it once and
+reads better at every call site. Qualification comes from the access path,
+not from the identifier — so `WeaponSpec::speed`, not `weaponSpeed`, and the
+prefixed field block is usually a struct trying to get out (which is how
+`ShipData`'s eleven `weaponXxx` fields became `WeaponSpec`).
+
+## 12. Where constants live
+
+In the header **iff** the value is consumed at compile time (`constexpr`
+callers, `static_assert` golden vectors) or inlined on a hot path; in the
+`.cpp` otherwise. The sine table stays in `Trig.hpp` because it feeds
+compile-time trig and golden asserts; a colour ramp or a debug font is
+runtime-read and belongs beside its only consumer, out of the header. A
+cluster of related constants big enough to crowd its file earns a sidecar
+file next to it — related ones only; a junk-drawer constants file is worse
+than either.
+
+## 13. Ownership is RAII; a raw pointer is a borrow, and says so
+
+There are no owning raw pointers in `src/`: ownership is `unique_ptr`, an
+RAII wrapper, or a container, always. What remains raw is a *borrow* — a
+mask into content that outlives the battle, a ship's descriptor — under rule
+5's LIFETIME contract. Make the convention visible: borrows are spelled
+`Borrowed<T>` (an alias for `T*`), so a bare star reads as a mistake in
+review. No `shared_ptr` in `sim/`: refcount traffic in a 24 Hz loop is rule
+1's problem wearing a safety vest.
+
+## 14. A file is one concern
+
+When an app file accretes a second job, split by function, not by layer:
+`app/melee/` is `assets` (finding and loading content), `draw` (render, HUD,
+overlay, palettes), `sound` (step events → audio), `game` (setup and
+iterate), `main` (platform drivers). A 1,200-line `main.cpp` was the
+counterexample that bought this rule.
 
 ---
 
