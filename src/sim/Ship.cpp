@@ -76,17 +76,28 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 	// C expresses this as a chain of colour comparisons on the fill primitive;
 	// here it is the index into that same sequence.
 	{
-		// Direction comes from the special counter, not from the Cloaked flag.
-		// Reading the flag here instead deadlocks: the ramp would only wind
-		// down once the flag was clear, and the flag only clears once the ramp
-		// reaches zero, so a cloaked ship stays cloaked forever.
+		// Direction comes from `cloaking`, not from the Cloaked flag and not
+		// from the special counter.
+		//
+		// Not the flag, because that deadlocks: the ramp would only wind down
+		// once the flag was clear, and the flag only clears once the ramp
+		// reaches zero. Not the counter, because the counter is a debounce on
+		// the key and nothing more -- driving the cloak from it made the
+		// Avenger fade back in after 13 frames, when the C leaves it hidden
+		// until you press again. See ShipState::cloaking.
+		//
+		// Firing gives you away, and permanently: weapon_discharge forces the
+		// walk back to visible (ilwrath.c:249-252), and once interrupted the
+		// ramp runs all the way out even if you stop shooting, because a
+		// part-faded hull is "not black" and that alone keeps it unwinding.
 		const bool firing = any(s.input & ShipInput::Weapon)
 				&& s.energy >= d.weaponEnergyCost;
-		const bool hiding = s.specialCounter > 0 && !firing;
+		if (firing)
+			s.cloaking = false;
 
-		if (hiding && s.cloakLevel < kCloakSteps - 1)
+		if (s.cloaking && s.cloakLevel < kCloakSteps - 1)
 			++s.cloakLevel;
-		else if (!hiding && s.cloakLevel > 0)
+		else if (!s.cloaking && s.cloakLevel > 0)
 			--s.cloakLevel;
 
 		// Untargetable for as long as anything of the ship is faded. Partly
@@ -356,6 +367,15 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 			return;
 		e->facing = facing;
 		e->turnWait = d.weaponTrackWait;
+
+		// And the mask follows the facing. Leaving it at the launch facing is
+		// what made a steering nuke look like it was tumbling rather than
+		// turning: the sprite changed cel while the rect it was drawn into kept
+		// the launch cel's size, so a tall facing got squeezed into a wide one
+		// and back. Ships had exactly this defect and it was fixed there.
+		if (!d.weaponMasks.empty())
+			e->mask = &d.weaponMasks[static_cast<std::size_t>(e->facing)
+					% d.weaponMasks.size()];
 	}
 
 	// And accelerate as it goes (human.c:148-157): speed climbs with how much
@@ -422,9 +442,30 @@ shipTransition(Battle &b, EntityId id) noexcept
 		return;
 	}
 
-	// A shadow of itself each frame, fading through the same ramp the exhaust
-	// uses -- which is exactly why the C shares cycle_ion_trail between them.
-	spawnIonTrail(b, id);
+	// A shadow of itself each frame -- and the shadow is *ship-shaped*: a
+	// silhouette of the hull, flying outward along the facing at
+	// TRANSITION_SPEED, fading through the exhaust's colour ramp. The C draws
+	// the ship's own image as a STAMPFILL_PRIM (tactrans.c:893-930).
+	//
+	// This was first written as a point trail, reusing spawnIonTrail because
+	// the C shares cycle_ion_trail between the two. But sharing the *fade* is
+	// not sharing the *shape*: a stack of points on a stationary ship is
+	// invisible against the hull it sits on, which is why the effect could not
+	// be seen at all. The arrival reads as an arrival because it is the ship
+	// itself you see coming apart out of nothing.
+	{
+		Element shadow;
+		shadow.kind = ElementKind::ShipShadow;
+		shadow.playerNr = e->playerNr;  // picks which ship's sprites to draw
+		shadow.facing = e->facing;
+		shadow.mask = e->mask;  // hull-sized, so it is drawn as the hull
+		shadow.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
+		shadow.lifeSpan = kIonTrailLife;
+		shadow.current = e->current;
+		shadow.next = shadow.current;
+		shadow.velocity.setVector(displayToWorld(40), e->facing);
+		b.spawnFront(std::move(shadow));
+	}
 
 	e = b.get(id);
 	if (e == nullptr)
@@ -553,12 +594,23 @@ avengerSpecial(Battle &b, EntityId id) noexcept
 		return;
 
 	const ShipData &d = *ship->ship.data;
+
+	// Cloak, and it is a *toggle*. A second press drops it
+	// (ilwrath.c:251-253); it does not expire on its own.
+	if (ship->ship.cloaking)
+	{
+		// Turning it off is free. The C charges SPECIAL_ENERGY_COST only on
+		// the way in (ilwrath.c:377-379) -- there is no second deduction on
+		// the branch that walks the colour back to visible.
+		ship->ship.cloaking = false;
+		ship->ship.specialCounter = d.specialWait;
+		return;
+	}
+
 	if (!deltaEnergy(ship->ship, -d.specialEnergyCost))
 		return;
 
-	// Cloak. It hides the Avenger from weapon tracking and from point
-	// defence, and it lasts exactly as long as the counter -- there is no
-	// second press to turn it off (ilwrath.c:377-393).
+	ship->ship.cloaking = true;
 	ship->flags |= ElementFlags::Cloaked;
 	ship->ship.specialCounter = d.specialWait;
 	if (ship->ship.cloakLevel == 0)

@@ -79,6 +79,7 @@ Audio::Audio()
 			break;
 		SDL_ResumeAudioStreamDevice(s);
 		streams_.push_back(s);
+		playing_.push_back(nullptr);
 	}
 
 	if (streams_.empty())
@@ -116,13 +117,31 @@ Audio::play(const Sound &s, float gain)
 	if (streams_.empty() || !s.valid())
 		return;
 
-	SDL_AudioStream *stream = streams_[next_];
-	next_ = (next_ + 1) % streams_.size();
+	// If this sound is already playing, restart *that* stream rather than
+	// taking another. One voice per effect: see the header for why this, and
+	// not the gain, is what governs how loud a melee is.
+	std::size_t slot = streams_.size();
+	for (std::size_t i = 0; i < streams_.size(); ++i)
+	{
+		if (playing_[i] == &s && SDL_GetAudioStreamAvailable(streams_[i]) > 0)
+		{
+			slot = i;
+			break;
+		}
+	}
+	if (slot == streams_.size())
+	{
+		slot = next_;
+		next_ = (next_ + 1) % streams_.size();
+	}
 
-	// Round-robin, and clear before putting. Without the clear a sound that
-	// fires every frame queues behind itself and drifts further and further
-	// from the thing that caused it -- the Ilwrath flame would be seconds
-	// behind the picture within a few seconds of holding the trigger.
+	SDL_AudioStream *stream = streams_[slot];
+	playing_[slot] = &s;
+
+	// Clear before putting. Without it a sound that fires every frame queues
+	// behind itself and drifts further and further from the thing that caused
+	// it -- the flame would be seconds behind the picture within a few
+	// seconds of holding the trigger.
 	SDL_ClearAudioStream(stream);
 
 	SDL_AudioSpec src{};

@@ -251,7 +251,10 @@ constexpr std::int64_t kMarkLife = 24;
 
 // Everything is at half level for now. The .wav files are mastered loud, and
 // with a dozen streams a flame stream alone will clip.
-constexpr float kEffectGain = 0.5f;
+// Halved once already and still too loud, because the real multiplier was
+// the number of simultaneous voices rather than the level of each -- see
+// platform/Audio.hpp. With one voice per effect this is an honest level.
+constexpr float kEffectGain = 0.35f;
 
 // battle.snd is getcrew, shipdies, then the four booms.
 constexpr std::size_t kBoomFirstSlot = 2;
@@ -294,6 +297,8 @@ spritesFor(const Game &g, const sim::Element &e) noexcept
 	switch (e.kind)
 	{
 		case sim::ElementKind::Ship:
+		case sim::ElementKind::ShipShadow:
+			// A warp-in shadow is the ship's own image, so it borrows the art.
 			set = e.playerNr == 0 ? g.cruiser : g.avenger;
 			break;
 		case sim::ElementKind::Weapon:
@@ -473,17 +478,24 @@ setUp(Game &g, const std::filesystem::path &content)
 		return g.battle.spawnBack(std::move(e));
 	};
 
-	// 1024 world units apart, which the continuous camera renders at 2:1 --
-	// far enough to fly at each other, close enough to see both. A quarter of
-	// the arena apart is the 4:1 clamp exactly, which pins them to the screen
-	// edges and looks like a bug even though it is the camera working.
-	constexpr std::int32_t kStartGap = 512;
-	g.ships[0] = addShip(g.cruiserData,
-			Vec2i{sim::kLogSpaceWidth / 2 - kStartGap, sim::kLogSpaceHeight / 2},
-			4, 0);
-	g.ships[1] = addShip(g.avengerData,
-			Vec2i{sim::kLogSpaceWidth / 2 + kStartGap, sim::kLogSpaceHeight / 2},
-			12, 1);
+	// Random facings and random positions, as the C does (ship.c:456, 473).
+	// The facing has to be chosen before the ship is spawned, because the
+	// collision mask is per-facing and placement tests that mask.
+	const auto randomFacing = [&g] {
+		return sim::normalizeFacing(
+				static_cast<int>(g.battle.rng().next() & 0xFF));
+	};
+
+	// Two ships dropped anywhere can land next to each other, and a melee that
+	// opens with the ships already touching is not a melee. 1024 world units
+	// is what the fixed opening used to be -- far enough to fly at each other,
+	// close enough that the camera holds both.
+	constexpr std::int32_t kMinSeparation = 1024;
+
+	g.ships[0] = addShip(g.cruiserData, Vec2i{0, 0}, randomFacing(), 0);
+	sim::placeShipAtRandom(g.battle, g.ships[0], kMinSeparation);
+	g.ships[1] = addShip(g.avengerData, Vec2i{0, 0}, randomFacing(), 1);
+	sim::placeShipAtRandom(g.battle, g.ships[1], kMinSeparation);
 
 	// The field goes in *after* the ships, not before.
 	//
@@ -620,6 +632,22 @@ draw(Game &g)
 			// blue, dark blue, gone (ilwrath.c:250-285). Uncloaking runs the
 			// same ramp backwards, and firing reverses it -- so an Avenger
 			// that shoots while hidden lights itself up.
+			// A warp-in shadow: the hull as a flat fill, stepping through the
+			// exhaust ramp as it ages. Same STAMPFILL the cloak uses -- the C
+			// uses that primitive for both, and for the same reason: what you
+			// want is the ship's outline in one colour, not the ship.
+			if (e->kind == sim::ElementKind::ShipShadow)
+			{
+				const std::size_t step = static_cast<std::size_t>(
+						sim::kIonTrailLife - e->lifeSpan);
+				if (step >= kIonRamp.size() || i >= set->silhouettes.size())
+					continue;
+				const Colour c = kIonRamp[step];
+				g.window.drawTinted(set->silhouettes[i],
+						Vec2i{at.x - ox, at.y - oy}, dest, c.r, c.g, c.b);
+				continue;
+			}
+
 			const std::int32_t cloak = e->ship.cloakLevel;
 			if (cloak > 0 && i < set->silhouettes.size())
 			{

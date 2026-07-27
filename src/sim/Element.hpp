@@ -81,6 +81,19 @@ struct ShipState
 	// backwards to uncloak. Firing reverses it, so a cloaked Avenger that
 	// shoots gives itself away. The renderer needs the step, not a fraction.
 	std::int32_t cloakLevel = 0;
+
+	// Whether the cloak is *engaged*, as opposed to how far the ramp has got.
+	//
+	// The two are not the same and conflating them was a real bug: the cloak
+	// was driven off specialCounter, so it lasted the 13 frames of the
+	// counter and then faded back on its own. In the C the counter is only a
+	// debounce on the key. What holds the cloak on is that ilwrath.c:251-253
+	// asks to *un*cloak only when SPECIAL is pressed again or the colour is
+	// not yet black -- so once the ramp reaches black with nothing pressed,
+	// neither branch fires and the ship simply stays hidden.
+	//
+	// Press again, or fire, and it drops (ilwrath.c:249-253, 346-347).
+	bool cloaking = false;
 };
 
 // The cloak ramp's length: five visible fill colours, then invisible.
@@ -233,6 +246,12 @@ enum class ElementKind : std::uint8_t
 	// warping in. One element in the C too -- both use cycle_ion_trail
 	// (tactrans.c:756-790), which is why they share a kind here.
 	IonTrail,
+
+	// A fading silhouette of a ship, shed while it warps in. Ship-shaped, not
+	// a point: the C draws the ship's own image as a STAMPFILL_PRIM
+	// (tactrans.c:893-930). It shares the ion trail's colour ramp but not its
+	// geometry -- and the geometry is what makes the effect visible at all.
+	ShipShadow,
 };
 
 // Hooks. Free functions taking the battle and the element's own id, so they

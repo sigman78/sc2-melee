@@ -99,6 +99,53 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 	return false;
 }
 
+void
+placeShipAtRandom(Battle &b, EntityId id, std::int32_t minSeparation)
+{
+	if (b.get(id) == nullptr)
+		return;
+
+	// Far enough from every *other* ship, across the wrap. Squared, so there
+	// is no square root and no overflow worry: the arena is 8192 across, so
+	// the largest separation squared still fits an int32 with room to spare.
+	const auto farEnough = [&b, id](std::int32_t want) {
+		if (want <= 0)
+			return true;
+		auto self = b.get(id);
+		for (EntityId other = b.elements().front(); other.valid();
+				other = b.elements().next(other))
+		{
+			if (other == id)
+				continue;
+			auto t = b.get(other);
+			if (t == nullptr || !any(t->flags & ElementFlags::PlayerShip))
+				continue;
+			const Vec2i d = wrapDelta(Vec2i{t->current.x - self->current.x,
+					t->current.y - self->current.y});
+			if (d.x * d.x + d.y * d.y < want * want)
+				return false;
+		}
+		return true;
+	};
+
+	for (int tries = 0;; ++tries)
+	{
+		auto e = b.get(id);
+		e->current = wrap(Vec2i{displayAlignX(b.rng().next()),
+				displayAlignY(b.rng().next())});
+		e->next = e->current;
+
+		if (calculateGravity(b, id) || timeSpaceMatterConflict(b, id))
+			continue;
+
+		// Give up on the separation rather than spin: past this many tries,
+		// take any spot the C itself would have taken. A guarantee that can
+		// hang is worse than a preference that can be missed.
+		if (farEnough(tries < 500 ? minSeparation : 0))
+			return;
+	}
+}
+
 EntityId
 spawnPlanet(Battle &b, const CollisionMask *mask)
 {

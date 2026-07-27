@@ -1879,6 +1879,104 @@ testPointDefenceBurnsIncomingFire()
 }
 
 void
+testShipWarpsInBeforeItIsSolid()
+{
+	// The arrival, checked without a window.
+	//
+	// This exists because the effect shipped once already and could not be
+	// seen: it was written as a stack of points on a stationary hull, which is
+	// invisible against the hull. Watching for it by screenshot means racing a
+	// 15-frame window against process start, which is why it went unverified.
+	// Stepping the battle asks the question directly.
+	sim::Battle b{7u};
+
+	// A hull to be shaped like. Headless, so there is no sprite to take a
+	// real silhouette from, but the shadow only has to *carry* it.
+	static const sim::CollisionMask hull = solid(12, 12);
+
+	sim::Element e;
+	e.kind = sim::ElementKind::Ship;
+	e.flags = sim::ElementFlags::PlayerShip;
+	e.mask = &hull;
+	e.current = Vec2i{4000, 4000};
+	e.next = e.current;
+	e.facing = 4;
+	e.playerNr = 0;
+	e.ship.data = &sim::earthlingCruiser();
+	e.mass = e.ship.data->mass;
+	e.preProcess = sim::shipTransition;
+	b.spawnBack(std::move(e));
+
+	const auto ship = [&b]() -> const sim::Element * {
+		for (sim::EntityId id = b.elements().front(); id.valid();
+				id = b.elements().next(id))
+		{
+			auto p = b.get(id);
+			if (p != nullptr && p->kind == sim::ElementKind::Ship)
+				return p.raw();
+		}
+		return nullptr;
+	};
+	const auto shadows = [&b]() {
+		int n = 0;
+		for (sim::EntityId id = b.elements().front(); id.valid();
+				id = b.elements().next(id))
+		{
+			auto p = b.get(id);
+			if (p != nullptr && p->kind == sim::ElementKind::ShipShadow)
+				++n;
+		}
+		return n;
+	};
+
+	b.step();
+	CHECK(ship() != nullptr, "the ship should survive its first frame");
+	CHECK(any(ship()->flags & sim::ElementFlags::NonSolid),
+			"an arriving ship must be intangible -- that is what stops two of "
+			"them materialising inside each other");
+
+	// Partway through: shadows are being shed, and they are hull-sized rather
+	// than points, which is the whole difference between visible and not.
+	int peak = 0;
+	for (int i = 0; i < sim::kWarpInFrames - 2; ++i)
+	{
+		b.step();
+		peak = std::max(peak, shadows());
+	}
+	CHECK(peak > 0, "a warping ship should shed shadows, saw none");
+
+	const sim::Element *s = nullptr;
+	for (sim::EntityId id = b.elements().front(); id.valid();
+			id = b.elements().next(id))
+	{
+		auto p = b.get(id);
+		if (p != nullptr && p->kind == sim::ElementKind::ShipShadow)
+		{
+			s = p.raw();
+			break;
+		}
+	}
+	if (s != nullptr)
+	{
+		CHECK(s->mask == &hull,
+				"a shadow carries the hull's mask, or it is drawn at a "
+				"fallback size and reads as debris rather than as the ship");
+		CHECK(s->facing == 4, "a shadow keeps the facing it was shed at");
+	}
+
+	// And it arrives: solid, still, and driving itself from here.
+	for (int i = 0; i < 4; ++i)
+		b.step();
+	CHECK(ship() != nullptr, "the ship should still be here once it arrives");
+	CHECK(!any(ship()->flags & sim::ElementFlags::NonSolid),
+			"an arrived ship must be solid");
+	CHECK(ship()->preProcess == sim::shipPreProcess,
+			"an arrived ship drives itself");
+	CHECK(ship()->ship.crew == sim::earthlingCruiser().maxCrew,
+			"arriving fills the crew, got %d", ship()->ship.crew);
+}
+
+void
 testCloakHidesFromTracking()
 {
 	Battle b(1);
@@ -1909,18 +2007,45 @@ testCloakHidesFromTracking()
 	CHECK(trackShip(b, hunter, cloakedFacing) == 0,
 			"a cloaked ship must not be trackable (weapon.c:344-348)");
 
-	// It lifts on its own when the counter runs out; there is no second press
-	// to switch it off. SPECIAL_WAIT is 13 for the Avenger.
-	//
-	// The input has to be released first. Holding the button re-cloaks the
-	// moment the counter reaches zero -- which is correct, and is how the C
-	// behaves too as long as the energy lasts, but it means a test that never
-	// lets go can never observe the ship uncloaked.
+	// It does *not* lift on its own. This test used to assert the opposite,
+	// and the assertion was wrong: the cloak was being driven off
+	// specialCounter, so it expired after the 13 frames of SPECIAL_WAIT.
+	// ilwrath.c:251-253 only unwinds the ramp when SPECIAL is pressed again
+	// or the hull is not yet fully black, so a ship left alone stays hidden.
+	b.get(avenger)->ship.input = ShipInput::None;
+	for (int i = 0; i < 40; ++i)
+		b.step();
+	CHECK(any(b.get(avenger)->flags & ElementFlags::Cloaked),
+			"a cloak stays on until it is switched off, not until a timer "
+			"runs out");
+
+	// A second press drops it.
+	b.get(avenger)->ship.input = ShipInput::Special;
+	b.step();
 	b.get(avenger)->ship.input = ShipInput::None;
 	for (int i = 0; i < 20; ++i)
 		b.step();
 	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
-			"and should uncloak when the counter expires");
+			"a second press should uncloak it (ilwrath.c:251-253)");
+
+	// And firing gives you away, permanently -- the ramp runs all the way
+	// back even after the trigger is released (ilwrath.c:249-252).
+	b.get(avenger)->ship.input = ShipInput::Special;
+	b.step();
+	b.get(avenger)->ship.input = ShipInput::None;
+	for (int i = 0; i < 20; ++i)
+		b.step();
+	CHECK(any(b.get(avenger)->flags & ElementFlags::Cloaked),
+			"it should be hidden again before the firing check");
+
+	b.get(avenger)->ship.input = ShipInput::Weapon;
+	b.step();
+	b.get(avenger)->ship.input = ShipInput::None;
+	for (int i = 0; i < 20; ++i)
+		b.step();
+	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
+			"firing should drop the cloak and it should not come back on its "
+			"own");
 }
 
 }  // namespace
@@ -1985,6 +2110,7 @@ main()
 	testStaleHandlesAreDetectable();
 	testRemovalDuringTraversal();
 	testEntityAddressesAreStable();
+	testShipWarpsInBeforeItIsSolid();
 
 	if (failures != 0)
 		std::printf("%d check(s) failed\n", failures);

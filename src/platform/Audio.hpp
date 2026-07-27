@@ -78,15 +78,31 @@ public:
 	// "play" harmlessly.
 	[[nodiscard]] Sound load(const std::filesystem::path &wav) const;
 
-	// Starts `s` on the next free stream. Overlapping sounds need overlapping
-	// streams, so there is a small pool and the oldest is recycled -- a flame
-	// firing every frame would otherwise queue itself into an ever-growing
-	// delay.
+	// Starts `s`, on the stream already playing it if there is one.
+	//
+	// One voice per distinct sound, which is the part that actually controls
+	// loudness. Round-robin alone does not: the Ilwrath flame fires every
+	// frame, so it took a fresh stream every frame and a dozen copies of the
+	// same effect played on top of each other. That is additive -- roughly
+	// twelve times the amplitude -- and no gain setting fixes it, because the
+	// problem is the count of voices and not the level of each. Restarting
+	// the voice that is already playing the sound gives one flame that
+	// sustains, which is both quieter and what it should sound like.
+	//
+	// This is what the C gets from ProcessSound's per-source channels with
+	// priorities (sound.c): a source's new sound replaces its old one rather
+	// than joining it.
+	//
 	// `gain` is a multiplier, 1.0 being the file's own level.
 	void play(const Sound &s, float gain = 1.0f);
 
 private:
 	std::vector<SDL_AudioStream *> streams_;
+
+	// Which sound each stream last started, parallel to `streams_`. Compared
+	// by address: two Sounds are the same effect exactly when they are the
+	// same object, since the cache hands out references into it.
+	std::vector<const Sound *> playing_;
 	std::size_t next_ = 0;
 };
 
