@@ -52,7 +52,7 @@ asteroidPreProcess(Battle &b, EntityId id) noexcept
 	}
 
 	const bool backwards = (e->thrustWait & (1 << 7)) != 0;
-	e->facing = normalizeFacing(e->facing + (backwards ? -1 : 1));
+	e->facing += backwards ? -1 : 1;
 	e->turnWait = e->thrustWait & ((1 << 7) - 1);
 }
 
@@ -212,10 +212,9 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 
 	const std::int32_t magnitude =
 			displayToWorld(static_cast<std::int32_t>(b.rng().next() & 7) + 4);
-	const int facing = static_cast<int>(b.rng().next());
-	a.velocity.setVector(magnitude, facing);
+	a.velocity.setVector(magnitude, Facing(static_cast<int>(b.rng().next())));
 
-	a.facing = normalizeFacing(static_cast<int>(b.rng().next()));
+	a.facing = Facing(static_cast<int>(b.rng().next()));
 	a.turnWait = static_cast<std::int32_t>(b.rng().next() & 3);
 	a.thrustWait = a.turnWait;
 

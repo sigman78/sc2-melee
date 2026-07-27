@@ -5,6 +5,7 @@
 
 #include "engine/core/Geometry.hpp"
 #include "sim/Element.hpp"
+#include "sim/Trig.hpp"
 #include "sim/Velocity.hpp"
 
 #include <array>
@@ -52,7 +53,7 @@ struct ShipView
 {
 	Vec2i position;          // hotspot, world units
 	Velocity velocity;
-	int facing = 0;          // 0..15
+	Facing facing;
 	int playerNr = 0;
 
 	// The ship's own weapon parameters, from its data file.
@@ -69,7 +70,7 @@ struct ShipView
 struct Spawn
 {
 	Vec2i position;
-	int facing = 0;
+	Facing facing;
 	std::int32_t speed = 0;
 	std::int32_t life = 0;
 	std::int32_t damage = 0;

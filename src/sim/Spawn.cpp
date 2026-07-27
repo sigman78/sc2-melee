@@ -16,7 +16,7 @@ muzzlePosition(const ShipView &ship) noexcept
 	// The C spells this out per ship as `pixoffs` fed through
 	// initialize_missile, which places the projectile that many *display*
 	// pixels along the facing from the ship's next position.
-	const int angle = facingToAngle(normalizeFacing(ship.facing));
+	const Angle angle = ship.facing.angle();
 	const std::int32_t offset = displayToWorld(ship.muzzleOffset);
 	return Vec2i{ship.position.x + cosine(angle, offset),
 		ship.position.y + sine(angle, offset)};
@@ -29,7 +29,7 @@ spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 
 	Spawn &s = out[0];
 	s.position = muzzlePosition(ship);
-	s.facing = normalizeFacing(ship.facing);
+	s.facing = ship.facing;
 	s.speed = ship.weaponSpeed;
 	s.life = ship.weaponLife;
 	s.damage = ship.weaponDamage;
@@ -39,7 +39,7 @@ spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 
 	// human.c:281 -- `face = index = ShipFacing`. The nuke sprite is
 	// directional, so its frame follows the facing.
-	s.frameIndex = static_cast<std::uint16_t>(s.facing);
+	s.frameIndex = static_cast<std::uint16_t>(s.facing.raw());
 
 	// human.c:283 -- flags = 0. Cruiser missiles collide with each other.
 	s.ignoreSimilar = false;
@@ -53,7 +53,7 @@ spawnAvengerPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 
 	Spawn &s = out[0];
 	s.position = muzzlePosition(ship);
-	s.facing = normalizeFacing(ship.facing);
+	s.facing = ship.facing;
 	s.speed = ship.weaponSpeed;
 	s.life = ship.weaponLife;
 	s.damage = ship.weaponDamage;

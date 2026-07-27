@@ -130,7 +130,7 @@ void shipPostProcess(Battle &b, EntityId id) noexcept;
 //
 // "Enemy" is by player, not by owner: a missile chases the other side's ship,
 // not merely one that is not its own.
-[[nodiscard]] int trackShip(Battle &b, EntityId tracker, int &facing,
+[[nodiscard]] int trackShip(Battle &b, EntityId tracker, Facing &facing,
 		EntityId *outTarget = nullptr) noexcept;
 
 // The Cruiser's nuke, which is guided and accelerates as it flies

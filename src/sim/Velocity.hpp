@@ -93,7 +93,7 @@ public:
 	Vec2i advance(int frames) noexcept;
 
 	// Set from a magnitude in world units and a *facing* (0..15).
-	void setVector(std::int32_t magnitude, int facing) noexcept;
+	void setVector(std::int32_t magnitude, Facing facing) noexcept;
 
 	// Set from components in velocity units.
 	void setComponents(std::int32_t dx, std::int32_t dy) noexcept;

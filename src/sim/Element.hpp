@@ -7,6 +7,7 @@
 #include "engine/core/Geometry.hpp"
 #include "sim/Collision.hpp"
 #include "sim/EntityList.hpp"
+#include "sim/Trig.hpp"
 #include "sim/Velocity.hpp"
 
 #include <cstdint>
@@ -282,7 +283,7 @@ struct Element
 	// -1 for things nobody owns, like asteroids.
 	std::int32_t playerNr = -1;
 
-	std::int32_t facing = 0;
+	Facing facing;
 
 	// NORMAL_LIFE (element.h:32), not zero. The step loop reads a zero as
 	// "died last frame" regardless of FiniteLife, so a persistent element has
@@ -320,7 +321,7 @@ struct Element
 	// current.image and re-reads ShipFacing from it, and these two fields are
 	// that current.image for a sim without images.
 	Borrowed<const CollisionMask> priorMask = nullptr;
-	std::int32_t priorFacing = 0;
+	Facing priorFacing;
 
 	ElementHook preProcess = nullptr;
 	ElementHook postProcess = nullptr;

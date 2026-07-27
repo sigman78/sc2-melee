@@ -51,7 +51,7 @@ applyFacingMask(Element &e, const ShipSpec &spec) noexcept
 	if (spec.facingMasks.empty())
 		return;
 	const std::size_t i =
-			static_cast<std::size_t>(e.facing) % spec.facingMasks.size();
+			static_cast<std::size_t>(e.facing.raw()) % spec.facingMasks.size();
 	e.mask = &spec.facingMasks[i];
 }
 
@@ -113,7 +113,7 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 	else if (any(s.input & (ShipInput::Left | ShipInput::Right)))
 	{
 		const int delta = any(s.input & ShipInput::Left) ? -1 : 1;
-		e->facing = normalizeFacing(e->facing + delta);
+		e->facing += delta;
 		e->turnWait = spec.turnWait;
 		applyFacingMask(*e, spec);
 	}
@@ -292,7 +292,7 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 }
 
 int
-trackShip(Battle &b, EntityId tracker, int &facing,
+trackShip(Battle &b, EntityId tracker, Facing &facing,
 		EntityId *outTarget) noexcept
 {
 	const auto self = b.get(tracker);
@@ -329,8 +329,7 @@ trackShip(Battle &b, EntityId tracker, int &facing,
 
 		const Vec2i to = useNext ? t->next : t->current;
 		const Vec2i d = wrapDelta(Vec2i{to.x - from.x, to.y - from.y});
-		const int deltaFacing = normalizeFacing(
-				angleToFacing(arctan(d.x, d.y)) - facing);
+		const int deltaFacing = Angle(arctan(d.x, d.y)).facing() - facing;
 
 		// Nearest target, by |dx| + |dy| -- the C's own stated approximation
 		// of the real distance (weapon.c:378-385). Selecting by *turn* size
@@ -373,7 +372,7 @@ trackShip(Battle &b, EntityId tracker, int &facing,
 	else
 		turn = -1;
 
-	facing = normalizeFacing(facing + turn);
+	facing += turn;
 	return bestDelta;
 }
 
@@ -387,7 +386,7 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 	const ShipSpec &spec = *e->ship.spec;
 
 	// Steer, but only every TRACK_WAIT frames (human.c:133-146).
-	int facing = e->facing;
+	Facing facing = e->facing;
 	if (e->turnWait > 0)
 	{
 		--e->turnWait;
@@ -408,9 +407,10 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 		// and back. Ships had exactly this defect and it was fixed there.
 		// colorCycle is the cel the renderer draws, and for a directional
 		// missile that is the facing.
-		e->colorCycle = e->facing;
+		e->colorCycle = e->facing.raw();
 		if (!spec.weapon.masks.empty())
-			e->mask = &spec.weapon.masks[static_cast<std::size_t>(e->facing)
+			e->mask = &spec.weapon.masks[static_cast<std::size_t>(
+					e->facing.raw())
 					% spec.weapon.masks.size()];
 	}
 
@@ -466,7 +466,7 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	// Behind the ship, along the reverse of its facing. The C offsets by the
 	// sprite's height so the exhaust leaves the hull rather than the hotspot
 	// (tactrans.c:808-812); the collision mask stands in for the frame rect.
-	const int angle = facingToAngle(e->facing) + kHalfCircle;
+	const Angle angle = e->facing.angle().opposite();
 	const std::int32_t back = e->mask != nullptr
 			? displayToWorld(static_cast<std::int32_t>(e->mask->size().h) / 2)
 			: 0;
@@ -525,7 +525,7 @@ shipTransition(Battle &b, EntityId id) noexcept
 	// apart rather than arriving. The direction and the shape both carry
 	// meaning, and the C encodes both in that one subtraction.
 	{
-		const int angle = facingToAngle(e->facing);
+		const Angle angle = e->facing.angle();
 		const std::int32_t back = kTransitionSpeed * (e->lifeSpan - 1);
 
 		Element shadow;
@@ -631,7 +631,7 @@ explosionPreProcess(Battle &b, EntityId id) noexcept
 		// eight further out so the cloud has an edge rather than a rim
 		// (tactrans.c:597-604).
 		const std::uint32_t r0 = b.rng().next();
-		const int spot = normalizeAngle(static_cast<int>(r0 >> 16));
+		const Angle spot{static_cast<int>(r0 >> 16)};
 		std::int32_t dist = displayToWorld(static_cast<std::int32_t>(r0 % 8u));
 		if (((r0 >> 8) & 0xFFu) < 256u / 3u)
 			dist += displayToWorld(8);
@@ -642,7 +642,7 @@ explosionPreProcess(Battle &b, EntityId id) noexcept
 		// draws a different value from an identical stream, which a replay
 		// would notice.
 		const std::uint32_t r1 = b.rng().next();
-		const int drift = normalizeAngle(static_cast<int>(r1));
+		const Angle drift{static_cast<int>(r1)};
 		const std::int32_t speed = displayToWorld(
 				static_cast<std::int32_t>(((r1 >> 8) & 0xFFu) % 5u));
 
@@ -772,7 +772,7 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 	if (e == nullptr)
 		return;
 
-	int facing = e->facing;
+	Facing facing = e->facing;
 	EntityId targetId;
 	if (trackShip(b, id, facing, &targetId) < 0)
 		return;
@@ -795,7 +795,7 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 	const std::int32_t dx = (t->current.x + dT.x) - (e->current.x + dO.x);
 	const std::int32_t dy = (t->current.y + dT.y) - (e->current.y + dO.y);
 
-	e->facing = normalizeFacing(angleToFacing(arctan(dx, dy)));
+	e->facing = Angle(arctan(dx, dy)).facing();
 
 	// And the ship may not immediately turn away from its own snap
 	// (ilwrath.c:335-336).

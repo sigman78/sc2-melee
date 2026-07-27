@@ -530,7 +530,7 @@ testVelocityAngles()
 	// setVector keeps the *facing* as authoritative, so a zero magnitude
 	// still remembers which way the object points...
 	Velocity aimed;
-	aimed.setVector(0, 4);
+	aimed.setVector(0, Facing(4));
 	CHECK(aimed.travelAngle() == facingToAngle(4),
 			"a zero-magnitude vector keeps its facing");
 
@@ -566,8 +566,8 @@ testThrustTakesItsFacingAsAnArgument()
 
 	Velocity forward;
 	Velocity backward;
-	const SpeedState a = thrust(forward, 0, cruiser, ThrustState{});
-	const SpeedState b = thrust(backward, 8, cruiser, ThrustState{});
+	const SpeedState a = thrust(forward, Facing(0), cruiser, ThrustState{});
+	const SpeedState b = thrust(backward, Facing(8), cruiser, ThrustState{});
 	CHECK(a == SpeedState::Normal && b == SpeedState::Normal,
 			"a single frame of thrust from rest is normal acceleration");
 
@@ -593,7 +593,7 @@ testThrustReachesAndHoldsMaxSpeed()
 	int frames = 0;
 	while (st.speed == SpeedState::Normal && frames < 100)
 	{
-		st.speed = thrust(v, 0, cruiser, st);
+		st.speed = thrust(v, Facing(0), cruiser, st);
 		++frames;
 	}
 	CHECK(st.speed == SpeedState::AtMax,
@@ -604,7 +604,7 @@ testThrustReachesAndHoldsMaxSpeed()
 	// Once there, further thrust along the same heading is a no-op and the
 	// state stays put -- this is the early-out the C takes.
 	const Vec2i atMax = v.current();
-	st.speed = thrust(v, 0, cruiser, st);
+	st.speed = thrust(v, Facing(0), cruiser, st);
 	CHECK(st.speed == SpeedState::AtMax, "still at max");
 	CHECK(v.current() == atMax, "and the velocity does not creep upward");
 }
@@ -619,12 +619,12 @@ testInertialessThrustIsInstant()
 	CHECK(skiff.inertialess(), "equal increment and max means inertialess");
 
 	Velocity v;
-	const SpeedState s = thrust(v, 4, skiff, ThrustState{});
+	const SpeedState s = thrust(v, Facing(4), skiff, ThrustState{});
 	CHECK(s == SpeedState::AtMax, "a skiff is at max after one frame");
 
 	// And it turns on a pin: a new facing replaces the vector outright
 	// rather than being integrated into it.
-	const SpeedState s2 = thrust(v, 12, skiff, ThrustState{s, false});
+	const SpeedState s2 = thrust(v, Facing(12), skiff, ThrustState{s, false});
 	CHECK(s2 == SpeedState::AtMax, "still at max after reversing");
 	CHECK(v.travelAngle() == facingToAngle(12),
 			"and travels the new way immediately");
@@ -639,14 +639,14 @@ testGravityWellAllowsExceedingMax()
 	Velocity v;
 	ThrustState st;
 	for (int i = 0; i < 60 && st.speed == SpeedState::Normal; ++i)
-		st.speed = thrust(v, 0, cruiser, st);
+		st.speed = thrust(v, Facing(0), cruiser, st);
 	CHECK(st.speed == SpeedState::AtMax, "at max before the well");
 
 	// Inside a well, thrust keeps adding speed past the ship's maximum, up to
 	// the hard ceiling. That is what a gravity whip is.
 	st.inGravityWell = true;
 	const Vec2i before = v.current();
-	st.speed = thrust(v, 0, cruiser, st);
+	st.speed = thrust(v, Facing(0), cruiser, st);
 	CHECK(st.speed == SpeedState::BeyondMax,
 			"a well should push the ship beyond its own maximum");
 	const Vec2i after = v.current();
@@ -663,7 +663,7 @@ cruiserView()
 {
 	ShipView v;
 	v.position = Vec2i{1000, 1000};
-	v.facing = 3;
+	v.facing = Facing(3);
 	v.playerNr = 0;
 	// NOT the real MISSILE_SPEED, which is 40: human.c:41-44 takes
 	// max(MAX_THRUST, DISPLAY_TO_WORLD(10)) and the floor wins. The value
@@ -743,7 +743,7 @@ void
 testTheTwoShipsDifferWhereTheCDoes()
 {
 	ShipView ship = cruiserView();
-	ship.facing = 7;
+	ship.facing = Facing(7);
 
 	SpawnBuffer cruiser{};
 	SpawnBuffer avenger{};
@@ -1166,7 +1166,7 @@ addShip(Battle &b, const ShipSpec &data, Vec2i at, int facing, int player)
 	e.flags = ElementFlags::PlayerShip;
 	e.current = at;
 	e.next = at;
-	e.facing = facing;
+	e.facing = Facing(facing);
 	e.playerNr = player;
 	e.mass = data.mass;
 	e.ship.spec = &data;
@@ -1204,16 +1204,16 @@ testTurningIsGatedByTurnWait()
 	// turnWait N means a turn every N+1 frames, not every N: the counter is
 	// set to N *after* a turn and has to reach zero again (ship.c:238-253).
 	// The Avenger's 2 therefore turns on frames 1, 4, 7...
-	const int start = b.get(slow)->facing;
+	const Facing start = b.get(slow)->facing;
 	b.step();
-	CHECK(b.get(slow)->facing == normalizeFacing(start + 1),
+	CHECK(b.get(slow)->facing == start + 1,
 			"the first turn should happen immediately");
 	b.step();
 	b.step();
-	CHECK(b.get(slow)->facing == normalizeFacing(start + 1),
+	CHECK(b.get(slow)->facing == start + 1,
 			"and the next two frames should be spent waiting");
 	b.step();
-	CHECK(b.get(slow)->facing == normalizeFacing(start + 2),
+	CHECK(b.get(slow)->facing == start + 2,
 			"then turn again on the fourth");
 }
 
@@ -1587,7 +1587,7 @@ testAsteroidTumbles()
 	// thrust_wait is the spin period, not a thrust delay (misc.c:117-126), and
 	// like turn_wait it means "every N+1 frames".
 	const int period = static_cast<int>(b.get(a)->thrustWait);
-	const int start = b.get(a)->facing;
+	const Facing start = b.get(a)->facing;
 
 	// period + 1 frames of stillness, not period: the first step is the
 	// asteroid's appearing frame and an asteroid is not a PLAYER_SHIP, so its
@@ -2070,9 +2070,9 @@ testTurningIntoOverlapIsReverted()
 	b.get(ship)->ship.input = ShipInput::Right;
 	b.step();
 
-	CHECK(b.get(ship)->facing == 0,
+	CHECK(b.get(ship)->facing == Facing(0),
 			"the turn into the wall should have been undone, facing %d",
-			b.get(ship)->facing);
+			b.get(ship)->facing.raw());
 	CHECK(b.collisions().empty(),
 			"and a reverted turn is not a collision");
 	CHECK(b.get(ship)->ship.crew == crew,
@@ -2195,14 +2195,14 @@ testCommittedElementsAreNotIntegratedTwice()
 	// Turn and fire together. The Avenger turns every turnWait+1 = 3 frames:
 	// frames 1, 4, 7, 10 -- four steps in twelve. A double-preprocessed ship
 	// turns visibly faster.
-	const int start = b.get(id)->facing;
+	const Facing start = b.get(id)->facing;
 	b.get(id)->ship.input = ShipInput::Right | ShipInput::Weapon;
 	for (int i = 0; i < 12; ++i)
 		b.step();
 
-	CHECK(b.get(id)->facing == normalizeFacing(start + 4),
+	CHECK(b.get(id)->facing == start + 4,
 			"twelve frames of turn-and-fire should turn exactly 4 facings, "
-			"got %d from %d", b.get(id)->facing, start);
+			"got %d from %d", b.get(id)->facing.raw(), start.raw());
 }
 
 void
@@ -2286,7 +2286,7 @@ testShipWarpsInBeforeItIsSolid()
 	e.mask = &hull;
 	e.current = Vec2i{4000, 4000};
 	e.next = e.current;
-	e.facing = 4;
+	e.facing = sim::Facing(4);
 	e.playerNr = 0;
 	e.ship.spec = &sim::earthlingCruiser();
 	e.mass = e.ship.spec->mass;
@@ -2388,7 +2388,7 @@ testShipWarpsInBeforeItIsSolid()
 		CHECK(s->mask == &hull,
 				"a shadow carries the hull's mask, or it is drawn at a "
 				"fallback size and reads as debris rather than as the ship");
-		CHECK(s->facing == 4, "a shadow keeps the facing it was shed at");
+		CHECK(s->facing == Facing(4), "a shadow keeps the facing it was shed at");
 
 		// And it lies *behind* the ship. The exhaust's own direction is the
 		// reference: spawnIonTrail offsets along facingToAngle + kHalfCircle
@@ -2436,7 +2436,7 @@ testCloakHidesFromTracking()
 	// Facing 8 is away from the target, so a step toward it is a real change.
 	// Starting already pointed at it returns 0 quite correctly -- there is
 	// nothing to turn -- which is not the same as "no target found".
-	int facing = 8;
+	Facing facing{8};
 	CHECK(trackShip(b, hunter, facing) != 0,
 			"an uncloaked enemy should be trackable");
 
@@ -2450,7 +2450,7 @@ testCloakHidesFromTracking()
 	// from the frame SPECIAL lands would be a sizeable unearned buff.
 	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
 			"activation alone must not hide the ship");
-	int fadeFacing = 8;
+	Facing fadeFacing{8};
 	CHECK(trackShip(b, hunter, fadeFacing) >= 0,
 			"a half-faded ship is still targetable");
 
@@ -2460,7 +2460,7 @@ testCloakHidesFromTracking()
 	CHECK(any(b.get(avenger)->flags & ElementFlags::Cloaked),
 			"fully faded should be cloaked");
 
-	int cloakedFacing = 8;
+	Facing cloakedFacing{8};
 	CHECK(trackShip(b, hunter, cloakedFacing) < 0,
 			"a cloaked ship must not be targetable at all -- TrackShip "
 			"returns -1, no target (weapon.c:344-348, 410-412)");
@@ -2531,16 +2531,16 @@ testCloakedFiringSnapAims()
 			"setup: the Avenger should be hidden");
 
 	// Point it the wrong way, then fire from the dark.
-	b.get(avenger)->facing = 8;
+	b.get(avenger)->facing = Facing(8);
 	b.get(avenger)->ship.input = ShipInput::Weapon;
 	b.step();
 
 	// The ambush snap (ilwrath.c:281-342): the discharge aims the ship at
 	// the lead-predicted target before the shot leaves. Both ships are at
 	// rest here, so the prediction is the target itself -- due +x, facing 4.
-	CHECK(b.get(avenger)->facing == 4,
+	CHECK(b.get(avenger)->facing == Facing(4),
 			"firing from full black should snap the facing onto the target, "
-			"got %d", b.get(avenger)->facing);
+			"got %d", b.get(avenger)->facing.raw());
 	CHECK(!any(b.get(avenger)->flags & ElementFlags::Cloaked),
 			"and the discharge steps the cloak off black");
 	CHECK(b.get(avenger)->ship.specialCounter == 0,

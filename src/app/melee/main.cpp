@@ -540,8 +540,8 @@ setUp(Game &g, const std::filesystem::path &content)
 				"fly. This is a setup bug, not a control one.\n");
 	}
 
-	const auto addShip = [&g](const sim::ShipSpec &data, Vec2i at, int facing,
-							  int player) {
+	const auto addShip = [&g](const sim::ShipSpec &data, Vec2i at,
+							  sim::Facing facing, int player) {
 		sim::Element e;
 		e.kind = sim::ElementKind::Ship;
 		e.flags = sim::ElementFlags::PlayerShip | sim::ElementFlags::IgnoreSimilar;
@@ -556,7 +556,7 @@ setUp(Game &g, const std::filesystem::path &content)
 		// collision, so this changes how the ships actually touch.
 		const game::SpriteSet *set = player == 0 ? g.cruiser : g.avenger;
 		const sim::CollisionMask *m =
-				set != nullptr ? set->maskFor(facing) : nullptr;
+				set != nullptr ? set->maskFor(facing.raw()) : nullptr;
 		e.mask = m != nullptr ? m : &g.shipMask;
 		e.ship.spec = &data;
 		// Warping in, not simply present. shipTransition hands over to
@@ -571,8 +571,7 @@ setUp(Game &g, const std::filesystem::path &content)
 	// The facing has to be chosen before the ship is spawned, because the
 	// collision mask is per-facing and placement tests that mask.
 	const auto randomFacing = [&g] {
-		return sim::normalizeFacing(
-				static_cast<int>(g.battle.rng().next() & 0xFF));
+		return sim::Facing(static_cast<int>(g.battle.rng().next() & 0xFF));
 	};
 
 	// Two ships dropped anywhere can land next to each other, and a melee that
@@ -821,7 +820,7 @@ draw(Game &g)
 			const std::size_t i = e->kind == sim::ElementKind::Weapon
 					? static_cast<std::size_t>(e->colorCycle)
 							% set->frames.size()
-					: static_cast<std::size_t>(e->facing)
+					: static_cast<std::size_t>(e->facing.raw())
 							% set->frames.size();
 
 			// Draw from the cel's *hotspot*, not its centre.

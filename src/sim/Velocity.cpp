@@ -46,9 +46,9 @@ Velocity::setComponents(std::int32_t dx, std::int32_t dy) noexcept
 }
 
 void
-Velocity::setVector(std::int32_t magnitude, int facing) noexcept
+Velocity::setVector(std::int32_t magnitude, Facing facing) noexcept
 {
-	const int angle = facingToAngle(normalizeFacing(facing));
+	const int angle = facing.angle().raw();
 	travelAngle_ = angle;
 
 	magnitude = worldToVelocity(magnitude);

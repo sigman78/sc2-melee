@@ -63,7 +63,7 @@ inline constexpr std::int64_t kMaxAllowedSpeedSqr =
 
 // Applies one frame of thrust along `facing`, returning the new speed state.
 // `velocity` is updated in place.
-[[nodiscard]] SpeedState thrust(Velocity &velocity, int facing,
+[[nodiscard]] SpeedState thrust(Velocity &velocity, Facing facing,
 		const ThrustProfile &profile, ThrustState state) noexcept;
 
 }  // namespace uqm::sim

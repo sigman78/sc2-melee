@@ -21,10 +21,10 @@ atOrBeyondMax(SpeedState s) noexcept
 }  // namespace
 
 SpeedState
-thrust(Velocity &velocity, int facing, const ThrustProfile &profile,
+thrust(Velocity &velocity, Facing facing, const ThrustProfile &profile,
 		ThrustState state) noexcept
 {
-	const int currentAngle = facingToAngle(normalizeFacing(facing));
+	const int currentAngle = facing.angle().raw();
 	const int travelAngle = velocity.travelAngle();
 
 	// The Skiff: acceleration is instantaneous, so there is nothing to

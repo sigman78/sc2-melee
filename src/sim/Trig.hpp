@@ -61,12 +61,6 @@ normalizeAngle(int a) noexcept
 	return a & (kFullCircle - 1);
 }
 
-[[nodiscard]] constexpr int
-normalizeFacing(int f) noexcept
-{
-	return f & (kNumFacings - 1);
-}
-
 // ANGLE_TO_FACING rounds to the nearest facing (units.h:189); the +2 before
 // the shift is the round-half-up.
 [[nodiscard]] constexpr int
@@ -156,6 +150,149 @@ arctan(int dx, int dy) noexcept
 }
 
 // --------------------------------------------------------------------------
+// Directional integers as types (docs/cpp-conventions.md rule 7).
+//
+// A facing (0..15) and an angle (0..63) convert through a shift and, as bare
+// ints, transpose silently. Both wrap in their constructors -- the same
+// masking the C applies at every use -- so arithmetic cannot escape the
+// circle. A DELTA between two of them is deliberately an int, not another
+// direction: a count of steps, compared against half-circle constants.
+//
+// The one int that stays an int: Velocity::travelAngle(), whose value
+// kFullCircle (64) is ARCTAN's "no direction" sentinel -- unequal to every
+// real angle in comparisons, yet folded to 0 by the C's table indexing when
+// it reaches trig. Angle's wrapping constructor reproduces the fold, so
+// sentinel-fed trig stays C-exact; the comparisons stay in int at the
+// sentinel's three boundary sites (thrust, impulse) rather than behind a
+// type that would have to lie about one value.
+
+class Facing;
+
+class Angle
+{
+public:
+	constexpr Angle() = default;
+	explicit constexpr Angle(int a) noexcept
+		: v_(static_cast<std::uint8_t>(a & (kFullCircle - 1)))
+	{
+	}
+
+	[[nodiscard]] constexpr int raw() const noexcept { return v_; }
+	[[nodiscard]] constexpr Facing facing() const noexcept;  // ANGLE_TO_FACING
+	[[nodiscard]] constexpr Angle
+	opposite() const noexcept
+	{
+		return Angle(v_ + kHalfCircle);
+	}
+
+	constexpr Angle &
+	operator+=(int delta) noexcept
+	{
+		return *this = Angle(v_ + delta);
+	}
+	[[nodiscard]] friend constexpr Angle
+	operator+(Angle a, int delta) noexcept
+	{
+		return Angle(a.v_ + delta);
+	}
+	[[nodiscard]] friend constexpr Angle
+	operator-(Angle a, int delta) noexcept
+	{
+		return Angle(a.v_ - delta);
+	}
+	// The wrapped difference, 0..63 -- NORMALIZE_ANGLE(a - b).
+	[[nodiscard]] friend constexpr int
+	operator-(Angle a, Angle b) noexcept
+	{
+		return (a.v_ - b.v_) & (kFullCircle - 1);
+	}
+	friend constexpr bool operator==(Angle, Angle) = default;
+
+private:
+	std::uint8_t v_ = 0;
+};
+
+class Facing
+{
+public:
+	constexpr Facing() = default;
+	explicit constexpr Facing(int f) noexcept
+		: v_(static_cast<std::uint8_t>(f & (kNumFacings - 1)))
+	{
+	}
+
+	[[nodiscard]] constexpr int raw() const noexcept { return v_; }
+	[[nodiscard]] constexpr Angle
+	angle() const noexcept  // FACING_TO_ANGLE
+	{
+		return Angle(v_ << (kCircleShift - kFacingShift));
+	}
+	[[nodiscard]] constexpr Facing
+	opposite() const noexcept
+	{
+		return Facing(v_ + kNumFacings / 2);
+	}
+
+	constexpr Facing &
+	operator+=(int delta) noexcept
+	{
+		return *this = Facing(v_ + delta);
+	}
+	constexpr Facing &
+	operator-=(int delta) noexcept
+	{
+		return *this = Facing(v_ - delta);
+	}
+	[[nodiscard]] friend constexpr Facing
+	operator+(Facing f, int delta) noexcept
+	{
+		return Facing(f.v_ + delta);
+	}
+	[[nodiscard]] friend constexpr Facing
+	operator-(Facing f, int delta) noexcept
+	{
+		return Facing(f.v_ - delta);
+	}
+	// The wrapped difference, 0..15 -- NORMALIZE_FACING(a - b).
+	[[nodiscard]] friend constexpr int
+	operator-(Facing a, Facing b) noexcept
+	{
+		return (a.v_ - b.v_) & (kNumFacings - 1);
+	}
+	friend constexpr bool operator==(Facing, Facing) = default;
+
+private:
+	std::uint8_t v_ = 0;
+};
+
+constexpr Facing
+Angle::facing() const noexcept
+{
+	return Facing(angleToFacing(v_));
+}
+
+// Trig over the types; the int overloads above remain the sentinel-tolerant
+// primitive layer.
+[[nodiscard]] constexpr std::int32_t
+sine(Angle a, std::int32_t m) noexcept
+{
+	return sine(a.raw(), m);
+}
+[[nodiscard]] constexpr std::int32_t
+cosine(Angle a, std::int32_t m) noexcept
+{
+	return cosine(a.raw(), m);
+}
+
+static_assert(Facing(17).raw() == 1 && Facing(-1).raw() == 15);
+static_assert(Angle(64).raw() == 0, "the sentinel folds to 0, as C indexing does");
+static_assert(Facing(3).angle().raw() == 12);
+static_assert(Angle(14).facing().raw() == 4, "rounds half up, ANGLE_TO_FACING");
+static_assert(Facing(2) - Facing(15) == 3 && Facing(15) - Facing(2) == 13);
+static_assert(Facing(0).opposite().raw() == 8);
+static_assert(cosine(Facing(4).angle(), 1000) == 1000, "facing 4 points +x");
+
+// --------------------------------------------------------------------------
 // Golden vectors, from running the C.
 
 static_assert(kSineTab.size() == 64);
@@ -192,7 +329,8 @@ static_assert(angleToFacing(0) == 0);
 static_assert(angleToFacing(2) == 1, "half a facing rounds up");
 static_assert(angleToFacing(4) == 1);
 static_assert(facingToAngle(1) == 4);
-static_assert(normalizeFacing(angleToFacing(kFullCircle)) == 0);
+static_assert(Facing(angleToFacing(kFullCircle)).raw() == 0,
+		"a facing beyond the circle wraps, the way NORMALIZE_FACING did");
 
 }  // namespace uqm::sim
 
