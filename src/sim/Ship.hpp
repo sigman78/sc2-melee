@@ -66,9 +66,25 @@ struct ShipData
 	// What the shot does each frame, if anything.
 	ElementHook weaponPreProcess = nullptr;
 
-	// What SPECIAL does. The engine only ticks special_counter down
-	// (ship.c:342-343); everything a special actually *does* is per-ship, and
-	// that asymmetry is most of why ships/ is 25 files.
+	// What the shot does on impact. Null means weaponCollision (damage,
+	// blast, gone). The C's weapons may wrap that -- the flame clears
+	// DISAPPEARING so it lingers a frame (ilwrath.c:141-148).
+	ElementHook weaponOnCollision = nullptr;
+
+	// The ship's own per-frame hook, run inside shipPreProcess after energy
+	// regeneration and before turning -- RACE_DESC.preprocess_func, called
+	// at ship.c:232-236. This is where a special that must act *before* the
+	// frame's turn/thrust/weapon lives: the Ilwrath cloak engages here, so
+	// with 3 energy the cloak wins over a 1-cost shot, not the other way
+	// round.
+	ElementHook preProcess = nullptr;
+
+	// What SPECIAL does in the *post* phase, gated centrally on the counter
+	// and the key (ship.c:342-346 plus the per-ship test). The engine only
+	// ticks special_counter down; everything a special actually *does* is
+	// per-ship, and that asymmetry is most of why ships/ is 25 files. A ship
+	// whose special lives in its preProcess hook (the Avenger) leaves this
+	// null.
 	ElementHook special = nullptr;
 
 	// Point defence: how far it reaches, in display pixels (LASER_RANGE,
@@ -102,13 +118,17 @@ struct ShipData
 void shipPreProcess(Battle &b, EntityId id) noexcept;
 void shipPostProcess(Battle &b, EntityId id) noexcept;
 
-// The two M1 ships, from human.c and ilwrath.c.
-[[nodiscard]] // TrackShip (weapon.c:319-380): steers `facing` one step toward the nearest
-// living enemy ship, and reports whether it moved. Used by any guided weapon.
+// TrackShip (weapon.c:319-412): steers `facing` one step toward the nearest
+// living enemy ship. Returns -1 when there is no target at all, otherwise the
+// chosen target's facing delta (0 means dead ahead) -- the C's own return,
+// and the cloak's auto-aim tests `>= 0` where the nuke ignores it, so the
+// distinction is load-bearing. `outTarget`, when non-null, receives the
+// chosen target (the C stores it in Tracker->hTarget).
 //
 // "Enemy" is by player, not by owner: a missile chases the other side's ship,
 // not merely one that is not its own.
-[[nodiscard]] int trackShip(Battle &b, EntityId tracker, int &facing) noexcept;
+[[nodiscard]] int trackShip(Battle &b, EntityId tracker, int &facing,
+		EntityId *outTarget = nullptr) noexcept;
 
 // The Cruiser's nuke, which is guided and accelerates as it flies
 // (human.c:128-158).
@@ -118,8 +138,17 @@ void nukePreProcess(Battle &b, EntityId id) noexcept;
 // shot in range, paying once for the volley.
 void cruiserSpecial(Battle &b, EntityId id) noexcept;
 
-// The Avenger's cloak (ilwrath.c:377-393).
-void avengerSpecial(Battle &b, EntityId id) noexcept;
+// The Avenger's ship hook: the whole cloak state machine, activation
+// included (ilwrath_preprocess, ilwrath.c:232-394). Runs in the pre phase
+// because the C's does -- see ShipData::preProcess.
+void ilwrathPreProcess(Battle &b, EntityId id) noexcept;
+
+// The Avenger's flame. The animation is the projectile: its frame advances
+// every frame it lives and the collision silhouette follows, so the fireball
+// grows (ilwrath.c:126-139) -- and on impact it lingers a frame where a
+// spent missile vanishes at once (ilwrath.c:141-148).
+void flamePreProcess(Battle &b, EntityId id) noexcept;
+void flameCollision(Battle &b, EntityId id) noexcept;
 
 // How long the exhaust fade runs, in frames -- the length of the C's colour
 // table (tactrans.c:757-770).

@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -235,6 +236,22 @@ inline constexpr std::int32_t kStarFieldHeight = sim::kSpaceHeight * 2;
 // what the middle one had, and the middle takes a single pixel.
 inline constexpr std::array<std::size_t, kStarPlanes> kStarCels{{0, 2, 2}};
 
+// Randomness enters the simulation here or not at all: the sim never reads a
+// clock, so a battle is exactly as random as its seed. Printed, because
+// determinism is the property and sameness was the bug -- a fixed literal
+// here replayed the identical battle every launch, and a seed nobody knows
+// cannot be replayed at all.
+[[nodiscard]] std::uint32_t
+battleSeed()
+{
+	const auto t = static_cast<std::uint64_t>(
+			std::chrono::steady_clock::now().time_since_epoch().count());
+	const auto seed =
+			static_cast<std::uint32_t>((t ^ (t >> 32)) & 0x7FFFFFFFu) | 1u;
+	std::fprintf(stderr, "battle seed: %lu\n", static_cast<unsigned long>(seed));
+	return seed;
+}
+
 struct Game
 {
 	platform::Platform window{"The Ur-Quan Masters -- melee",
@@ -242,7 +259,7 @@ struct Game
 				static_cast<std::uint32_t>(sim::kSpaceHeight)},
 			3};
 
-	sim::Battle battle{0x2A5B};
+	sim::Battle battle{battleSeed()};
 	game::Camera camera;
 
 	// Whether each ship's death has been announced, so it is announced once.
@@ -301,6 +318,9 @@ struct Game
 
 	// F1. Off by default; costs nothing when off.
 	bool debugOverlay = false;
+	// Last step's F1 level, so the toggle fires on the edge. Toggling on the
+	// level flipped the overlay 24 times a second while the key was held.
+	bool debugWasDown = false;
 
 	// Contact points linger, because a collision lasts one frame and one frame
 	// at 24 Hz is not long enough to see. Each entry is an event plus the
@@ -311,9 +331,6 @@ struct Game
 		std::int64_t frame = 0;
 	};
 	std::vector<Mark> marks;
-
-	// How many shots were in flight last step, so a new one can be heard.
-	std::size_t lastShots = 0;
 };
 
 // How long a contact point stays on screen, in simulation frames.
@@ -589,9 +606,12 @@ setUp(Game &g, const std::filesystem::path &content)
 				static_cast<std::int32_t>(
 						g.battle.rng().next() % kStarFieldHeight)};
 
-	(void)sim::spawnPlanet(g.battle, planetMask);
+	// Asteroids first, then the planet -- init.c:228-233's order. The planet's
+	// placement loop rejects anything it would overlap, so it has to be able
+	// to see the asteroids (and the ships, above) when it rolls.
 	for (int i = 0; i < sim::kNumAsteroids; ++i)
 		(void)sim::spawnAsteroid(g.battle, rockMask);
+	(void)sim::spawnPlanet(g.battle, planetMask);
 }
 
 // The background, before anything in the arena.
@@ -795,8 +815,15 @@ draw(Game &g)
 
 		if (const game::SpriteSet *set = spritesFor(g, *e); set != nullptr)
 		{
-			const std::size_t i = static_cast<std::size_t>(e->facing)
-					% set->frames.size();
+			// A weapon draws the cel the simulation says it is -- colorCycle,
+			// which is the facing for a directional missile and the animation
+			// frame for the flame. Drawing by facing put the eight-frame
+			// fireball on whichever cel the launch facing selected, frozen.
+			const std::size_t i = e->kind == sim::ElementKind::Weapon
+					? static_cast<std::size_t>(e->colorCycle)
+							% set->frames.size()
+					: static_cast<std::size_t>(e->facing)
+							% set->frames.size();
 
 			// Draw from the cel's *hotspot*, not its centre.
 			//
@@ -842,12 +869,14 @@ draw(Game &g)
 			const std::int32_t cloak = e->ship.cloakLevel;
 			if (cloak > 0 && i < set->silhouettes.size())
 			{
-				// The last step is invisible, not black. The C fills with
-				// BLACK_COLOR and that reads as gone against its own black
-				// space -- but this renderer clears to a dark blue, so a black
-				// fill leaves a ship-shaped hole, which is worse than no cloak
-				// at all. Drawing nothing is what the C means.
-				if (cloak >= sim::kCloakSteps - 1)
+				// Levels 1..5 are the five fill colours; kCloakFullLevel is
+				// BLACK. The C fills with BLACK_COLOR and that reads as gone
+				// against its own black space -- but this renderer clears to
+				// a dark blue, so a black fill leaves a ship-shaped hole,
+				// which is worse than no cloak at all. Drawing nothing is
+				// what the C means. (Hiding one level early, which is what
+				// this did first, cut the ramp to four visible colours.)
+				if (cloak >= sim::kCloakFullLevel)
 					continue;
 				const Colour c = kCloakRamp[static_cast<std::size_t>(cloak)];
 				g.window.drawTinted(set->silhouettes[i],
@@ -1009,8 +1038,13 @@ iterate(Game &g)
 			const input::Buttons b = g.players[p].consume();
 			if (b.test(Button::Escape))
 				g.running = false;
-			if (b.test(Button::Debug))
-				g.debugOverlay = !g.debugOverlay;
+			if (p == 0)
+			{
+				const bool debugDown = b.test(Button::Debug);
+				if (debugDown && !g.debugWasDown)
+					g.debugOverlay = !g.debugOverlay;
+				g.debugWasDown = debugDown;
+			}
 			if (auto ship = g.battle.get(g.ships[p]); ship != nullptr)
 				ship->ship.input = toShipInput(b);
 		}
@@ -1044,40 +1078,32 @@ iterate(Game &g)
 				g.audio.play(g.battleSounds[slot], kEffectGain);
 		}
 
-		// Weapons fired this frame, and beams. Counted by watching the list
-		// rather than by a callback from the simulation, because a sound is
-		// presentation and the simulation should not know it exists.
-		std::size_t shots = 0;
-		std::size_t beams = 0;
-		for (sim::EntityId e = g.battle.elements().front(); e.valid();
-				e = g.battle.elements().next(e))
+		// Weapons fired this frame, and beams -- read from the step's own
+		// spawn events, the same shape the collision sounds use. Scanning
+		// the list for Appearing flags, which is what this did first, only
+		// worked because a step-loop bug left the flag set one frame late;
+		// the fixed loop clears it inside step().
+		for (const sim::SpawnEvent &sp : g.battle.spawns())
 		{
-			const auto el = g.battle.get(e);
-			if (el == nullptr || !any(el->flags & sim::ElementFlags::Appearing))
-				continue;
-			if (el->kind == sim::ElementKind::Weapon)
+			if (sp.kind == sim::ElementKind::Weapon)
 			{
-				++shots;
 				// Whose weapon: the Cruiser's nuke and the Avenger's flame are
 				// different sounds, and both are slot 0 of their own ship's
 				// .snd. Playing the Cruiser's for everything made the flame
 				// sound like a missile launch every frame.
-				const auto &set = el->playerNr == 0 ? g.cruiserSounds
-													: g.avengerSounds;
+				const auto &set = sp.playerNr == 0 ? g.cruiserSounds
+												   : g.avengerSounds;
 				if (!set.empty())
 					g.audio.play(set[0], kEffectGain);
 			}
-			else if (el->kind == sim::ElementKind::Laser)
+			else if (sp.kind == sim::ElementKind::Laser)
 			{
-				++beams;
 				// cruiser.snd slot 1: secondary.wav, the point-defence laser
 				// (human.c:232-234).
 				if (g.cruiserSounds.size() > 1)
 					g.audio.play(g.cruiserSounds[1], kEffectGain);
 			}
 		}
-		g.lastShots = shots;
-		(void)beams;
 	}
 
 	// Drop what has aged out. Done here rather than while drawing so the list

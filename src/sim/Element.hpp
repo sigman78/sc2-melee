@@ -73,31 +73,26 @@ struct ShipState
 	// next thrust clears it (ship.c:263-267).
 	bool inGravityWell = false;
 
-	// How far through the cloak ramp the ship is, 0 = solid and visible.
+	// Where the ship is in the cloak's colour walk. This is the prim state of
+	// ilwrath_preprocess, made an index:
 	//
-	// The Ilwrath cloak is not a fade: ilwrath.c:250-285 walks a fixed
-	// sequence of fill colours -- white, cyan-white, dark cyan, blue, dark
-	// blue, then gone -- one step per frame, and runs the same sequence
-	// backwards to uncloak. Firing reverses it, so a cloaked Avenger that
-	// shoots gives itself away. The renderer needs the step, not a fraction.
+	//     0            STAMP -- solid, visible, machine idle
+	//     1..5         STAMPFILL fills: white, cyan-white, dark cyan, blue,
+	//                  dark blue (ilwrath.c:349-374 going in, 255-273 out)
+	//     kCloakFullLevel (6)   BLACK -- fully cloaked
+	//
+	// The Ilwrath cloak is not a fade: the C walks this fixed sequence one
+	// step per frame, and runs it backwards to uncloak. The walk itself, and
+	// everything that reverses it, lives in ilwrathPreProcess (Ship.cpp) --
+	// the direction is derived each frame from the inputs and the counter,
+	// exactly as the C derives it from the prim colour, so there is no
+	// separate "cloaking" bool to fall out of step with it.
 	std::int32_t cloakLevel = 0;
-
-	// Whether the cloak is *engaged*, as opposed to how far the ramp has got.
-	//
-	// The two are not the same and conflating them was a real bug: the cloak
-	// was driven off specialCounter, so it lasted the 13 frames of the
-	// counter and then faded back on its own. In the C the counter is only a
-	// debounce on the key. What holds the cloak on is that ilwrath.c:251-253
-	// asks to *un*cloak only when SPECIAL is pressed again or the colour is
-	// not yet black -- so once the ramp reaches black with nothing pressed,
-	// neither branch fires and the ship simply stays hidden.
-	//
-	// Press again, or fire, and it drops (ilwrath.c:249-253, 346-347).
-	bool cloaking = false;
 };
 
-// The cloak ramp's length: five visible fill colours, then invisible.
-inline constexpr std::int32_t kCloakSteps = 6;
+// The cloak walk: five visible fill colours (levels 1..5), then black.
+inline constexpr std::int32_t kCloakVisibleColours = 5;
+inline constexpr std::int32_t kCloakFullLevel = kCloakVisibleColours + 1;
 
 // What an element is doing this frame. The C keeps these in one
 // ELEMENT_FLAGS word (element.h); the ones the step loop itself reasons about
@@ -149,6 +144,12 @@ enum class ElementFlags : std::uint32_t
 	// OBJECT_CLOAKED. Invisible to weapon targeting (weapon.c:344) and to the
 	// Cruiser's point defence (human.c:202), and drawn differently. It does
 	// *not* stop collisions -- a cloaked Avenger still hits an asteroid.
+	//
+	// Set only at FULL black: OBJECT_CLOAKED in the C is "STAMPFILL and
+	// BLACK" (element.h:201-204), so a ship is targetable through the whole
+	// fade, in both directions. Setting it for any partial fade, which is
+	// what this did first, made the Avenger missile-proof from the frame
+	// SPECIAL landed -- a significant unmarked buff.
 	Cloaked = 1u << 11,
 };
 
@@ -194,11 +195,11 @@ any(ElementFlags f) noexcept
 //
 // It is about a ship running away. DoRunAway sets mass_points to exactly 100
 // (battle.c:92), which fails `> 100` but passes `+ 1 > 100`. So a fleeing ship
-// reads as a gravity *source* to gravity.c and nowhere else -- and because
-// gravity skips any pair whose answers agree, the planet stops pulling on it.
-// You cannot be dragged into a planet while escaping. do_damage (misc.c:214)
-// asks the question without the `+ 1`, so the same ship stays damageable, and
-// collide.c asks it without too, so it still takes an impulse.
+// reads as a gravity *source* to gravity.c -- and because gravity skips any
+// pair whose answers agree, the planet stops pulling on it. You cannot be
+// dragged into a planet while escaping. collide.c asks WITH the `+ 1` too
+// (collide.c:102, 139), so the same fleeing ship also takes no impulse --
+// only do_damage (misc.c:214) asks without it, so the ship stays damageable.
 //
 // Two names, because they are two predicates and conflating them is a bug
 // waiting to be reintroduced.
