@@ -831,78 +831,79 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 const ShipSpec &
 earthlingCruiser() noexcept
 {
-	// human.c:27-49. MAX_THRUST 24, THRUST_INCREMENT 3.
-	static const ShipSpec data = [] {
-		ShipSpec d;
-		d.maxCrew = 18;
-		d.maxEnergy = 18;
-		d.energyRegen = 1;
-		d.energyWait = 8;
-		d.thrust = ThrustProfile{24, 3};
-		d.thrustWait = 4;
-		d.turnWait = 1;
-		d.weapon.wait = 10;
-		d.weapon.energyCost = 9;
-		d.special.wait = 9;
-		d.special.energyCost = 4;
-		d.mass = 6;
-		d.weapon.spawn = spawnCruiserPrimary;
-		// MISSILE_SPEED is max(MAX_THRUST, DISPLAY_TO_WORLD(10)) == 40.
-		d.weapon.speed = 40;
-		d.weapon.life = 60;
-		d.weapon.damage = 4;
-		d.weapon.hitPoints = 1;
-		d.weapon.muzzleOffset = 42;   // HUMAN_OFFSET
-		d.weapon.blastOffset = 8;     // NUKE_OFFSET
-
-		// The nuke is guided and accelerates: TRACK_WAIT 3,
-		// MAX_MISSILE_SPEED = DISPLAY_TO_WORLD(20) == 80, THRUST_SCALE =
-		// DISPLAY_TO_WORLD(1) == 4 (human.c:43-50).
-		d.weapon.trackWait = 3;
-		d.weapon.maxSpeed = 80;
-		d.weapon.thrustScale = 4;
-		d.weapon.preProcess = nukePreProcess;
-		d.special.hook = cruiserSpecial;
-		d.special.pointDefenceRange = 100;   // LASER_RANGE
-		return d;
-	}();
+	// human.c:26-55. Speeds store post-DISPLAY_TO_WORLD values; offsets store
+	// raw display pixels (review-002 §5's spec-authoring rule).
+	static const ShipSpec data{
+		.maxCrew = 18,
+		.maxEnergy = 18,
+		.energyRegen = 1,
+		.energyWait = 8,
+		.thrust{.max = 24, .increment = 3},
+		.thrustWait = 4,
+		.turnWait = 1,
+		.mass = 6,
+		.weapon{
+			.wait = 10,
+			.energyCost = 9,
+			.speed = 40,  // max(MAX_THRUST, DISPLAY_TO_WORLD(10)), human.c:42-45
+			.life = 60,
+			.damage = 4,
+			.hitPoints = 1,
+			.muzzleOffset = 42,  // HUMAN_OFFSET
+			.blastOffset = 8,    // NUKE_OFFSET
+			// Guided and accelerating (human.c:43-50): TRACK_WAIT 3,
+			// DISPLAY_TO_WORLD(20) == 80, DISPLAY_TO_WORLD(1) == 4.
+			.trackWait = 3,
+			.maxSpeed = 80,
+			.thrustScale = 4,
+			.spawn = spawnCruiserPrimary,
+			.preProcess = nukePreProcess,
+		},
+		.special{
+			.wait = 9,
+			.energyCost = 4,
+			.hook = cruiserSpecial,
+			.pointDefenceRange = 100,  // LASER_RANGE, display px
+		},
+	};
 	return data;
 }
 
 const ShipSpec &
 ilwrathAvenger() noexcept
 {
-	// ilwrath.c:28-49. Note THRUST_WAIT 0 and WEAPON_WAIT 0 -- the Avenger
-	// accelerates every frame and its flame is continuous, which is why it
-	// feels nothing like the Cruiser.
-	static const ShipSpec data = [] {
-		ShipSpec d;
-		d.maxCrew = 22;
-		d.maxEnergy = 16;
-		d.energyRegen = 4;
-		d.energyWait = 4;
-		d.thrust = ThrustProfile{25, 5};
-		d.thrustWait = 0;
-		d.turnWait = 2;
-		d.weapon.wait = 0;
-		d.weapon.energyCost = 1;
-		d.special.wait = 13;
-		d.special.energyCost = 3;
-		d.mass = 7;
-		d.weapon.spawn = spawnAvengerPrimary;
-		d.weapon.speed = 25;    // MISSILE_SPEED == MAX_THRUST
-		d.weapon.life = 8;
-		d.weapon.damage = 1;
-		d.weapon.hitPoints = 1;
-		d.weapon.muzzleOffset = 29;   // ILWRATH_OFFSET
-		d.weapon.blastOffset = 0;     // MISSILE_OFFSET
-		d.weapon.preProcess = flamePreProcess;
-		d.weapon.onCollision = flameCollision;
-		// The cloak is the ship hook, not a post-phase special: it must win
-		// the energy race against the same frame's shot (see ShipSpec).
-		d.preProcess = ilwrathPreProcess;
-		return d;
-	}();
+	// ilwrath.c:27-53. THRUST_WAIT 0 and WEAPON_WAIT 0: the Avenger
+	// accelerates every frame and its flame is continuous.
+	static const ShipSpec data{
+		.maxCrew = 22,
+		.maxEnergy = 16,
+		.energyRegen = 4,
+		.energyWait = 4,
+		.thrust{.max = 25, .increment = 5},
+		.thrustWait = 0,
+		.turnWait = 2,
+		.mass = 7,
+		.weapon{
+			.wait = 0,
+			.energyCost = 1,
+			.speed = 25,  // MISSILE_SPEED == MAX_THRUST
+			.life = 8,
+			.damage = 1,
+			.hitPoints = 1,
+			.muzzleOffset = 29,  // ILWRATH_OFFSET
+			.blastOffset = 0,    // MISSILE_OFFSET
+			.spawn = spawnAvengerPrimary,
+			.preProcess = flamePreProcess,
+			.onCollision = flameCollision,
+		},
+		.special{
+			.wait = 13,
+			.energyCost = 3,
+			// No post hook: the cloak is the ship's preProcess, winning the
+			// energy race against the same frame's shot (see ShipSpec).
+		},
+		.preProcess = ilwrathPreProcess,
+	};
 	return data;
 }
 
