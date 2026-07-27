@@ -59,12 +59,13 @@ tests reach them without linking SDL. `Resources` and `SpriteSet` stay in
 | R1 | `ShipDef`/`ShipArt` catalog + `MeleeArt`; Assets.cpp consumes definitions; `game_test` pins every named id to uqm.rmp | **done** |
 | R2 | `Game` loses its named asset members; a per-player roster of `Borrowed<const ShipDef>`; `visualFor`/sounds resolve through it | **done** |
 | R3 | `materialize(def, content, window) -> ShipSpec`: the spec copy plus its content-derived masks, one function instead of hand lines | **done** |
-| R4 | Placeholders served by `Resources` on a miss — generated rect frames + `block` masks — retiring the `Game` mask members and per-callsite fallbacks | next |
-| R5 | Sound slots named (`ShipSound::Primary`, `BattleSound::Shipdies`…): the .snd line order is a content contract, written once | |
+| R4 | Placeholders served by `Resources` on a miss — one block mask, no frames — retiring the `Game` mask members and per-callsite fallbacks | **done** |
+| R5 | Sound slots named (`ShipSound`, `BattleSound` after the C's sounds.h:31-38): the .snd line order is a content contract, written once | **done** |
 
-All stages are behavior-preserving under the existing suites, same proof
-mechanism as review-002's E-stages. R1–R3 were each verified by full
-rebuild, 7/7 ctest, and a driven run with screenshots before committing.
+All stages were behavior-preserving under the existing suites, same proof
+mechanism as review-002's E-stages. Each was verified by full rebuild,
+7/7 ctest, and a driven run with screenshots before committing — R4 in
+the mode it changes: a bogus content dir still fights, as rectangles.
 
 R2 as executed: the eight `SpriteSet` pointers, three sound spans, the
 `starArt` pointer and both named spec copies left `Game`, replaced by
@@ -79,6 +80,25 @@ R3 as executed: `game::materialize` in `game/Materialize.cpp`
 (uqm2_platform — loading sprites means a window), declared beside the
 catalog in Ships.hpp. loadAssets' mask wiring is now the loop body's one
 call per roster entry.
+
+R4 as executed: `Resources::sprites` guarantees a set is either the art
+or the placeholder — no frames, so the draw side's Rect fallback stays
+deliberately ugly, but one 12x12 block mask, so nothing spawns maskless
+and `maskFor` cannot miss. Frames were considered and rejected: the Rect
+path already draws the mask's own size in the kind's fallback colour, and
+a placeholder texture would only hide that the art is missing. The four
+`Game` mask members (one of them, `shotMask`, already dead) and both
+per-callsite null-ternaries retired; per-kind stand-in sizing died with
+them, deliberately — the block stands in for a silhouette, it does not
+try to be one.
+
+R5 as executed: `ShipSound` (Primary, Secondary) beside `ShipArt`, and
+`BattleSound` mirroring the C's BATTLE_SOUND_EFFECTS beside `kMeleeArt`,
+each with a `slot()` reader. The boom pick reads as Damaged1 +
+(damage >> 1) capped at Damaged6Plus. Since `BattleSound` is a claim
+about battle.snd's line count, game_test counts the file's non-blank
+lines against Damaged6Plus — the content vetoes the enum, not the other
+way around.
 
 ## 4. R1 as executed
 
