@@ -80,7 +80,7 @@ endif()
 # SDL. Single-threaded by construction: nothing in here starts a thread, and
 # the audio callback (M1.5) is the only thing that will ever run off the main
 # loop -- behind a ring buffer, never touching game state.
-add_library(uqm2_platform STATIC platform/Platform.cpp)
+add_library(uqm2_platform STATIC platform/Platform.cpp game/ShipSprites.cpp)
 target_link_libraries(uqm2_platform PUBLIC uqm2_content uqm::SDL)
 if(MSVC)
 	target_compile_options(uqm2_platform PRIVATE /W4 /utf-8)

@@ -18,6 +18,7 @@
 #include "engine/core/Pacing.hpp"
 #include "engine/input/Input.hpp"
 #include "game/Camera.hpp"
+#include "game/ShipSprites.hpp"
 #include "platform/Platform.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Damage.hpp"
@@ -27,6 +28,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
+#include <filesystem>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -115,7 +118,12 @@ struct Game
 	Pacer pacer;
 	std::array<InputAccumulator, 2> players;
 
-	// Masks outlive the battle, which is what Element::mask assumes.
+	// Sprite sets, and the masks that come with them. Both outlive the
+	// battle, which is what Element::mask assumes.
+	game::ShipSprites cruiser;
+	game::ShipSprites avenger;
+
+	// Fallbacks for anything without art yet -- shots, rocks, the planet.
 	sim::CollisionMask shipMask = block(12, 12);
 	sim::CollisionMask shotMask = block(3, 3);
 	sim::CollisionMask rockMask = block(8, 8);
@@ -125,9 +133,25 @@ struct Game
 	bool running = true;
 };
 
-void
-setUp(Game &g)
+// Which sprite set an element draws from. Only ships have art so far.
+const game::ShipSprites *
+spritesFor(const Game &g, const sim::Element &e) noexcept
 {
+	if (e.kind != sim::ElementKind::Ship)
+		return nullptr;
+	const game::ShipSprites *set = e.playerNr == 0 ? &g.cruiser : &g.avenger;
+	return set->valid() ? set : nullptr;
+}
+
+void
+setUp(Game &g, const std::filesystem::path &content)
+{
+	const std::filesystem::path ct = content / "base/uqm.ct";
+	g.cruiser = game::loadShipSprites(
+			g.window, content / "base/ships/human/cruiser-big.ani", ct);
+	g.avenger = game::loadShipSprites(
+			g.window, content / "base/ships/ilwrath/avenger-big.ani", ct);
+
 	// The planet first, then the asteroids -- init.c's order, and the RNG
 	// stream depends on it.
 	(void)sim::spawnPlanet(g.battle, &g.planetMask);
@@ -144,7 +168,13 @@ setUp(Game &g)
 		e.facing = facing;
 		e.playerNr = player;
 		e.mass = data.mass;
-		e.mask = &g.shipMask;
+
+		// The real silhouette when the art loaded, a block when it did not.
+		// Per-pixel collision against a 12x12 square is not per-pixel
+		// collision, so this changes how the ships actually touch.
+		const game::ShipSprites *set = player == 0 ? &g.cruiser : &g.avenger;
+		const sim::CollisionMask *m = set->maskFor(facing);
+		e.mask = m != nullptr ? m : &g.shipMask;
 		e.ship.data = &data;
 		e.preProcess = sim::shipPreProcess;
 		e.postProcess = sim::shipPostProcess;
@@ -198,11 +228,21 @@ draw(Game &g)
 				|| at.y - h > sim::kSpaceHeight)
 			continue;
 
+		const Extent2u dest{static_cast<std::uint32_t>(w),
+				static_cast<std::uint32_t>(h)};
+
+		if (const game::ShipSprites *set = spritesFor(g, *e); set != nullptr)
+		{
+			const std::size_t i = static_cast<std::size_t>(e->facing)
+					% set->frames.size();
+			g.window.draw(set->frames[i], Vec2i{at.x - w / 2, at.y - h / 2},
+					dest);
+			continue;
+		}
+
 		const Colour c = colourFor(*e);
-		g.window.fillRect(Vec2i{at.x - w / 2, at.y - h / 2},
-				Extent2u{static_cast<std::uint32_t>(w),
-					static_cast<std::uint32_t>(h)},
-				c.r, c.g, c.b);
+		g.window.fillRect(Vec2i{at.x - w / 2, at.y - h / 2}, dest, c.r, c.g,
+				c.b);
 	}
 
 	g.window.present();
@@ -262,10 +302,16 @@ iterateOnce()
 }  // namespace
 
 int
-main()
+main(int argc, char **argv)
 {
+	// Where the content tree is. Defaults to the one in this repository, so
+	// running it from the build directory just works during development.
+	const std::filesystem::path content =
+			argc > 1 ? std::filesystem::path(argv[1])
+					 : std::filesystem::path("sc2/content");
+
 	Game game;
-	setUp(game);
+	setUp(game, content);
 	g_game = &game;
 
 #ifdef __EMSCRIPTEN__

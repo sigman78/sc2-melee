@@ -12,6 +12,7 @@
 
 struct SDL_Window;
 struct SDL_Renderer;
+struct SDL_Texture;
 
 namespace uqm::platform {
 
@@ -44,6 +45,29 @@ struct Binding
 // arrives it produces one of these tables and nothing else changes.
 [[nodiscard]] std::span<const Binding> defaultBindings() noexcept;
 
+// An uploaded image. Move-only, because it owns a GPU resource and there is
+// no sane copy (docs/cpp-conventions.md rule 6).
+class Texture
+{
+public:
+	Texture() = default;
+	~Texture();
+
+	Texture(Texture &&other) noexcept;
+	Texture &operator=(Texture &&other) noexcept;
+	Texture(const Texture &) = delete;
+	Texture &operator=(const Texture &) = delete;
+
+	[[nodiscard]] bool valid() const noexcept { return handle_ != nullptr; }
+	[[nodiscard]] Extent2u size() const noexcept { return size_; }
+
+private:
+	friend class Platform;
+
+	SDL_Texture *handle_ = nullptr;
+	Extent2u size_;
+};
+
 class Platform
 {
 public:
@@ -73,6 +97,16 @@ public:
 	void clear(std::uint8_t r, std::uint8_t g, std::uint8_t b) noexcept;
 	void fillRect(Vec2i topLeft, Extent2u size, std::uint8_t r,
 			std::uint8_t g, std::uint8_t b) noexcept;
+
+	// Uploads 8-bit RGBA. Returns an invalid Texture if `rgba` is the wrong
+	// size for `size`, which is a content bug and worth not crashing over.
+	[[nodiscard]] Texture upload(
+			Extent2u size, std::span<const std::uint8_t> rgba) noexcept;
+
+	// Draws `t` scaled into `dest` pixels at `topLeft`. Nearest-neighbour, set
+	// at upload: this is pixel art and smoothing it looks wrong.
+	void draw(const Texture &t, Vec2i topLeft, Extent2u dest) noexcept;
+
 	void present() noexcept;
 
 private:

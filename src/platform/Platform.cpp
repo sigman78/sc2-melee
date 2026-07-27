@@ -168,6 +168,70 @@ Platform::fillRect(Vec2i topLeft, Extent2u size, std::uint8_t r,
 	SDL_RenderFillRect(renderer_, &rect);
 }
 
+Texture::~Texture()
+{
+	if (handle_ != nullptr)
+		SDL_DestroyTexture(handle_);
+}
+
+Texture::Texture(Texture &&other) noexcept
+	: handle_(other.handle_), size_(other.size_)
+{
+	other.handle_ = nullptr;
+	other.size_ = Extent2u{};
+}
+
+Texture &
+Texture::operator=(Texture &&other) noexcept
+{
+	if (this != &other)
+	{
+		if (handle_ != nullptr)
+			SDL_DestroyTexture(handle_);
+		handle_ = other.handle_;
+		size_ = other.size_;
+		other.handle_ = nullptr;
+		other.size_ = Extent2u{};
+	}
+	return *this;
+}
+
+Texture
+Platform::upload(Extent2u size, std::span<const std::uint8_t> rgba) noexcept
+{
+	Texture t;
+	const std::size_t need = static_cast<std::size_t>(size.w) * size.h * 4;
+	if (size.empty() || rgba.size() < need)
+		return t;
+
+	SDL_Texture *tex = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_ABGR8888,
+			SDL_TEXTUREACCESS_STATIC, static_cast<int>(size.w),
+			static_cast<int>(size.h));
+	if (tex == nullptr)
+		return t;
+
+	SDL_UpdateTexture(tex, nullptr, rgba.data(), static_cast<int>(size.w) * 4);
+	SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+	// Pixel art. Smoothing it looks wrong at every zoom, and at the 2:1 and
+	// 4:1 steps it turns the sprites to mush.
+	SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_NEAREST);
+
+	t.handle_ = tex;
+	t.size_ = size;
+	return t;
+}
+
+void
+Platform::draw(const Texture &t, Vec2i topLeft, Extent2u dest) noexcept
+{
+	if (!t.valid() || dest.empty())
+		return;
+	const SDL_FRect to{static_cast<float>(topLeft.x),
+			static_cast<float>(topLeft.y), static_cast<float>(dest.w),
+			static_cast<float>(dest.h)};
+	SDL_RenderTexture(renderer_, t.handle_, nullptr, &to);
+}
+
 void
 Platform::present() noexcept
 {
