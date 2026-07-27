@@ -168,30 +168,6 @@ constexpr std::array<Colour, 6> kCloakRamp{{
 
 }  // namespace
 
-void
-RenderStore::attach(sim::EntityId id, Visual v)
-{
-	visuals_.emplace_back(id, v);
-}
-
-const Visual *
-RenderStore::find(sim::EntityId id) const noexcept
-{
-	for (const auto &[key, visual] : visuals_)
-	{
-		if (key == id)
-			return &visual;
-	}
-	return nullptr;
-}
-
-void
-RenderStore::purgeDead(const sim::Battle &b)
-{
-	std::erase_if(visuals_,
-			[&b](const auto &p) { return !b.alive(p.first); });
-}
-
 Visual
 visualFor(Game &g, sim::ElementKind kind, std::int32_t playerNr)
 {
@@ -345,7 +321,7 @@ draw(Game &g)
 
 		// Should not happen: every live element is attached in setUpBattle
 		// or from a SpawnEvent. Safe fallback if one slipped through.
-		const Visual *v = g.visuals.find(id);
+		const Visual *v = g.battle.registry().try_get<Visual>(id);
 		Visual missing;
 		if (v == nullptr)
 		{

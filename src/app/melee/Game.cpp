@@ -147,7 +147,8 @@ setUp(Game &g, const std::filesystem::path &content)
 		auto e = g.battle.get(id);
 		if (e == nullptr)
 			continue;
-		g.visuals.attach(id, visualFor(g, e->kind, e->playerNr));
+		g.battle.registry().emplace<Visual>(
+				id, visualFor(g, e->kind, e->playerNr));
 	}
 }
 
@@ -193,11 +194,16 @@ iterate(Game &g)
 		playStepSounds(g);
 
 		// Everything the sim spawned this step gets a Visual before it is
-		// ever drawn.
+		// ever drawn. Guarded: an element executed for spawning inside
+		// something (killOverlapSpawn) is already destroyed by the time its
+		// SpawnEvent is read, and a dead entity cannot carry a component.
 		for (const sim::SpawnEvent &sp : g.battle.spawns())
-			g.visuals.attach(sp.id, visualFor(g, sp.kind, sp.playerNr));
+		{
+			if (g.battle.alive(sp.id))
+				g.battle.registry().emplace<Visual>(
+						sp.id, visualFor(g, sp.kind, sp.playerNr));
+		}
 	}
-	g.visuals.purgeDead(g.battle);
 
 	// Drop what has aged out. Done here rather than while drawing so the list
 	// does not grow without bound when the overlay is off.

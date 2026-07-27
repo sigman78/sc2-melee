@@ -47,9 +47,6 @@ struct Game
 	sim::Battle battle{battleSeed()};
 	game::Camera camera;
 
-	// What each live element draws as, attached at spawn -- see Draw.hpp.
-	RenderStore visuals;
-
 	// Whether each ship's death has been announced, so it is announced once.
 	std::array<bool, 2> deathAnnounced{};
 

@@ -6,15 +6,9 @@
 #include "sim/Element.hpp"
 
 #include <cstdint>
-#include <utility>
-#include <vector>
 
 namespace uqm::game {
 struct SpriteSet;
-}
-
-namespace uqm::sim {
-class Battle;
 }
 
 namespace uqm::melee {
@@ -41,27 +35,16 @@ enum class CelPolicy : std::uint8_t
 
 // What one element draws as. Attached once, at spawn -- see visualFor --
 // rather than deduced from ElementKind every frame.
+//
+// A component in the battle's registry, emplaced by the app: the sim never
+// names this type, ownership is by component type, not by store (review-004
+// X3). Reaping the entity reaps its Visual -- the old RenderStore and its
+// purgeDead are gone.
 struct Visual
 {
 	const game::SpriteSet *sprites = nullptr;  // null for RampPoint/BeamLine/Rect
 	CelPolicy policy = CelPolicy::Rect;
 	Colour fallback{0xC0, 0xC0, 0xC0};
-};
-
-// App-owned, keyed by sim::EntityId: the sim carries no art, so presentation
-// lives beside it rather than inside it -- same storage and lookup as
-// Battle's own component sidecars (sim/Battle.hpp ships_/weaponSpecs_).
-class RenderStore
-{
-public:
-	void attach(sim::EntityId id, Visual v);
-	[[nodiscard]] const Visual *find(sim::EntityId id) const noexcept;
-
-	// Drops entries whose entity the battle has already reaped.
-	void purgeDead(const sim::Battle &b);
-
-private:
-	std::vector<std::pair<sim::EntityId, Visual>> visuals_;
 };
 
 // THE attach-time dispatch: the only place left that switches on

@@ -144,10 +144,14 @@ struct ShipSpec
 };
 
 // A ship's mutable half. The C keeps this in STARSHIP beside the ELEMENT;
-// here it rides in Battle's component sidecar instead, keyed by the same id
-// (review-002 §1), since the two lifetimes still have to move together.
+// here it is a registry component keyed by the same entity (review-002 §1,
+// review-004 X3), destroyed with it.
 struct ShipState
 {
+	// Hooks hold a ShipState& across spawns and other hooks (shipPostProcess'
+	// weapon loop); stable addresses are load-bearing, exactly as for Element.
+	static constexpr auto in_place_delete = true;
+
 	Borrowed<const ShipSpec> spec = nullptr;
 	ShipInput input = ShipInput::None;
 
@@ -172,6 +176,15 @@ struct ShipState
 	//     kCloakFullLevel (6)   BLACK -- fully cloaked
 	// Not a fade: walked one step per frame, reversed to uncloak (Ship.cpp).
 	std::int32_t cloakLevel = 0;
+};
+
+// The weapon-guidance component: which WeaponSpec a shot flies by
+// (review-002 §1) -- ends the old abuse of ShipState as a spec-pointer
+// carrier on weapons. The pointer is copied out by readers, never held
+// into the pool, so default storage suffices.
+struct WeaponGuidance
+{
+	Borrowed<const WeaponSpec> spec = nullptr;
 };
 
 // The cloak walk: five visible fill colours (levels 1..5), then black.

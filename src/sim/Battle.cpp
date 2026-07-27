@@ -143,55 +143,35 @@ Battle::recordSpawn(EntityId id, const Element &e)
 ShipState *
 Battle::ship(EntityId id) noexcept
 {
-	for (auto &[key, state] : ships_)
-	{
-		if (key == id)
-			return &state;
-	}
-	return nullptr;
+	return reg_.valid(id) ? reg_.try_get<ShipState>(id) : nullptr;
 }
 
 const ShipState *
 Battle::ship(EntityId id) const noexcept
 {
-	for (const auto &[key, state] : ships_)
-	{
-		if (key == id)
-			return &state;
-	}
-	return nullptr;
+	return reg_.valid(id) ? reg_.try_get<const ShipState>(id) : nullptr;
 }
 
 ShipState &
 Battle::attachShip(EntityId id, Borrowed<const ShipSpec> spec)
 {
-	ships_.emplace_back(id, ShipState{});
-	ships_.back().second.spec = spec;
-	return ships_.back().second;
+	ShipState &s = reg_.emplace<ShipState>(id);
+	s.spec = spec;
+	return s;
 }
 
 Borrowed<const WeaponSpec>
 Battle::weaponSpec(EntityId id) const noexcept
 {
-	for (const auto &[key, spec] : weaponSpecs_)
-	{
-		if (key == id)
-			return spec;
-	}
-	return nullptr;
+	const auto *g =
+			reg_.valid(id) ? reg_.try_get<const WeaponGuidance>(id) : nullptr;
+	return g != nullptr ? g->spec : nullptr;
 }
 
 void
 Battle::attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec)
 {
-	weaponSpecs_.emplace_back(id, spec);
-}
-
-void
-Battle::dropComponents(EntityId id) noexcept
-{
-	std::erase_if(ships_, [id](const auto &p) { return p.first == id; });
-	std::erase_if(weaponSpecs_, [id](const auto &p) { return p.first == id; });
+	reg_.emplace<WeaponGuidance>(id, spec);
 }
 
 EntityId
@@ -657,9 +637,9 @@ Battle::postProcessPass()
 		{
 			// Removed with no postprocess and no commit (process.c:873-879).
 			// The death hook already ran in the pre pass, while the element
-			// could still be looked at.
+			// could still be looked at. destroy() reaps every component with
+			// the entity -- ShipState, guidance, the app's Visual.
 			nextId = next(id);
-			dropComponents(id);
 			removeElement(id);
 		}
 		else

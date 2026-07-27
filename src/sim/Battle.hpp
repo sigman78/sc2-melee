@@ -112,21 +112,29 @@ public:
 		return spawns_;
 	}
 
-	// Components: per-kind state keyed by the entity, beside the battle
-	// rather than inside Element (review-002 §1). Storage is a flat vector
-	// with linear find -- a melee holds a handful of each, and the stable
-	// generation-checked id keeps the ordered-list spine untouched.
+	// Components are registry pools keyed by the entity (review-002 §1,
+	// review-004 X3): attach is emplace, lookup is try_get, and destroy
+	// reaps every component with its entity -- the old sidecar vectors,
+	// their linear finds and dropComponents are gone.
 
 	// The ship component. Null for anything that is not a ship.
 	[[nodiscard]] ShipState *ship(EntityId id) noexcept;
 	[[nodiscard]] const ShipState *ship(EntityId id) const noexcept;
 	ShipState &attachShip(EntityId id, Borrowed<const ShipSpec> spec);
 
-	// The weapon-guidance component: which WeaponSpec a shot flies by --
-	// ends the old abuse of ShipState as a spec-pointer carrier on weapons.
+	// The weapon-guidance component, by value -- see WeaponGuidance.
 	[[nodiscard]] Borrowed<const WeaponSpec> weaponSpec(
 			EntityId id) const noexcept;
 	void attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec);
+
+	// The world itself, for component types the sim does not know --
+	// presentation attaches its own (review-004 open question 3: ownership
+	// is by component type, not by store; sim/ never names an app type).
+	[[nodiscard]] entt::registry &registry() noexcept { return reg_; }
+	[[nodiscard]] const entt::registry &registry() const noexcept
+	{
+		return reg_;
+	}
 
 private:
 	void preProcessPass();
@@ -143,7 +151,6 @@ private:
 			TimeValue maxTime, ElementFlags processedMask);
 	void killOverlapSpawn(EntityId id);
 	void recordSpawn(EntityId id, const Element &e);
-	void dropComponents(EntityId id) noexcept;
 
 	// The spine ops, ex-EntityList::linkAfter/remove.
 	EntityId spawn(EntityId after, Element e);
@@ -160,10 +167,6 @@ private:
 	// Both reused across steps so a steady-state frame allocates nothing.
 	std::vector<CollisionEvent> collisions_;
 	std::vector<SpawnEvent> spawns_;
-
-	// Component sidecars, erased when their entity is reaped.
-	std::vector<std::pair<EntityId, ShipState>> ships_;
-	std::vector<std::pair<EntityId, Borrowed<const WeaponSpec>>> weaponSpecs_;
 };
 
 }  // namespace uqm::sim
