@@ -6,6 +6,7 @@
 #include "sim/World.hpp"
 
 #include <cassert>
+#include <cstddef>
 
 namespace uqm::sim {
 

@@ -5,6 +5,9 @@
 #include "sim/Battle.hpp"
 #include "sim/Trig.hpp"
 
+#include <cstddef>
+#include <utility>
+
 namespace uqm::sim {
 
 namespace {

@@ -3,6 +3,7 @@
 #ifndef UQM2_ENGINE_CORE_GEOMETRY_HPP
 #define UQM2_ENGINE_CORE_GEOMETRY_HPP
 
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 

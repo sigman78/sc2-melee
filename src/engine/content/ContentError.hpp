@@ -4,6 +4,7 @@
 #define UQM2_ENGINE_CONTENT_CONTENTERROR_HPP
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 

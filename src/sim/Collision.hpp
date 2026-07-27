@@ -5,6 +5,7 @@
 
 #include "engine/core/Geometry.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>

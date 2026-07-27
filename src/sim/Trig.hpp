@@ -4,6 +4,7 @@
 #define UQM2_SIM_TRIG_HPP
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace uqm::sim {

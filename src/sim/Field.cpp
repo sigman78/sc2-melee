@@ -7,6 +7,8 @@
 #include "sim/Trig.hpp"
 #include "sim/World.hpp"
 
+#include <utility>
+
 namespace uqm::sim {
 namespace {
 

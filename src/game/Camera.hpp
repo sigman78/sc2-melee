@@ -95,8 +95,15 @@ public:
 					Vec2i{align(s.x) - origin.x, align(s.y) - origin.y});
 			origin = Vec2i{align(origin.x + (d.x >> 1)),
 					align(origin.y + (d.y >> 1))};
-			spanX = std::max(spanX, d.x < 0 ? -d.x : d.x);
-			spanY = std::max(spanY, d.y < 0 ? -d.y : d.y);
+
+			// Written out rather than std::max, to keep <algorithm> out of a
+			// header this widely included for two comparisons.
+			const std::int32_t adx = d.x < 0 ? -d.x : d.x;
+			const std::int32_t ady = d.y < 0 ? -d.y : d.y;
+			if (adx > spanX)
+				spanX = adx;
+			if (ady > spanY)
+				spanY = ady;
 		}
 
 		centre_ = sim::wrap(origin);

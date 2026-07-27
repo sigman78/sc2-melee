@@ -4,8 +4,10 @@
 #define UQM2_SIM_ENTITYLIST_HPP
 
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace uqm::sim {

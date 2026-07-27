@@ -111,6 +111,14 @@ jobs:
       - name: Check phrase alignment
         run: python3 tools/check-phrases.py --verbose
 
+      # libstdc++ pulls a lot of headers in transitively and libc++ does not,
+      # so a missing `#include <algorithm>` builds fine on GCC and fails on
+      # Apple clang and Emscripten. Both local presets are GCC, so without
+      # this the only thing that catches it is a CI round trip -- which is a
+      # slow way to learn you forgot an include, and it recurs.
+      - name: Check include hygiene
+        run: python3 tools/check-includes.py src
+
   wasm:
     name: wasm (emscripten)
     runs-on: ubuntu-latest

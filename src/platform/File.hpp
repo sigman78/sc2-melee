@@ -4,6 +4,7 @@
 #define UQM2_PLATFORM_FILE_HPP
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <expected>
 #include <filesystem>

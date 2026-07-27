@@ -24,8 +24,10 @@
 #include "sim/Ship.hpp"
 #include "sim/World.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #ifdef __EMSCRIPTEN__

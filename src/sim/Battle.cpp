@@ -5,6 +5,8 @@
 #include "sim/Impulse.hpp"
 #include "sim/World.hpp"
 
+#include <utility>
+
 namespace uqm::sim {
 
 EntityId

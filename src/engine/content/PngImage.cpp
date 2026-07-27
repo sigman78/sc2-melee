@@ -2,11 +2,11 @@
 
 #include "PngImage.hpp"
 
-#include <spng.h>
-
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <spng.h>
+#include <utility>
 
 namespace uqm::content {
 
