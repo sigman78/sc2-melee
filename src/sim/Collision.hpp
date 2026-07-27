@@ -3,6 +3,7 @@
 #ifndef UQM2_SIM_COLLISION_HPP
 #define UQM2_SIM_COLLISION_HPP
 
+#include "engine/core/Borrowed.hpp"
 #include "engine/core/Geometry.hpp"
 
 #include <cstddef>
@@ -90,7 +91,7 @@ private:
 // positions, in the same space the mask's hotspot is measured in.
 struct Body
 {
-	const CollisionMask *mask = nullptr;
+	Borrowed<const CollisionMask> mask = nullptr;
 	Vec2i from;
 	Vec2i to;
 };

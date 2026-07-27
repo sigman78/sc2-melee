@@ -18,8 +18,8 @@ deltaCrew(Element &e, std::int32_t delta) noexcept
 	if (delta > 0)
 	{
 		s.crew += delta;
-		if (s.data != nullptr && s.crew > s.data->maxCrew)
-			s.crew = s.data->maxCrew;
+		if (s.spec != nullptr && s.crew > s.spec->maxCrew)
+			s.crew = s.spec->maxCrew;
 		return true;
 	}
 

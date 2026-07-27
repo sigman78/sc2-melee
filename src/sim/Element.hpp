@@ -3,6 +3,7 @@
 #ifndef UQM2_SIM_ELEMENT_HPP
 #define UQM2_SIM_ELEMENT_HPP
 
+#include "engine/core/Borrowed.hpp"
 #include "engine/core/Geometry.hpp"
 #include "sim/Collision.hpp"
 #include "sim/EntityList.hpp"
@@ -13,7 +14,7 @@
 namespace uqm::sim {
 
 class Battle;
-struct ShipData;
+struct ShipSpec;
 
 // What the player is asking for this frame.
 enum class ShipInput : std::uint8_t
@@ -54,7 +55,7 @@ any(ShipInput f) noexcept
 // lifetime to keep in step would be a second thing to get wrong.
 struct ShipState
 {
-	const ShipData *data = nullptr;
+	Borrowed<const ShipSpec> spec = nullptr;
 	ShipInput input = ShipInput::None;
 
 	std::int32_t crew = 0;
@@ -310,7 +311,7 @@ struct Element
 	std::int32_t thrustWait = 0;
 
 	// Not owned: masks live with the content and outlive the battle.
-	const CollisionMask *mask = nullptr;
+	Borrowed<const CollisionMask> mask = nullptr;
 
 	// The silhouette and facing this element ENTERED the frame with, captured
 	// by the step before any hook runs. The overlap-repair protocol
@@ -318,7 +319,7 @@ struct Element
 	// turned the element into a wall: the C reverts next.image to
 	// current.image and re-reads ShipFacing from it, and these two fields are
 	// that current.image for a sim without images.
-	const CollisionMask *priorMask = nullptr;
+	Borrowed<const CollisionMask> priorMask = nullptr;
 	std::int32_t priorFacing = 0;
 
 	ElementHook preProcess = nullptr;
@@ -339,7 +340,7 @@ struct Element
 	// two ships of the same species on one side still shoot each other.
 	EntityId owner;
 
-	// Only meaningful when kind == Ship; `ship.data` is null otherwise.
+	// Only meaningful when kind == Ship; `ship.spec` is null otherwise.
 	ShipState ship;
 
 	// CollidingElement (collide.h:31-33): NONSOLID *or* DISAPPEARING is out.

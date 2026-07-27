@@ -3,6 +3,7 @@
 #ifndef UQM2_SIM_SHIP_HPP
 #define UQM2_SIM_SHIP_HPP
 
+#include "engine/core/Borrowed.hpp"
 #include "sim/Element.hpp"
 #include "sim/Spawn.hpp"
 #include "sim/Thrust.hpp"
@@ -13,15 +14,66 @@ namespace uqm::sim {
 
 class Battle;
 
+// A ship's weapon: the primary-fire descriptor plus the shot's own flight
+// parameters, guidance, and per-frame/collision hooks.
+struct WeaponSpec
+{
+	std::int32_t wait = 0;
+	std::int32_t energyCost = 0;
+
+	// Handed to the spawn function below (Spawn.hpp's ShipView).
+	std::int32_t speed = 0;
+	std::int32_t life = 0;
+	std::int32_t damage = 0;
+	std::int32_t hitPoints = 0;
+	std::int32_t muzzleOffset = 0;
+	std::int32_t blastOffset = 0;
+
+	// Guided-weapon parameters (human.c:36-44). Zero for a weapon that just
+	// flies straight, which is most of them.
+	std::int32_t trackWait = 0;
+	std::int32_t maxSpeed = 0;
+	std::int32_t thrustScale = 0;
+
+	// The primary weapon, as a pure descriptor function (Spawn.hpp).
+	SpawnFn spawn = nullptr;
+
+	// What the shot does each frame, if anything.
+	ElementHook preProcess = nullptr;
+
+	// What the shot does on impact. Null means weaponCollision (damage,
+	// blast, gone); the flame wraps it to linger a frame instead of
+	// vanishing (ilwrath.c:141-148).
+	ElementHook onCollision = nullptr;
+
+	// A shot collides as whichever sprite frame it is drawn from, which is
+	// not always its facing -- indexing by facing instead is what squashes a
+	// missile into the wrong box.
+	std::span<const CollisionMask> masks;
+};
+
+// A ship's SPECIAL: cost, cooldown and what it does.
+struct SpecialSpec
+{
+	std::int32_t wait = 0;
+	std::int32_t energyCost = 0;
+
+	// What SPECIAL does in the post phase; the engine only ticks the
+	// counter, everything a special does is per-ship (ship.c:342-346). Null
+	// when the special lives in the ship's preProcess hook instead (Avenger).
+	ElementHook hook = nullptr;
+
+	// LASER_RANGE (human.c:55), in display pixels. Zero for a ship without
+	// point defence.
+	std::int32_t pointDefenceRange = 0;
+};
+
 // An immutable description of a ship type.
 //
-// A *value*, and constructible in code rather than only parsed. That is not
-// theoretical: sis_ship.c:881-990 computes the flagship's whole descriptor
-// from inventory, and shofixti.c:461-517 builds a damaged variant by copying
-// the descriptor, swapping the art, nulling the glory-device sprites and
-// setting weapon_wait = 10. So a loaded file is one way to make one and a
-// builder function is another.
-struct ShipData
+// A *value*, and constructible in code rather than only parsed --
+// sis_ship.c:881-990 computes the flagship's whole descriptor from
+// inventory, and shofixti.c:461-517 builds a damaged variant by copying one.
+struct ShipSpec
 {
 	std::int32_t maxCrew = 0;
 	std::int32_t maxEnergy = 0;
@@ -32,80 +84,31 @@ struct ShipData
 	std::int32_t thrustWait = 0;
 	std::int32_t turnWait = 0;
 
-	std::int32_t weaponWait = 0;
-	std::int32_t weaponEnergyCost = 0;
-	std::int32_t specialWait = 0;
-	std::int32_t specialEnergyCost = 0;
-
 	std::int32_t mass = 0;
 
-	// The primary weapon, as a pure descriptor function (Spawn.hpp).
-	SpawnFn spawnPrimary = nullptr;
-
-	// The weapon's own parameters, handed to the spawn function.
-	std::int32_t weaponSpeed = 0;
-	std::int32_t weaponLife = 0;
-	std::int32_t weaponDamage = 0;
-	std::int32_t weaponHitPoints = 0;
-	std::int32_t muzzleOffset = 0;
-	std::int32_t blastOffset = 0;
-
-	const CollisionMask *hullMask = nullptr;
-	// One per facing, like facingMasks below. A missile is drawn from the cel
-	// matching the direction it flies, so it has to collide as that cel --
-	// indexing this by 0 and drawing by facing is what makes a rocket appear
-	// squashed into the wrong box.
-	std::span<const CollisionMask> weaponMasks;
-
-	// Guided-weapon parameters (human.c:36-44). Zero for a weapon that just
-	// flies straight, which is most of them.
-	std::int32_t weaponTrackWait = 0;
-	std::int32_t weaponMaxSpeed = 0;
-	std::int32_t weaponThrustScale = 0;
-
-	// What the shot does each frame, if anything.
-	ElementHook weaponPreProcess = nullptr;
-
-	// What the shot does on impact. Null means weaponCollision (damage,
-	// blast, gone). The C's weapons may wrap that -- the flame clears
-	// DISAPPEARING so it lingers a frame (ilwrath.c:141-148).
-	ElementHook weaponOnCollision = nullptr;
+	WeaponSpec weapon;
+	SpecialSpec special;
 
 	// The ship's own per-frame hook, run inside shipPreProcess after energy
-	// regeneration and before turning -- RACE_DESC.preprocess_func, called
-	// at ship.c:232-236. This is where a special that must act *before* the
-	// frame's turn/thrust/weapon lives: the Ilwrath cloak engages here, so
-	// with 3 energy the cloak wins over a 1-cost shot, not the other way
-	// round.
+	// regeneration and before turning -- RACE_DESC.preprocess_func
+	// (ship.c:232-236). The Ilwrath cloak engages here, so it wins the
+	// energy race against the same frame's shot.
 	ElementHook preProcess = nullptr;
 
-	// What SPECIAL does in the *post* phase, gated centrally on the counter
-	// and the key (ship.c:342-346 plus the per-ship test). The engine only
-	// ticks special_counter down; everything a special actually *does* is
-	// per-ship, and that asymmetry is most of why ships/ is 25 files. A ship
-	// whose special lives in its preProcess hook (the Avenger) leaves this
-	// null.
-	ElementHook special = nullptr;
+	Borrowed<const CollisionMask> hullMask = nullptr;
 
-	// Point defence: how far it reaches, in display pixels (LASER_RANGE,
-	// human.c:55). Zero for a ship without one.
-	std::int32_t pointDefenceRange = 0;
-
-	// One mask per facing, in facing order. A ship's silhouette changes as it
-	// turns -- that is the whole reason there are sixteen cels -- so the mask
-	// has to follow the facing or collision is tested against whichever
-	// rotation happened to be current at spawn. Empty until content is loaded;
-	// sim/ never fills this in, because sim/ does not read files.
+	// One mask per facing, in facing order; empty until content is loaded,
+	// since sim/ never reads files. A ship's silhouette follows its facing,
+	// so collision has to track it rather than whichever cel spawned it.
 	std::span<const CollisionMask> facingMasks;
 
-	// A descriptor nobody filled in. Every field defaults to zero, which is
-	// not a slow ship -- it is a ship that cannot accelerate at all, turns
-	// every frame, and has no crew. That reads as a control bug rather than as
-	// missing data, so it is worth being able to ask.
+	// Every field defaults to zero, which is not a slow ship but one that
+	// cannot accelerate at all, turns every frame and has no crew -- worth
+	// being able to tell from a control bug.
 	[[nodiscard]] constexpr bool
 	valid() const noexcept
 	{
-		return maxCrew > 0 && thrust.maxThrust > 0;
+		return maxCrew > 0 && thrust.max > 0;
 	}
 };
 
@@ -140,7 +143,7 @@ void cruiserSpecial(Battle &b, EntityId id) noexcept;
 
 // The Avenger's ship hook: the whole cloak state machine, activation
 // included (ilwrath_preprocess, ilwrath.c:232-394). Runs in the pre phase
-// because the C's does -- see ShipData::preProcess.
+// because the C's does -- see ShipSpec::preProcess.
 void ilwrathPreProcess(Battle &b, EntityId id) noexcept;
 
 // The Avenger's flame. The animation is the projectile: its frame advances
@@ -185,8 +188,8 @@ void startShipExplosion(Element &e) noexcept;
 // Throws off sparks while a dying ship burns. tactrans.c:542-615.
 void explosionPreProcess(Battle &b, EntityId id) noexcept;
 
-const ShipData &earthlingCruiser() noexcept;
-[[nodiscard]] const ShipData &ilwrathAvenger() noexcept;
+const ShipSpec &earthlingCruiser() noexcept;
+[[nodiscard]] const ShipSpec &ilwrathAvenger() noexcept;
 
 }  // namespace uqm::sim
 

@@ -304,8 +304,8 @@ struct Game
 	// the collision mask cut from the projectile art. The shared ones in sim/
 	// are static and content-free by design; wiring a mask into them would
 	// make sim/ depend on what has been loaded.
-	sim::ShipData cruiserData;
-	sim::ShipData avengerData;
+	sim::ShipSpec cruiserData;
+	sim::ShipSpec avengerData;
 
 	std::array<sim::EntityId, 2> ships{};
 	bool running = true;
@@ -522,17 +522,16 @@ setUp(Game &g, const std::filesystem::path &content)
 		std::fprintf(stderr, "audio: no device; the game runs silent\n");
 
 	// The descriptors first, then the content-derived masks on top. Losing
-	// these two lines leaves a default-constructed ShipData, whose maxThrust
-	// is 0 and whose turnWait is 0 -- a ship that cannot accelerate and spins
-	// every frame, with no crew and no weapon. It looks like a control bug and
-	// is not.
+	// these two lines leaves a default-constructed ShipSpec, whose
+	// thrust.max is 0 and whose turnWait is 0 -- a ship that cannot
+	// accelerate and spins every frame, with no crew and no weapon.
 	g.cruiserData = sim::earthlingCruiser();
 	g.avengerData = sim::ilwrathAvenger();
 
 	g.cruiserData.facingMasks = g.cruiser->masks;
 	g.avengerData.facingMasks = g.avenger->masks;
-	g.cruiserData.weaponMasks = g.nuke->masks;
-	g.avengerData.weaponMasks = g.flame->masks;
+	g.cruiserData.weapon.masks = g.nuke->masks;
+	g.avengerData.weapon.masks = g.flame->masks;
 
 	if (!g.cruiserData.valid() || !g.avengerData.valid())
 	{
@@ -541,7 +540,7 @@ setUp(Game &g, const std::filesystem::path &content)
 				"fly. This is a setup bug, not a control one.\n");
 	}
 
-	const auto addShip = [&g](const sim::ShipData &data, Vec2i at, int facing,
+	const auto addShip = [&g](const sim::ShipSpec &data, Vec2i at, int facing,
 							  int player) {
 		sim::Element e;
 		e.kind = sim::ElementKind::Ship;
@@ -559,7 +558,7 @@ setUp(Game &g, const std::filesystem::path &content)
 		const sim::CollisionMask *m =
 				set != nullptr ? set->maskFor(facing) : nullptr;
 		e.mask = m != nullptr ? m : &g.shipMask;
-		e.ship.data = &data;
+		e.ship.spec = &data;
 		// Warping in, not simply present. shipTransition hands over to
 		// shipPreProcess once the ship has arrived.
 		e.preProcess = sim::shipTransition;

@@ -33,15 +33,15 @@ namespace uqm::sim {
 struct ThrustProfile
 {
 	// Both in world units per frame.
-	std::int32_t maxThrust = 0;
-	std::int32_t thrustIncrement = 0;
+	std::int32_t max = 0;
+	std::int32_t increment = 0;
 
 	// thrust_increment == max_thrust is the Arilou Skiff: it reaches full
 	// speed in one frame and has no inertia at all. The C tests for this
 	// equality rather than carrying a flag, and so does this.
 	[[nodiscard]] constexpr bool inertialess() const noexcept
 	{
-		return thrustIncrement == maxThrust;
+		return increment == max;
 	}
 };
 

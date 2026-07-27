@@ -31,7 +31,7 @@ thrust(Velocity &velocity, int facing, const ThrustProfile &profile,
 	// integrate and no way to be beyond maximum.
 	if (profile.inertialess())
 	{
-		velocity.setVector(profile.maxThrust, facing);
+		velocity.setVector(profile.max, facing);
 		return SpeedState::AtMax;
 	}
 
@@ -41,7 +41,7 @@ thrust(Velocity &velocity, int facing, const ThrustProfile &profile,
 			&& !state.inGravityWell)
 		return state.speed;
 
-	const std::int32_t increment = worldToVelocity(profile.thrustIncrement);
+	const std::int32_t increment = worldToVelocity(profile.increment);
 	const Vec2i current = velocity.current();
 	const std::int64_t currentSpeed = speedSquared(current);
 
@@ -49,7 +49,7 @@ thrust(Velocity &velocity, int facing, const ThrustProfile &profile,
 		current.y + sine(currentAngle, increment)};
 	const std::int64_t desiredSpeed = speedSquared(desired);
 
-	const std::int32_t maxVel = worldToVelocity(profile.maxThrust);
+	const std::int32_t maxVel = worldToVelocity(profile.max);
 	const std::int64_t maxSpeed = std::int64_t{maxVel} * maxVel;
 
 	if (desiredSpeed <= maxSpeed)
@@ -74,7 +74,7 @@ thrust(Velocity &velocity, int facing, const ThrustProfile &profile,
 		// canonical max-speed vector when not already above it, so a whipped
 		// ship is not silently slowed.
 		if (currentSpeed <= maxSpeed)
-			velocity.setVector(profile.maxThrust, facing);
+			velocity.setVector(profile.max, facing);
 		return SpeedState::AtMax;
 	}
 

@@ -32,11 +32,11 @@ deltaEnergy(ShipState &s, std::int32_t delta) noexcept
 		return false;
 
 	s.energy += delta;
-	if (s.energy > s.data->maxEnergy)
-		s.energy = s.data->maxEnergy;
+	if (s.energy > s.spec->maxEnergy)
+		s.energy = s.spec->maxEnergy;
 	if (s.energy < 0)
 		s.energy = 0;
-	s.energyCounter = s.data->energyWait;
+	s.energyCounter = s.spec->energyWait;
 	return true;
 }
 
@@ -46,13 +46,13 @@ deltaEnergy(ShipState &s, std::int32_t delta) noexcept
 // new shape. Here the coupling is explicit, because the mask lives in the
 // simulation and the sprite does not.
 void
-applyFacingMask(Element &e, const ShipData &d) noexcept
+applyFacingMask(Element &e, const ShipSpec &spec) noexcept
 {
-	if (d.facingMasks.empty())
+	if (spec.facingMasks.empty())
 		return;
 	const std::size_t i =
-			static_cast<std::size_t>(e.facing) % d.facingMasks.size();
-	e.mask = &d.facingMasks[i];
+			static_cast<std::size_t>(e.facing) % spec.facingMasks.size();
+	e.mask = &spec.facingMasks[i];
 }
 
 }  // namespace
@@ -61,22 +61,22 @@ void
 shipPreProcess(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
-	if (e == nullptr || e->ship.data == nullptr)
+	if (e == nullptr || e->ship.spec == nullptr)
 		return;
 
 	ShipState &s = e->ship;
-	const ShipData &d = *s.data;
+	const ShipSpec &spec = *s.spec;
 
 	if (any(e->flags & ElementFlags::Appearing))
 	{
 		// First frame: the crew and energy come from the descriptor
 		// (ship.c:169). Input is deliberately *not* latched on the appearing
 		// frame, so a key held during the countdown does not fire on frame 1.
-		s.crew = d.maxCrew;
-		s.energy = d.maxEnergy;
+		s.crew = spec.maxCrew;
+		s.energy = spec.maxEnergy;
 		s.input = ShipInput::None;
 		e->owner = id;  // a ship is its own pParent
-		applyFacingMask(*e, d);
+		applyFacingMask(*e, spec);
 		return;
 	}
 
@@ -87,18 +87,18 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 	{
 		--s.energyCounter;
 	}
-	else if (s.energy < d.maxEnergy || d.energyRegen < 0)
+	else if (s.energy < spec.maxEnergy || spec.energyRegen < 0)
 	{
-		(void)deltaEnergy(s, d.energyRegen);
+		(void)deltaEnergy(s, spec.energyRegen);
 	}
 
 	// The ship's own hook, after regeneration and before turning -- the slot
 	// RACE_DESC.preprocess_func occupies (ship.c:232-236). The Ilwrath cloak
 	// lives here, which is what makes it win the energy race against the
 	// same frame's weapon: the C cloaks first and lets the shot fail.
-	if (d.preProcess != nullptr)
+	if (spec.preProcess != nullptr)
 	{
-		d.preProcess(b, id);
+		spec.preProcess(b, id);
 		e = b.get(id);
 		if (e == nullptr)
 			return;
@@ -114,8 +114,8 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 	{
 		const int delta = any(s.input & ShipInput::Left) ? -1 : 1;
 		e->facing = normalizeFacing(e->facing + delta);
-		e->turnWait = d.turnWait;
-		applyFacingMask(*e, d);
+		e->turnWait = spec.turnWait;
+		applyFacingMask(*e, spec);
 	}
 
 	// Thrust (ship.c:256-276). The facing is passed in rather than read off a
@@ -126,14 +126,14 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 	}
 	else if (any(s.input & ShipInput::Thrust))
 	{
-		s.speed = thrust(e->velocity, e->facing, d.thrust,
+		s.speed = thrust(e->velocity, e->facing, spec.thrust,
 				ThrustState{s.speed, s.inGravityWell});
 		// ship.c:263-267 clears the whole speed/gravity group and ORs in what
 		// inertial_thrust returned. Gravity re-sets the well flag next frame
 		// if the ship is still in one, so a ship that leaves the well loses
 		// its licence to exceed max speed on the very next thrust.
 		s.inGravityWell = false;
-		e->thrustWait = d.thrustWait;
+		e->thrustWait = spec.thrustWait;
 
 		// Exhaust, only on the frames the ship actually accelerates
 		// (ship.c:274) -- not on every frame the key is held.
@@ -151,11 +151,11 @@ void
 shipPostProcess(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
-	if (e == nullptr || e->ship.data == nullptr)
+	if (e == nullptr || e->ship.spec == nullptr)
 		return;
 
 	ShipState &s = e->ship;
-	const ShipData &d = *s.data;
+	const ShipSpec &spec = *s.spec;
 
 	// A dead ship does nothing further (ship.c:288-289).
 	if (s.crew == 0)
@@ -168,23 +168,24 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 		--s.weaponCounter;
 	}
 	else if (any(s.input & ShipInput::Weapon)
-			&& deltaEnergy(s, -d.weaponEnergyCost))
+			&& deltaEnergy(s, -spec.weapon.energyCost))
 	{
 		ShipView view;
 		view.position = e->next;
 		view.velocity = e->velocity;
 		view.facing = e->facing;
 		view.playerNr = e->playerNr;
-		view.weaponSpeed = d.weaponSpeed;
-		view.weaponLife = d.weaponLife;
-		view.weaponDamage = d.weaponDamage;
-		view.weaponHitPoints = d.weaponHitPoints;
-		view.muzzleOffset = d.muzzleOffset;
-		view.blastOffset = d.blastOffset;
+		view.weaponSpeed = spec.weapon.speed;
+		view.weaponLife = spec.weapon.life;
+		view.weaponDamage = spec.weapon.damage;
+		view.weaponHitPoints = spec.weapon.hitPoints;
+		view.muzzleOffset = spec.weapon.muzzleOffset;
+		view.blastOffset = spec.weapon.blastOffset;
 
 		SpawnBuffer buf{};
-		const std::size_t n =
-				d.spawnPrimary != nullptr ? d.spawnPrimary(view, buf) : 0;
+		const std::size_t n = spec.weapon.spawn != nullptr
+				? spec.weapon.spawn(view, buf)
+				: 0;
 
 		for (std::size_t i = 0; i < n; ++i)
 		{
@@ -213,24 +214,25 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			// happened to select. colorCycle carries the frame for the
 			// renderer and for any per-frame hook that advances it.
 			w.colorCycle = sp.frameIndex;
-			w.mask = d.weaponMasks.empty()
+			w.mask = spec.weapon.masks.empty()
 					? nullptr
-					: &d.weaponMasks[static_cast<std::size_t>(sp.frameIndex)
-							% d.weaponMasks.size()];
-			w.onCollision = d.weaponOnCollision != nullptr
-					? d.weaponOnCollision
+					: &spec.weapon.masks[static_cast<std::size_t>(
+							  sp.frameIndex)
+							% spec.weapon.masks.size()];
+			w.onCollision = spec.weapon.onCollision != nullptr
+					? spec.weapon.onCollision
 					: weaponCollision;
 			w.preProcess = sp.preProcess != nullptr ? sp.preProcess
-													: d.weaponPreProcess;
+													: spec.weapon.preProcess;
 			// A guided shot starts with its tracking clock already wound:
 			// initialize_nuke seeds turn_wait = TRACK_WAIT (human.c:297-299),
 			// so the first steer lands on the fourth hook frame, not the
 			// first. Zero for everything unguided.
-			w.turnWait = d.weaponTrackWait;
+			w.turnWait = spec.weapon.trackWait;
 			// The shot reads its own guidance parameters from the descriptor
 			// that fired it, so it carries the pointer. It is not a ship and
 			// has no ShipState otherwise.
-			w.ship.data = &d;
+			w.ship.spec = &spec;
 			w.flags = ElementFlags::FiniteLife;
 			if (sp.ignoreSimilar)
 				w.flags |= ElementFlags::IgnoreSimilar;
@@ -268,7 +270,7 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			b.spawnBack(std::move(w));
 		}
 
-		s.weaponCounter = d.weaponWait;
+		s.weaponCounter = spec.weapon.wait;
 	}
 
 	// SPECIAL. The engine's own part is only the counter (ship.c:342-343);
@@ -283,9 +285,9 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 	if (s.specialCounter > 0)
 		--s.specialCounter;
 	if (s.specialCounter == 0 && any(s.input & ShipInput::Special)
-			&& d.special != nullptr)
+			&& spec.special.hook != nullptr)
 	{
-		d.special(b, id);
+		spec.special.hook(b, id);
 	}
 }
 
@@ -379,10 +381,10 @@ void
 nukePreProcess(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
-	if (e == nullptr || e->ship.data == nullptr)
+	if (e == nullptr || e->ship.spec == nullptr)
 		return;
 
-	const ShipData &d = *e->ship.data;
+	const ShipSpec &spec = *e->ship.spec;
 
 	// Steer, but only every TRACK_WAIT frames (human.c:133-146).
 	int facing = e->facing;
@@ -397,7 +399,7 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 		if (e == nullptr)
 			return;
 		e->facing = facing;
-		e->turnWait = d.weaponTrackWait;
+		e->turnWait = spec.weapon.trackWait;
 
 		// And the mask follows the facing. Leaving it at the launch facing is
 		// what made a steering nuke look like it was tumbling rather than
@@ -407,19 +409,19 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 		// colorCycle is the cel the renderer draws, and for a directional
 		// missile that is the facing.
 		e->colorCycle = e->facing;
-		if (!d.weaponMasks.empty())
-			e->mask = &d.weaponMasks[static_cast<std::size_t>(e->facing)
-					% d.weaponMasks.size()];
+		if (!spec.weapon.masks.empty())
+			e->mask = &spec.weapon.masks[static_cast<std::size_t>(e->facing)
+					% spec.weapon.masks.size()];
 	}
 
 	// And accelerate as it goes (human.c:148-157): speed climbs with how much
 	// of its life it has spent, capped. A nuke that has been chasing you for a
 	// while is much harder to outrun than one just launched, which is most of
 	// what makes the Cruiser feel like the Cruiser.
-	std::int32_t speed = d.weaponSpeed
-			+ (d.weaponLife - e->lifeSpan) * d.weaponThrustScale;
-	if (speed > d.weaponMaxSpeed)
-		speed = d.weaponMaxSpeed;
+	std::int32_t speed = spec.weapon.speed
+			+ (spec.weapon.life - e->lifeSpan) * spec.weapon.thrustScale;
+	if (speed > spec.weapon.maxSpeed)
+		speed = spec.weapon.maxSpeed;
 	e->velocity.setVector(speed, e->facing);
 }
 
@@ -436,10 +438,10 @@ flamePreProcess(Battle &b, EntityId id) noexcept
 	// GROWS as it flies. CHANGING re-inits the intersect frame in the C
 	// (process.c:159-160); here the mask update is that re-init.
 	++e->colorCycle;
-	const ShipData *d = e->ship.data;
-	if (d != nullptr && !d->weaponMasks.empty())
-		e->mask = &d->weaponMasks[static_cast<std::size_t>(e->colorCycle)
-				% d->weaponMasks.size()];
+	const ShipSpec *spec = e->ship.spec;
+	if (spec != nullptr && !spec->weapon.masks.empty())
+		e->mask = &spec->weapon.masks[static_cast<std::size_t>(e->colorCycle)
+				% spec->weapon.masks.size()];
 }
 
 void
@@ -488,7 +490,7 @@ void
 shipTransition(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
-	if (e == nullptr || e->ship.data == nullptr)
+	if (e == nullptr || e->ship.spec == nullptr)
 		return;
 
 	if (any(e->flags & ElementFlags::Appearing))
@@ -497,8 +499,8 @@ shipTransition(Battle &b, EntityId id) noexcept
 		// (tactrans.c:858-866). The ship is in the simulation the whole time
 		// -- it simply cannot be hit and is not drawn -- which is what stops
 		// two ships materialising inside each other.
-		e->ship.crew = e->ship.data->maxCrew;
-		e->ship.energy = e->ship.data->maxEnergy;
+		e->ship.crew = e->ship.spec->maxCrew;
+		e->ship.energy = e->ship.spec->maxEnergy;
 		e->ship.input = ShipInput::None;
 		e->owner = id;
 		e->lifeSpan = kWarpInFrames;
@@ -553,7 +555,7 @@ shipTransition(Battle &b, EntityId id) noexcept
 		e->preProcess = shipPreProcess;
 		e->postProcess = shipPostProcess;
 		e->lifeSpan = 1;  // NORMAL_LIFE: persistent again
-		applyFacingMask(*e, *e->ship.data);
+		applyFacingMask(*e, *e->ship.spec);
 	}
 }
 
@@ -665,11 +667,11 @@ void
 cruiserSpecial(Battle &b, EntityId id) noexcept
 {
 	auto ship = b.get(id);
-	if (ship == nullptr || ship->ship.data == nullptr)
+	if (ship == nullptr || ship->ship.spec == nullptr)
 		return;
 
-	const ShipData &d = *ship->ship.data;
-	const std::int32_t range = d.pointDefenceRange;
+	const ShipSpec &spec = *ship->ship.spec;
+	const std::int32_t range = spec.special.pointDefenceRange;
 	if (range <= 0)
 		return;
 
@@ -714,9 +716,9 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		if (!paid)
 		{
-			if (!deltaEnergy(ship->ship, -d.specialEnergyCost))
+			if (!deltaEnergy(ship->ship, -spec.special.energyCost))
 				return;  // cannot afford it, so nothing burns
-			ship->ship.specialCounter = d.specialWait;
+			ship->ship.specialCounter = spec.special.wait;
 			paid = true;
 		}
 
@@ -800,7 +802,7 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 	if (e->turnWait == 0)
 		e->turnWait = 1;
 
-	applyFacingMask(*e, *e->ship.data);
+	applyFacingMask(*e, *e->ship.spec);
 }
 
 }  // namespace
@@ -809,11 +811,11 @@ void
 ilwrathPreProcess(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
-	if (e == nullptr || e->ship.data == nullptr)
+	if (e == nullptr || e->ship.spec == nullptr)
 		return;
 
 	ShipState &s = e->ship;
-	const ShipData &d = *s.data;
+	const ShipSpec &spec = *s.spec;
 
 	// ilwrath_preprocess (ilwrath.c:232-394), with cloakLevel standing in
 	// for the prim type and colour. The direction of the walk is derived
@@ -828,7 +830,7 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 	if (s.cloakLevel > 0)  // the prim is STAMPFILL: the machine is engaged
 	{
 		const bool weaponDischarge = any(s.input & ShipInput::Weapon)
-				&& s.energy >= d.weaponEnergyCost;
+				&& s.energy >= spec.weapon.energyCost;
 
 		if (weaponDischarge
 				|| (s.specialCounter == 0
@@ -879,22 +881,22 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 	// either has the counter running or just masked SPECIAL above.
 	if (!specialMasked && any(s.input & ShipInput::Special)
 			&& s.specialCounter == 0
-			&& deltaEnergy(s, -d.specialEnergyCost))
+			&& deltaEnergy(s, -spec.special.energyCost))
 	{
 		s.cloakLevel = 1;  // WHITE, the walk's first colour
-		s.specialCounter = d.specialWait;
+		s.specialCounter = spec.special.wait;
 	}
 }
 
 // --------------------------------------------------------------------------
 // The two M1 ships.
 
-const ShipData &
+const ShipSpec &
 earthlingCruiser() noexcept
 {
 	// human.c:27-49. MAX_THRUST 24, THRUST_INCREMENT 3.
-	static const ShipData data = [] {
-		ShipData d;
+	static const ShipSpec data = [] {
+		ShipSpec d;
 		d.maxCrew = 18;
 		d.maxEnergy = 18;
 		d.energyRegen = 1;
@@ -902,42 +904,42 @@ earthlingCruiser() noexcept
 		d.thrust = ThrustProfile{24, 3};
 		d.thrustWait = 4;
 		d.turnWait = 1;
-		d.weaponWait = 10;
-		d.weaponEnergyCost = 9;
-		d.specialWait = 9;
-		d.specialEnergyCost = 4;
+		d.weapon.wait = 10;
+		d.weapon.energyCost = 9;
+		d.special.wait = 9;
+		d.special.energyCost = 4;
 		d.mass = 6;
-		d.spawnPrimary = spawnCruiserPrimary;
+		d.weapon.spawn = spawnCruiserPrimary;
 		// MISSILE_SPEED is max(MAX_THRUST, DISPLAY_TO_WORLD(10)) == 40.
-		d.weaponSpeed = 40;
-		d.weaponLife = 60;
-		d.weaponDamage = 4;
-		d.weaponHitPoints = 1;
-		d.muzzleOffset = 42;   // HUMAN_OFFSET
-		d.blastOffset = 8;     // NUKE_OFFSET
+		d.weapon.speed = 40;
+		d.weapon.life = 60;
+		d.weapon.damage = 4;
+		d.weapon.hitPoints = 1;
+		d.weapon.muzzleOffset = 42;   // HUMAN_OFFSET
+		d.weapon.blastOffset = 8;     // NUKE_OFFSET
 
 		// The nuke is guided and accelerates: TRACK_WAIT 3,
 		// MAX_MISSILE_SPEED = DISPLAY_TO_WORLD(20) == 80, THRUST_SCALE =
 		// DISPLAY_TO_WORLD(1) == 4 (human.c:43-50).
-		d.weaponTrackWait = 3;
-		d.weaponMaxSpeed = 80;
-		d.weaponThrustScale = 4;
-		d.weaponPreProcess = nukePreProcess;
-		d.special = cruiserSpecial;
-		d.pointDefenceRange = 100;   // LASER_RANGE
+		d.weapon.trackWait = 3;
+		d.weapon.maxSpeed = 80;
+		d.weapon.thrustScale = 4;
+		d.weapon.preProcess = nukePreProcess;
+		d.special.hook = cruiserSpecial;
+		d.special.pointDefenceRange = 100;   // LASER_RANGE
 		return d;
 	}();
 	return data;
 }
 
-const ShipData &
+const ShipSpec &
 ilwrathAvenger() noexcept
 {
 	// ilwrath.c:28-49. Note THRUST_WAIT 0 and WEAPON_WAIT 0 -- the Avenger
 	// accelerates every frame and its flame is continuous, which is why it
 	// feels nothing like the Cruiser.
-	static const ShipData data = [] {
-		ShipData d;
+	static const ShipSpec data = [] {
+		ShipSpec d;
 		d.maxCrew = 22;
 		d.maxEnergy = 16;
 		d.energyRegen = 4;
@@ -945,22 +947,22 @@ ilwrathAvenger() noexcept
 		d.thrust = ThrustProfile{25, 5};
 		d.thrustWait = 0;
 		d.turnWait = 2;
-		d.weaponWait = 0;
-		d.weaponEnergyCost = 1;
-		d.specialWait = 13;
-		d.specialEnergyCost = 3;
+		d.weapon.wait = 0;
+		d.weapon.energyCost = 1;
+		d.special.wait = 13;
+		d.special.energyCost = 3;
 		d.mass = 7;
-		d.spawnPrimary = spawnAvengerPrimary;
-		d.weaponSpeed = 25;    // MISSILE_SPEED == MAX_THRUST
-		d.weaponLife = 8;
-		d.weaponDamage = 1;
-		d.weaponHitPoints = 1;
-		d.muzzleOffset = 29;   // ILWRATH_OFFSET
-		d.blastOffset = 0;     // MISSILE_OFFSET
-		d.weaponPreProcess = flamePreProcess;
-		d.weaponOnCollision = flameCollision;
+		d.weapon.spawn = spawnAvengerPrimary;
+		d.weapon.speed = 25;    // MISSILE_SPEED == MAX_THRUST
+		d.weapon.life = 8;
+		d.weapon.damage = 1;
+		d.weapon.hitPoints = 1;
+		d.weapon.muzzleOffset = 29;   // ILWRATH_OFFSET
+		d.weapon.blastOffset = 0;     // MISSILE_OFFSET
+		d.weapon.preProcess = flamePreProcess;
+		d.weapon.onCollision = flameCollision;
 		// The cloak is the ship hook, not a post-phase special: it must win
-		// the energy race against the same frame's shot (see ShipData).
+		// the energy race against the same frame's shot (see ShipSpec).
 		d.preProcess = ilwrathPreProcess;
 		return d;
 	}();

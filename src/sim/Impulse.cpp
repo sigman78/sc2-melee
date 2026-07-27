@@ -42,7 +42,7 @@ deriveSpeedState(const Velocity &v, const ThrustProfile &profile) noexcept
 {
 	const Vec2i c = v.current();
 	const std::int64_t speedSq = std::int64_t{c.x} * c.x + std::int64_t{c.y} * c.y;
-	const std::int64_t maxVel = worldToVelocity(profile.maxThrust);
+	const std::int64_t maxVel = worldToVelocity(profile.max);
 	const std::int64_t maxSq = maxVel * maxVel;
 
 	if (speedSq > maxSq)

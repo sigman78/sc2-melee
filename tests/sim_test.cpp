@@ -1159,7 +1159,7 @@ testDeriveSpeedStateFromVelocity()
 // Ships
 
 EntityId
-addShip(Battle &b, const ShipData &data, Vec2i at, int facing, int player)
+addShip(Battle &b, const ShipSpec &data, Vec2i at, int facing, int player)
 {
 	Element e;
 	e.kind = ElementKind::Ship;
@@ -1169,7 +1169,7 @@ addShip(Battle &b, const ShipData &data, Vec2i at, int facing, int player)
 	e.facing = facing;
 	e.playerNr = player;
 	e.mass = data.mass;
-	e.ship.data = &data;
+	e.ship.spec = &data;
 	return b.spawnBack(std::move(e));
 }
 
@@ -1235,7 +1235,7 @@ testFiringSpendsEnergyAndRespectsCooldown()
 			"and spent 9 energy, got %ld",
 			static_cast<long>(b.get(id)->ship.energy));
 
-	// weaponWait is 10, so holding the trigger must not fire again yet.
+	// weapon.wait is 10, so holding the trigger must not fire again yet.
 	b.step();
 	CHECK(b.elements().size() == 2,
 			"the cooldown should block a second shot, got %d elements and "
@@ -1301,7 +1301,7 @@ testFiringPostponesEnergyRegen()
 	// Every successful energy spend re-arms the regeneration countdown
 	// (status.c:317-323), so a ship that fires continuously does not
 	// regenerate while it can still afford the shots. The Avenger is the
-	// sharpest case: cost 1, weaponWait 0, regen 4 every 4 -- without the
+	// sharpest case: cost 1, weapon.wait 0, regen 4 every 4 -- without the
 	// re-arm its flame is close to self-sustaining instead of a 16-frame
 	// burst.
 	Battle b(1);
@@ -1329,20 +1329,20 @@ countingSpecial(Battle &b, EntityId id) noexcept
 	if (e == nullptr)
 		return;
 	++g_specialFires;
-	e->ship.specialCounter = e->ship.data->specialWait;
+	e->ship.specialCounter = e->ship.spec->special.wait;
 }
 
 void
 testSpecialFiresTheFrameItsCounterExpires()
 {
 	// The C decrements special_counter and then lets the ship code see the
-	// result (ship.c:342-346), so a held special re-fires every specialWait
+	// result (ship.c:342-346), so a held special re-fires every special.wait
 	// frames -- the frame the counter reaches zero, not the one after.
-	static ShipData d = [] {
-		ShipData d_ = earthlingCruiser();
-		d_.specialWait = 3;
-		d_.specialEnergyCost = 0;
-		d_.special = countingSpecial;
+	static ShipSpec d = [] {
+		ShipSpec d_ = earthlingCruiser();
+		d_.special.wait = 3;
+		d_.special.energyCost = 0;
+		d_.special.hook = countingSpecial;
 		return d_;
 	}();
 
@@ -1359,7 +1359,7 @@ testSpecialFiresTheFrameItsCounterExpires()
 
 	// Fires on the 1st step (counter 0) and again on the 4th, when the
 	// counter set to 3 has just been decremented to 0 -- a period of
-	// specialWait, not specialWait + 1.
+	// special.wait, not special.wait + 1.
 	CHECK(g_specialFires == 2,
 			"a held special with wait 3 should fire twice in 4 frames, got %d",
 			g_specialFires);
@@ -1374,9 +1374,9 @@ testOpposingMissilesDestroyEachOther()
 	// the mechanism behind flame-intercepts-nuke; a weapon spawned massless
 	// silently turns it off.
 	static CollisionMask shotMask = solid(3, 3);
-	static ShipData d = [] {
-		ShipData d_ = earthlingCruiser();
-		d_.weaponMasks = std::span<const CollisionMask>(&shotMask, 1);
+	static ShipSpec d = [] {
+		ShipSpec d_ = earthlingCruiser();
+		d_.weapon.masks = std::span<const CollisionMask>(&shotMask, 1);
 		return d_;
 	}();
 
@@ -1428,16 +1428,16 @@ testTheTwoShipsFeelDifferent()
 {
 	// Not a rendering claim -- these are the numbers that make the Avenger
 	// play nothing like the Cruiser, and they come straight from the C.
-	const ShipData &cruiser = earthlingCruiser();
-	const ShipData &avenger = ilwrathAvenger();
+	const ShipSpec &cruiser = earthlingCruiser();
+	const ShipSpec &avenger = ilwrathAvenger();
 
 	CHECK(cruiser.thrustWait == 4 && avenger.thrustWait == 0,
 			"the Avenger accelerates every frame, the Cruiser every fourth");
-	CHECK(cruiser.weaponWait == 10 && avenger.weaponWait == 0,
+	CHECK(cruiser.weapon.wait == 10 && avenger.weapon.wait == 0,
 			"the Avenger's flame is continuous, the Cruiser's missiles are not");
 	CHECK(cruiser.turnWait == 1 && avenger.turnWait == 2,
 			"but the Cruiser turns twice as fast");
-	CHECK(cruiser.weaponEnergyCost == 9 && avenger.weaponEnergyCost == 1,
+	CHECK(cruiser.weapon.energyCost == 9 && avenger.weapon.energyCost == 1,
 			"and pays 9 a shot against the Avenger's 1");
 }
 
@@ -1723,11 +1723,11 @@ testMissileDamagesAndSpendsItself()
 	Battle b(1);
 
 	// A local copy of the descriptor so the missile gets a collision mask.
-	// The real one comes from content; ShipData::weaponMask is null until
+	// The real one comes from content; ShipSpec::weapon.masks is null until
 	// something loads it, and a weapon with no mask cannot hit anything.
-	static const ShipData cruiser = [&m] {
-		ShipData d = earthlingCruiser();
-		d.weaponMasks = std::span<const CollisionMask>(&m, 1);
+	static const ShipSpec cruiser = [&m] {
+		ShipSpec d = earthlingCruiser();
+		d.weapon.masks = std::span<const CollisionMask>(&m, 1);
 		return d;
 	}();
 
@@ -2037,8 +2037,8 @@ testTurningIntoOverlapIsReverted()
 	static std::array<CollisionMask, 2> masks = [] {
 		return std::array<CollisionMask, 2>{solid(4, 4), solid(16, 16)};
 	}();
-	static ShipData d = [] {
-		ShipData d_ = earthlingCruiser();
+	static ShipSpec d = [] {
+		ShipSpec d_ = earthlingCruiser();
 		d_.turnWait = 0;
 		d_.facingMasks = std::span<const CollisionMask>(masks);
 		return d_;
@@ -2140,9 +2140,9 @@ testPointDefenceBurnsOwnNuke()
 	// nuke. That is a real tactical constraint, not a bug -- review-001 A15,
 	// decided faithful.
 	static CollisionMask shotMask = solid(3, 3);
-	static ShipData d = [] {
-		ShipData d_ = earthlingCruiser();
-		d_.weaponMasks = std::span<const CollisionMask>(&shotMask, 1);
+	static ShipSpec d = [] {
+		ShipSpec d_ = earthlingCruiser();
+		d_.weapon.masks = std::span<const CollisionMask>(&shotMask, 1);
 		return d_;
 	}();
 
@@ -2288,8 +2288,8 @@ testShipWarpsInBeforeItIsSolid()
 	e.next = e.current;
 	e.facing = 4;
 	e.playerNr = 0;
-	e.ship.data = &sim::earthlingCruiser();
-	e.mass = e.ship.data->mass;
+	e.ship.spec = &sim::earthlingCruiser();
+	e.mass = e.ship.spec->mass;
 	e.preProcess = sim::shipTransition;
 	b.spawnBack(std::move(e));
 
