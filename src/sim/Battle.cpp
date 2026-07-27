@@ -127,16 +127,24 @@ Battle::testPair(EntityId aId, EntityId bId)
 					|| any(b->flags & ElementFlags::IgnoreSimilar)))
 		return false;
 
-	const Body ba{a->mask, a->current, a->next};
-	const Body bb{b->mask, b->current, b->next};
+	// Masks are measured in display pixels and positions are in world units,
+	// so the conversion is not optional -- feeding world coordinates to the
+	// intersect test makes everything four times further apart than it is and
+	// nothing ever touches. The C converts at exactly this boundary, in
+	// InitIntersectStartPoint/EndPoint (collide.h:44-54).
+	const Body ba{a->mask, worldToDisplay(a->current), worldToDisplay(a->next)};
+	const Body bb{b->mask, worldToDisplay(b->current), worldToDisplay(b->next)};
 	const Impact hit = sweptIntersect(ba, bb);
 	if (!hit)
 		return false;
 
 	// Both stop where they met, which is what the C writes back through
 	// EndPoint, and both are marked so neither is tested again this frame.
-	a->next = hit.at0;
-	b->next = hit.at1;
+	// The round trip through display space costs sub-pixel precision, which is
+	// what the C loses too -- EndPoint is display space and there is nothing
+	// finer to write back.
+	a->next = displayToWorld(hit.at0);
+	b->next = displayToWorld(hit.at1);
 	a->collidedWith = bId;
 	b->collidedWith = aId;
 	a->flags |= ElementFlags::Collided;
@@ -146,6 +154,17 @@ Battle::testPair(EntityId aId, EntityId bId)
 	// whoever owns them, from the collidedWith they were just given.
 	if (a->kind != ElementKind::Weapon && b->kind != ElementKind::Weapon)
 		applyImpulse(*a, *b);
+
+	// Then each side's collision hook, which is where damage happens. Both
+	// run, and each reads its own `collidedWith` -- the C calls collision_func
+	// on both elements too. Re-fetched around every call because a hook can
+	// remove things, including itself.
+	const ElementHook aHook = a->onCollision;
+	const ElementHook bHook = b->onCollision;
+	if (aHook != nullptr)
+		aHook(*this, aId);
+	if (bHook != nullptr && elements_.get(bId) != nullptr)
+		bHook(*this, bId);
 	return true;
 }
 

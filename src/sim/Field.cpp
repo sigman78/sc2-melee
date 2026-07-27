@@ -3,6 +3,7 @@
 #include "Field.hpp"
 
 #include "sim/Battle.hpp"
+#include "sim/Damage.hpp"
 #include "sim/Gravity.hpp"
 #include "sim/Trig.hpp"
 #include "sim/World.hpp"
@@ -108,6 +109,7 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	p.lifeSpan = 2;              // NORMAL_LIFE + 1 (misc.c:55)
 	p.mask = mask;
 	p.postProcess = planetPostProcess;
+	p.onCollision = solidCollision;
 	p.velocity.zero();
 
 	// Mass is assigned only *after* placement in the C (misc.c:71), and that
@@ -141,6 +143,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	a.lifeSpan = 1;              // NORMAL_LIFE, and never decremented
 	a.mask = mask;
 	a.preProcess = asteroidPreProcess;
+	a.onCollision = solidCollision;
 	a.onDeath = asteroidDeath;
 
 	// Six draws, in the order misc.c:156-191 makes them. The comment there

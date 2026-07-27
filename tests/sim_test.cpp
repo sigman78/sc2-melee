@@ -7,6 +7,7 @@
 
 #include "sim/Battle.hpp"
 #include "sim/Collision.hpp"
+#include "sim/Damage.hpp"
 #include "sim/EntityList.hpp"
 #include "sim/Field.hpp"
 #include "sim/Gravity.hpp"
@@ -1481,11 +1482,184 @@ testPlanetPlacementAvoidsEverything()
 			"and the ship should not start inside its well");
 }
 
+// --------------------------------------------------------------------------
+// Damage
+
+void
+testDeltaCrewReportsDeathOnTheExactHit()
+{
+	Battle b(1);
+	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{1000, 1000}, 0, 0);
+	b.get(id)->preProcess = shipPreProcess;
+	b.step();  // the appearing frame is what loads crew from the descriptor
+
+	CHECK(b.get(id)->ship.crew == 18, "the Cruiser starts with 18 crew, got %ld",
+			static_cast<long>(b.get(id)->ship.crew));
+
+	CHECK(deltaCrew(*b.get(id), -4), "losing 4 of 18 is survivable");
+	CHECK(b.get(id)->ship.crew == 14, "and leaves 14, got %ld",
+			static_cast<long>(b.get(id)->ship.crew));
+
+	// status.c:357 compares with a strict `>`, so losing exactly what is left
+	// is death, not a ship sitting at zero crew. Off by one here and a ship
+	// survives its own destruction.
+	CHECK(!deltaCrew(*b.get(id), -14), "losing exactly the remainder is death");
+	CHECK(b.get(id)->ship.crew == 0, "and leaves nothing");
+
+	// Repair cannot exceed the maximum.
+	CHECK(deltaCrew(*b.get(id), 100), "repair always succeeds");
+	CHECK(b.get(id)->ship.crew == 18, "and is capped at max, got %ld",
+			static_cast<long>(b.get(id)->ship.crew));
+}
+
+void
+testPlanetsTakeNoDamage()
+{
+	Element planet;
+	planet.kind = ElementKind::Planet;
+	planet.mass = 200;
+	planet.hitPoints = 200;
+	planet.lifeSpan = 2;
+
+	doDamage(planet, 50);
+	CHECK(planet.hitPoints == 200, "a planet is not damageable, got %ld",
+			static_cast<long>(planet.hitPoints));
+	CHECK(planet.lifeSpan == 2, "and is certainly not killable");
+
+	// The same call, asked of a ship that has fled to mass 100. isGravityMass
+	// is the predicate *without* gravity.c's `+ 1`, so it stays damageable
+	// even while gravity treats it as a source.
+	Element fleeing;
+	fleeing.kind = ElementKind::Ship;
+	fleeing.mass = kGravityMass;
+	fleeing.hitPoints = 10;
+	doDamage(fleeing, 4);
+	CHECK(fleeing.hitPoints == 6,
+			"a fleeing ship is still damageable, got %ld",
+			static_cast<long>(fleeing.hitPoints));
+}
+
+void
+testMissileDamagesAndSpendsItself()
+{
+	const CollisionMask m = solid(8, 8);
+	Battle b(1);
+
+	// A local copy of the descriptor so the missile gets a collision mask.
+	// The real one comes from content; ShipData::weaponMask is null until
+	// something loads it, and a weapon with no mask cannot hit anything.
+	static const ShipData cruiser = [&m] {
+		ShipData d = earthlingCruiser();
+		d.weaponMask = &m;
+		return d;
+	}();
+
+	// Two ships nose to nose, so the Cruiser's missile cannot miss.
+	const EntityId gunner = addShip(b, cruiser, Vec2i{4000, 4000}, 0, 0);
+	b.get(gunner)->preProcess = shipPreProcess;
+	b.get(gunner)->postProcess = shipPostProcess;
+	b.get(gunner)->mask = &m;
+
+	// 400 world units away, not 100. HUMAN_OFFSET is 42 *display* pixels,
+	// which is 168 world units, so the Cruiser's missile is born further from
+	// the hull than a closer target would be -- it would spawn already past
+	// it and sail off having never touched anything.
+	const EntityId target =
+			addShip(b, ilwrathAvenger(), Vec2i{4000, 3600}, 8, 1);
+	b.get(target)->preProcess = shipPreProcess;
+	b.get(target)->mask = &m;
+	b.step();
+
+	const std::int32_t before = b.get(target)->ship.crew;
+	CHECK(before == 22, "the Avenger starts with 22 crew, got %ld",
+			static_cast<long>(before));
+
+	b.get(gunner)->ship.input = ShipInput::Weapon;
+	b.step();
+	b.get(gunner)->ship.input = ShipInput::None;
+
+	// The missile flies -40 a frame from y=3832, so it reaches y=3600 in about
+	// six. MISSILE_DAMAGE is 4.
+	for (int i = 0; i < 12 && b.get(target)->ship.crew == before; ++i)
+		b.step();
+
+	CHECK(b.get(target)->ship.crew == before - 4,
+			"the missile should cost 4 crew, got %ld",
+			static_cast<long>(b.get(target)->ship.crew));
+
+	int weapons = 0;
+	int blasts = 0;
+	for (EntityId e = b.elements().front(); e.valid(); e = b.elements().next(e))
+	{
+		if (b.get(e)->kind == ElementKind::Weapon)
+			++weapons;
+		if (b.get(e)->kind == ElementKind::Blast)
+			++blasts;
+	}
+	CHECK(weapons == 0, "the missile should be spent, got %d", weapons);
+	CHECK(blasts == 1, "and should have left a blast, got %d", blasts);
+}
+
+void
+testFlyingIntoAPlanetCostsOnePoint()
+{
+	const CollisionMask m = solid(8, 8);
+	Battle b(1);
+
+	Element planet;
+	planet.kind = ElementKind::Planet;
+	planet.playerNr = -1;
+	planet.mass = 200;
+	planet.hitPoints = 200;
+	planet.lifeSpan = 2;
+	planet.mask = &m;
+	planet.current = Vec2i{4000, 4000};
+	planet.next = planet.current;
+	planet.onCollision = solidCollision;
+	(void)b.spawnBack(std::move(planet));
+
+	// Spawned clear of the planet, then moved into it. Starting them on top of
+	// each other is not a shortcut: the planet's collision is resolved before
+	// the ship's own first preprocess has loaded its crew from the descriptor,
+	// so the ship takes damage while still at zero and is destroyed on frame
+	// one. The C has the same ordering, and avoids it the same way -- by never
+	// placing a ship inside anything (misc.c:63-70, ship.c:480).
+	const EntityId ship = addShip(b, earthlingCruiser(), Vec2i{5000, 5000}, 0, 0);
+	b.get(ship)->preProcess = shipPreProcess;
+	b.get(ship)->mask = &m;
+	b.get(ship)->onCollision = solidCollision;
+	b.step();
+
+	CHECK(b.get(ship) != nullptr, "the ship should have survived setup");
+	if (b.get(ship) == nullptr)
+		return;
+
+	const std::int32_t before = b.get(ship)->ship.crew;
+	b.get(ship)->current = Vec2i{4000, 4004};
+	b.get(ship)->next = b.get(ship)->current;
+	b.step();
+	CHECK(b.get(ship) != nullptr, "and should survive one planet graze");
+	if (b.get(ship) == nullptr)
+		return;
+
+	// ship.c:364-367 computes hit_points >> 2 with a floor of 1, and a player
+	// ship's hit_points is never assigned in melee -- so this is always
+	// exactly 1, however grand the arithmetic looks.
+	CHECK(b.get(ship)->ship.crew == before - 1,
+			"hitting a planet should cost exactly 1 crew, got %ld (was %ld)",
+			static_cast<long>(b.get(ship)->ship.crew),
+			static_cast<long>(before));
+}
+
 }  // namespace
 
 int
 main()
 {
+	testDeltaCrewReportsDeathOnTheExactHit();
+	testPlanetsTakeNoDamage();
+	testMissileDamagesAndSpendsItself();
+	testFlyingIntoAPlanetCostsOnePoint();
 	testGravityMassThreshold();
 	testGravityPullsTowardTheSource();
 	testGravityHasAHardEdge();

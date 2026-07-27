@@ -27,6 +27,7 @@ add_library(uqm2_content STATIC
 	# that links this library today is a headless test.
 	sim/Battle.cpp
 	sim/Collision.cpp
+	sim/Damage.cpp
 	sim/Field.cpp
 	sim/Gravity.cpp
 	sim/Impulse.cpp

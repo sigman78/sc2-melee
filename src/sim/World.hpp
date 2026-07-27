@@ -56,6 +56,21 @@ worldToDisplay(std::int32_t x) noexcept
 	return x >> kOneShift;
 }
 
+// Point conversions. Collision masks are measured in display pixels, so
+// anything handed to the intersect test has to come through here first --
+// that is what InitIntersectStartPoint/EndPoint do in the C (collide.h:44-54).
+constexpr Vec2i
+displayToWorld(Vec2i p) noexcept
+{
+	return Vec2i{displayToWorld(p.x), displayToWorld(p.y)};
+}
+
+constexpr Vec2i
+worldToDisplay(Vec2i p) noexcept
+{
+	return Vec2i{worldToDisplay(p.x), worldToDisplay(p.y)};
+}
+
 // The torus. 256 * 4 * 8 == 8192 by 240 * 4 * 8 == 7680.
 inline constexpr std::int32_t kLogSpaceWidth =
 		displayToWorld(kSpaceWidth) << kMaxReduction;

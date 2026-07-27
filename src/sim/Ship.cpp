@@ -3,6 +3,7 @@
 #include "Ship.hpp"
 
 #include "sim/Battle.hpp"
+#include "sim/Damage.hpp"
 #include "sim/Trig.hpp"
 
 #include <cstddef>
@@ -147,7 +148,9 @@ shipPostProcess(Battle &b, EntityId id) noexcept
 			w.hitPoints = sp.hitPoints;
 			w.damage = sp.damage;
 			w.mass = 0;
+			w.blastOffset = sp.blastOffset;
 			w.mask = d.weaponMask;
+			w.onCollision = weaponCollision;
 			w.flags = ElementFlags::FiniteLife;
 			if (sp.ignoreSimilar)
 				w.flags |= ElementFlags::IgnoreSimilar;

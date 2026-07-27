@@ -239,6 +239,11 @@ struct Element
 	std::int32_t mass = 0;
 	std::int32_t damage = 0;
 
+	// How far along its travel direction a weapon's blast sits, in display
+	// pixels, so the explosion lands on the surface it hit rather than inside
+	// it (weapon.c:202-208).
+	std::int32_t blastOffset = 0;
+
 	// Frames until the ship may turn or thrust again. A collision adds to
 	// both, which is the stagger you feel after hitting something
 	// (collide.c:113-116).
@@ -251,6 +256,10 @@ struct Element
 	ElementHook preProcess = nullptr;
 	ElementHook postProcess = nullptr;
 	ElementHook onDeath = nullptr;
+
+	// Runs after a collision has been resolved, on each side, with
+	// `collidedWith` already set. This is collision_func in the C.
+	ElementHook onCollision = nullptr;
 
 	// What this element hit, valid only inside a collision hook.
 	EntityId collidedWith;

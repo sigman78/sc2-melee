@@ -20,6 +20,7 @@
 #include "game/Camera.hpp"
 #include "platform/Platform.hpp"
 #include "sim/Battle.hpp"
+#include "sim/Damage.hpp"
 #include "sim/Field.hpp"
 #include "sim/Ship.hpp"
 #include "sim/World.hpp"
@@ -147,6 +148,7 @@ setUp(Game &g)
 		e.ship.data = &data;
 		e.preProcess = sim::shipPreProcess;
 		e.postProcess = sim::shipPostProcess;
+		e.onCollision = sim::solidCollision;
 		return g.battle.spawnBack(std::move(e));
 	};
 
