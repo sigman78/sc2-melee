@@ -110,6 +110,65 @@ colourFor(const sim::Element &e) noexcept
 	}
 }
 
+// A 3x5 digit font, one bit per pixel, packed a row per nibble.
+//
+// Deliberately not the game's own font. That path exists -- FontDir parses
+// .fon and the browser renders them -- but wiring it in means glyph atlases,
+// kerning and a text layer, and this is a readout of two numbers per player.
+// The real status panel is M2 work and will use the real fonts; this is
+// scaffolding that says what the simulation thinks is true.
+constexpr std::array<std::uint16_t, 10> kDigits{{
+		0b111'101'101'101'111,  // 0
+		0b010'110'010'010'111,  // 1
+		0b111'001'111'100'111,  // 2
+		0b111'001'111'001'111,  // 3
+		0b101'101'111'001'001,  // 4
+		0b111'100'111'001'111,  // 5
+		0b111'100'111'101'111,  // 6
+		0b111'001'001'001'001,  // 7
+		0b111'101'111'101'111,  // 8
+		0b111'101'111'001'111,  // 9
+}};
+
+void
+drawDigit(platform::Platform &w, int digit, Vec2i at, int scale, Colour c)
+{
+	if (digit < 0 || digit > 9)
+		return;
+	const std::uint16_t bits = kDigits[static_cast<std::size_t>(digit)];
+	for (int row = 0; row < 5; ++row)
+	{
+		for (int col = 0; col < 3; ++col)
+		{
+			// Most significant bit is the top-left pixel.
+			const int bit = 14 - (row * 3 + col);
+			if (((bits >> bit) & 1) == 0)
+				continue;
+			w.fillRect(Vec2i{at.x + col * scale, at.y + row * scale},
+					Extent2u{static_cast<std::uint32_t>(scale),
+						static_cast<std::uint32_t>(scale)},
+					c.r, c.g, c.b);
+		}
+	}
+}
+
+// Right-aligned, so a number shrinking from 18 to 9 does not shift about.
+void
+drawNumber(platform::Platform &w, std::int32_t value, Vec2i rightTop,
+		int scale, Colour c)
+{
+	if (value < 0)
+		value = 0;
+	int x = rightTop.x - 3 * scale;
+	do
+	{
+		drawDigit(w, static_cast<int>(value % 10), Vec2i{x, rightTop.y}, scale,
+				c);
+		value /= 10;
+		x -= 4 * scale;
+	} while (value != 0);
+}
+
 // Everything the frame needs. A struct rather than globals so the Emscripten
 // driver has something to hand back to iterate().
 struct Game
@@ -375,6 +434,7 @@ setUp(Game &g, const std::filesystem::path &content)
 }
 
 void drawOverlay(Game &g);
+void drawHud(Game &g);
 
 void
 draw(Game &g)
@@ -446,10 +506,47 @@ draw(Game &g)
 				c.b);
 	}
 
+	drawHud(g);
+
 	if (g.debugOverlay)
 		drawOverlay(g);
 
 	g.window.present();
+}
+
+// Crew and energy for both players, in the corners they own: player 0 top
+// left, player 1 top right. Crew above energy, coloured to match the ship so
+// there is nothing to read to know whose is whose.
+//
+// Drawn from the element, so a destroyed ship shows nothing rather than a
+// stale number -- which is also how you tell "dead" from "at zero crew".
+void
+drawHud(Game &g)
+{
+	constexpr int kScale = 1;
+	constexpr std::int32_t kMargin = 4;
+	constexpr std::int32_t kLine = 7;
+
+	for (std::size_t p = 0; p < g.ships.size(); ++p)
+	{
+		const auto e = g.battle.get(g.ships[p]);
+		if (e == nullptr)
+			continue;
+
+		const Colour crewColour = colourFor(*e);
+		constexpr Colour energyColour{0x60, 0xFF, 0xC0};
+
+		// Player 0 hugs the left edge, player 1 the right. Both are drawn
+		// right-aligned; only the anchor differs.
+		const std::int32_t right = p == 0
+				? kMargin + 3 * 4 * kScale
+				: sim::kSpaceWidth - kMargin;
+
+		drawNumber(g.window, e->ship.crew, Vec2i{right, kMargin}, kScale,
+				crewColour);
+		drawNumber(g.window, e->ship.energy, Vec2i{right, kMargin + kLine},
+				kScale, energyColour);
+	}
 }
 
 // The collision overlay: what touched, where, and what the response did.

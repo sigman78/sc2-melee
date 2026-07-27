@@ -120,6 +120,11 @@ enum class ElementFlags : std::uint32_t
 
 	// A player's ship, as opposed to a projectile or a rock.
 	PlayerShip = 1u << 9,
+
+	// OBJECT_CLOAKED. Invisible to weapon targeting (weapon.c:344) and to the
+	// Cruiser's point defence (human.c:202), and drawn differently. It does
+	// *not* stop collisions -- a cloaked Avenger still hits an asteroid.
+	Cloaked = 1u << 11,
 };
 
 [[nodiscard]] constexpr ElementFlags

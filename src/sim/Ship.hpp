@@ -66,6 +66,15 @@ struct ShipData
 	// What the shot does each frame, if anything.
 	ElementHook weaponPreProcess = nullptr;
 
+	// What SPECIAL does. The engine only ticks special_counter down
+	// (ship.c:342-343); everything a special actually *does* is per-ship, and
+	// that asymmetry is most of why ships/ is 25 files.
+	ElementHook special = nullptr;
+
+	// Point defence: how far it reaches, in display pixels (LASER_RANGE,
+	// human.c:55). Zero for a ship without one.
+	std::int32_t pointDefenceRange = 0;
+
 	// One mask per facing, in facing order. A ship's silhouette changes as it
 	// turns -- that is the whole reason there are sixteen cels -- so the mask
 	// has to follow the facing or collision is tested against whichever
@@ -104,6 +113,13 @@ void shipPostProcess(Battle &b, EntityId id) noexcept;
 // The Cruiser's nuke, which is guided and accelerates as it flies
 // (human.c:128-158).
 void nukePreProcess(Battle &b, EntityId id) noexcept;
+
+// The Cruiser's point-defence laser (human.c:161-260): burns down every enemy
+// shot in range, paying once for the volley.
+void cruiserSpecial(Battle &b, EntityId id) noexcept;
+
+// The Avenger's cloak (ilwrath.c:377-393).
+void avengerSpecial(Battle &b, EntityId id) noexcept;
 
 const ShipData &earthlingCruiser() noexcept;
 [[nodiscard]] const ShipData &ilwrathAvenger() noexcept;

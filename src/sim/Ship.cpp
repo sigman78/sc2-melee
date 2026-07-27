@@ -298,6 +298,82 @@ nukePreProcess(Battle &b, EntityId id) noexcept
 	e->velocity.setVector(speed, e->facing);
 }
 
+void
+cruiserSpecial(Battle &b, EntityId id) noexcept
+{
+	auto ship = b.get(id);
+	if (ship == nullptr || ship->ship.data == nullptr)
+		return;
+
+	const ShipData &d = *ship->ship.data;
+	const std::int32_t range = d.pointDefenceRange;
+	if (range <= 0)
+		return;
+
+	const Vec2i from = ship->next;
+	bool paid = false;
+
+	// Every shot in range, not just the nearest. The C walks the whole list
+	// and fires a laser at each, paying once for the volley (human.c:225-236,
+	// the PaidFor flag) -- so a Cruiser surrounded by fire either clears all
+	// of it or, if it cannot afford the shot, none of it.
+	for (EntityId other = b.elements().front(); other.valid();
+			other = b.elements().next(other))
+	{
+		if (other == id)
+			continue;
+
+		auto t = b.get(other);
+		if (t == nullptr || !t->collidable())
+			continue;
+		if (any(t->flags & ElementFlags::Cloaked))
+			continue;  // human.c:202
+		if (t->playerNr == ship->playerNr)
+			continue;  // its own fire is not a threat
+
+		const Vec2i dv = wrapDelta(
+				Vec2i{t->next.x - from.x, t->next.y - from.y});
+		const std::int32_t dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
+		const std::int32_t dy = worldToDisplay(dv.y < 0 ? -dv.y : dv.y);
+		if (dx > range || dy > range || dx * dx + dy * dy > range * range)
+			continue;
+
+		if (!paid)
+		{
+			if (!deltaEnergy(ship->ship, -d.specialEnergyCost))
+				return;  // cannot afford it, so nothing burns
+			ship->ship.specialCounter = d.specialWait;
+			paid = true;
+		}
+
+		// The laser is a one-frame line in the C. Its only effect on the
+		// simulation is the damage, so that is what is reproduced here.
+		doDamage(*t, 1);
+
+		ship = b.get(id);
+		if (ship == nullptr)
+			return;
+	}
+}
+
+void
+avengerSpecial(Battle &b, EntityId id) noexcept
+{
+	auto ship = b.get(id);
+	if (ship == nullptr || ship->ship.data == nullptr)
+		return;
+
+	const ShipData &d = *ship->ship.data;
+	if (!deltaEnergy(ship->ship, -d.specialEnergyCost))
+		return;
+
+	// Cloak. It hides the Avenger from weapon tracking and from point
+	// defence, and it lasts exactly as long as the counter -- there is no
+	// second press to turn it off (ilwrath.c:377-393).
+	ship->flags |= ElementFlags::Cloaked;
+	ship->ship.specialCounter = d.specialWait;
+}
+
 // --------------------------------------------------------------------------
 // The two M1 ships.
 
@@ -335,6 +411,8 @@ earthlingCruiser() noexcept
 		d.weaponMaxSpeed = 80;
 		d.weaponThrustScale = 4;
 		d.weaponPreProcess = nukePreProcess;
+		d.special = cruiserSpecial;
+		d.pointDefenceRange = 100;   // LASER_RANGE
 		return d;
 	}();
 	return data;
@@ -367,6 +445,7 @@ ilwrathAvenger() noexcept
 		d.weaponHitPoints = 1;
 		d.muzzleOffset = 29;   // ILWRATH_OFFSET
 		d.blastOffset = 0;     // MISSILE_OFFSET
+		d.special = avengerSpecial;
 		return d;
 	}();
 	return data;
