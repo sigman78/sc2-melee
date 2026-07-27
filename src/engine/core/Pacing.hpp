@@ -29,7 +29,7 @@ inline constexpr Ticks kBattleHz = 24;
 // At 60 Hz a frame is 14 ticks and a battle step is 35, so steps land on
 // ticks 42, 84, 126: every 42 ticks, which is 20 Hz, not 24. A 17% global
 // slowdown, browser-only, and invisible on desktop because nothing in the
-// tree vsyncs. tests/sim_test.cpp asserts both rates so the naive form
+// tree vsyncs. tests/engine_test.cpp asserts both rates so the naive form
 // cannot come back.
 //
 // No wall clock is read here: `now` is a parameter, so this is testable with

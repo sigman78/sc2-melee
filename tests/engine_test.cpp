@@ -1,11 +1,14 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 //
-// engine/ tests. Presentation-adjacent machinery that is nonetheless pure
-// logic and has no business needing a window to be checked.
+// engine/ and game/ tests. Presentation-adjacent machinery that is
+// nonetheless pure logic and has no business needing a window to be checked --
+// the input accumulator, the pacing accumulator, and the melee camera.
 
 #include "engine/core/Pacing.hpp"
 #include "engine/input/Input.hpp"
+#include "game/Camera.hpp"
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <initializer_list>
@@ -234,11 +237,129 @@ testPacingBoundsCatchUp()
 			"the next step should be one period after the resync");
 }
 
+// --------------------------------------------------------------------------
+// The melee camera
+
+void
+testCameraCentresBetweenTheShips()
+{
+	using namespace uqm::game;
+
+	Camera cam;
+	const std::array<Vec2i, 2> ships{
+			Vec2i{sim::kLogSpaceWidth / 2 - 512, sim::kLogSpaceHeight / 2},
+			Vec2i{sim::kLogSpaceWidth / 2 + 512, sim::kLogSpaceHeight / 2}};
+	cam.follow(ships);
+
+	CHECK(cam.centre().x == sim::kLogSpaceWidth / 2,
+			"the view should sit midway between them, got %ld",
+			static_cast<long>(cam.centre().x));
+
+	// Symmetric about the centre of the viewport.
+	const Vec2i a = cam.toScreen(ships[0]);
+	const Vec2i b = cam.toScreen(ships[1]);
+	CHECK(sim::kSpaceWidth / 2 - a.x == b.x - sim::kSpaceWidth / 2,
+			"both ships should be equidistant from the middle, got %ld and %ld",
+			static_cast<long>(a.x), static_cast<long>(b.x));
+	CHECK(a.y == sim::kSpaceHeight / 2 && b.y == sim::kSpaceHeight / 2,
+			"and level with each other");
+}
+
+void
+testCameraZoomsOutAsShipsSeparate()
+{
+	using namespace uqm::game;
+
+	std::int32_t previous = 0;
+	for (const std::int32_t gap : {256, 1024, 2048, 4096})
+	{
+		Camera cam;
+		const std::array<Vec2i, 2> ships{
+				Vec2i{sim::kLogSpaceWidth / 2 - gap / 2,
+					sim::kLogSpaceHeight / 2},
+				Vec2i{sim::kLogSpaceWidth / 2 + gap / 2,
+					sim::kLogSpaceHeight / 2}};
+		cam.follow(ships);
+
+		CHECK(cam.zoom() >= previous,
+				"zoom must not decrease as the gap grows to %ld, got %ld "
+				"after %ld",
+				static_cast<long>(gap), static_cast<long>(cam.zoom()),
+				static_cast<long>(previous));
+		CHECK(cam.zoom() >= kZoomOne && cam.zoom() <= kMaxZoomOut,
+				"zoom %ld should stay within 1:1 and 4:1",
+				static_cast<long>(cam.zoom()));
+		previous = cam.zoom();
+	}
+	CHECK(previous == kMaxZoomOut,
+			"a quarter-arena gap should be fully zoomed out, got %ld",
+			static_cast<long>(previous));
+}
+
+void
+testCameraKeepsBothShipsOnScreen()
+{
+	using namespace uqm::game;
+
+	// The property that actually matters, and the one a zoom bug breaks: at
+	// every separation the camera can be asked about, both ships are inside
+	// the viewport.
+	for (std::int32_t gap = 0; gap <= 4096; gap += 64)
+	{
+		Camera cam;
+		const std::array<Vec2i, 2> ships{
+				Vec2i{sim::kLogSpaceWidth / 2 - gap / 2,
+					sim::kLogSpaceHeight / 2},
+				Vec2i{sim::kLogSpaceWidth / 2 + gap / 2,
+					sim::kLogSpaceHeight / 2}};
+		cam.follow(ships);
+
+		for (const Vec2i &s : ships)
+		{
+			const Vec2i p = cam.toScreen(s);
+			CHECK(p.x >= 0 && p.x <= sim::kSpaceWidth,
+					"gap %ld put a ship at x=%ld, outside 0..%ld",
+					static_cast<long>(gap), static_cast<long>(p.x),
+					static_cast<long>(sim::kSpaceWidth));
+		}
+	}
+}
+
+void
+testCameraMeasuresAcrossTheSeam()
+{
+	using namespace uqm::game;
+
+	// Two ships either side of the wrap are close together, not an arena
+	// apart. Without wrapDelta the camera would zoom fully out and place them
+	// on opposite edges, which is the visible symptom of forgetting the torus.
+	Camera cam;
+	const std::array<Vec2i, 2> ships{Vec2i{16, sim::kLogSpaceHeight / 2},
+			Vec2i{sim::kLogSpaceWidth - 240, sim::kLogSpaceHeight / 2}};
+	cam.follow(ships);
+
+	CHECK(cam.zoom() == kZoomOne,
+			"256 units apart across the seam should not zoom out, got %ld",
+			static_cast<long>(cam.zoom()));
+
+	const Vec2i a = cam.toScreen(ships[0]);
+	const Vec2i b = cam.toScreen(ships[1]);
+	const std::int32_t apart = a.x > b.x ? a.x - b.x : b.x - a.x;
+	CHECK(apart == sim::worldToDisplay(256),
+			"they should be %ld pixels apart on screen, got %ld",
+			static_cast<long>(sim::worldToDisplay(256)),
+			static_cast<long>(apart));
+}
+
 }  // namespace
 
 int
 main()
 {
+	testCameraCentresBetweenTheShips();
+	testCameraZoomsOutAsShipsSeparate();
+	testCameraKeepsBothShipsOnScreen();
+	testCameraMeasuresAcrossTheSeam();
 	testHeldButtonsAreSeenEveryStep();
 	testTapBetweenStepsIsNotLost();
 	testTapIsSeenExactlyOnce();
@@ -254,6 +375,6 @@ main()
 		std::fprintf(stderr, "%d check(s) failed\n", g_failures);
 		return 1;
 	}
-	std::printf("engine: input accumulator and pacing checks passed\n");
+	std::printf("engine: input, pacing and camera checks passed\n");
 	return 0;
 }

@@ -23,6 +23,8 @@ add_library(uqm2_content STATIC
 	engine/content/PngImage.cpp
 	engine/content/ResourceMap.cpp
 	platform/File.cpp
+	# Platform.cpp is deliberately NOT here: it pulls in SDL, and everything
+	# that links this library today is a headless test.
 	sim/Battle.cpp
 	sim/Collision.cpp
 	sim/Field.cpp
@@ -70,4 +72,43 @@ else()
 endif()
 if(UQM_WERROR)
 	target_compile_options(uqm2-browse PRIVATE ${_uqm_werror})
+endif()
+
+# The platform layer, split from uqm2_content so the headless tests never link
+# SDL. Single-threaded by construction: nothing in here starts a thread, and
+# the audio callback (M1.5) is the only thing that will ever run off the main
+# loop -- behind a ring buffer, never touching game state.
+add_library(uqm2_platform STATIC platform/Platform.cpp)
+target_link_libraries(uqm2_platform PUBLIC uqm2_content uqm::SDL)
+if(MSVC)
+	target_compile_options(uqm2_platform PRIVATE /W4 /utf-8)
+else()
+	target_compile_options(uqm2_platform PRIVATE -W -Wall -Wextra)
+endif()
+if(UQM_WERROR)
+	target_compile_options(uqm2_platform PRIVATE ${_uqm_werror})
+endif()
+
+# The M1 vertical slice. Cruiser against Avenger on a real window, drawn as
+# rectangles until M1.4 wires the sprites up.
+add_executable(uqm2-melee app/melee/main.cpp)
+target_link_libraries(uqm2-melee PRIVATE uqm2_platform)
+if(MSVC)
+	target_compile_options(uqm2-melee PRIVATE /W4 /utf-8)
+else()
+	target_compile_options(uqm2-melee PRIVATE -W -Wall -Wextra)
+endif()
+if(UQM_WERROR)
+	target_compile_options(uqm2-melee PRIVATE ${_uqm_werror})
+endif()
+
+# MinGW keeps libstdc++, libgcc and libwinpthread in DLLs that exist only on
+# the toolchain's PATH, so a perfectly good build dies at startup with a
+# missing-DLL box the moment it is launched from Explorer rather than from an
+# msys2 shell. SDL3 is already a static library here, so linking the runtime
+# statically makes these self-contained -- which is what a thing you hand
+# someone to look at has to be.
+if(MINGW)
+	target_link_options(uqm2-melee PRIVATE -static)
+	target_link_options(uqm2-browse PRIVATE -static)
 endif()

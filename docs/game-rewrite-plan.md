@@ -2,8 +2,12 @@
 
 ## Goal
 
-One C++20 codebase, single-threaded, SDL3, WASM-first, that plays the same game from the same
-content packs. The existing C is read as a specification and discarded. Success is a player
+One C++23 codebase, single-threaded, SDL3, WASM-first, that plays the same game from the same
+content packs. (C++20 when this was written; raised to 23 for `std::expected` and
+`std::byteswap`, both of which delete code rather than add it — see `docs/cpp-conventions.md`.
+Single-threaded is not aspirational: `src/` contains no thread, mutex or atomic, and the one
+place that will push back is the SDL audio callback, which runs on a device thread and must
+therefore never see game state.) The existing C is read as a specification and discarded. Success is a player
 saying "this is Star Control 2"; it is not a matching frame counter. `docs/rewrite-plan.md`
 stays in the tree for its findings; its recommendation to port `ships/` and `comm/` verbatim is
 withdrawn.
