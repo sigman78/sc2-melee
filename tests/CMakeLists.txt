@@ -61,6 +61,22 @@ endif()
 
 add_test(NAME sim COMMAND sim_test)
 
+# engine/. Header-only so far, and deliberately checkable without a window:
+# the input accumulator is the piece M1 changes behaviour with, so it needs
+# tests that say what the change is.
+add_executable(engine_test engine_test.cpp)
+target_link_libraries(engine_test PRIVATE uqm2_content)
+if(MSVC)
+	target_compile_options(engine_test PRIVATE /W4 /utf-8)
+else()
+	target_compile_options(engine_test PRIVATE -W -Wall -Wextra)
+endif()
+if(UQM_WERROR)
+	target_compile_options(engine_test PRIVATE ${_uqm_werror})
+endif()
+
+add_test(NAME engine COMMAND engine_test)
+
 # The browser, end to end. Its inventory pass is also the resource-graph
 # dangling check the plan asks for (docs/game-rewrite-plan.md, "Verification"
 # 2): it fails if any resource key names a file that is not there.
