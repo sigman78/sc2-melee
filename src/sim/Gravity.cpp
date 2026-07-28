@@ -17,14 +17,14 @@ calculateGravity(Battle &b, EntityId id)
 		return false;
 
 	const bool selfHasGravity =
-			b.collidable(id) && isGravitySource(self->mass);
+			b.collidable(id) && isGravitySource(b.find<Physique>(id)->mass);
 
 	// Doc §2 refinement 1: gravity now runs as its own pipeline pass right
 	// after GuidedSteer, before Integrate has touched anyone's `next` this
 	// frame -- `current` is the one consistent snapshot every entity shares
 	// at that point, so there is no more "which half of the walk already
 	// moved" flag to consult.
-	const Vec2i from = self->current;
+	const Vec2i from = b.find<Position>(id)->current;
 
 	const i32 pull = worldToVelocity(1);
 
@@ -39,11 +39,12 @@ calculateGravity(Battle &b, EntityId id)
 
 		// Only pairs that disagree about being a source are interesting: two
 		// planets ignore each other, and so do two ordinary elements.
-		const bool testHasGravity = isGravitySource(t->mass);
+		const bool testHasGravity =
+				isGravitySource(b.find<Physique>(other)->mass);
 		if (testHasGravity == selfHasGravity)
 			return;
 
-		const Vec2i to = t->current;
+		const Vec2i to = b.find<Position>(other)->current;
 		const Vec2i d = wrapDelta(Vec2i{from.x - to.x, from.y - to.y});
 
 		// The disc is measured in display pixels, and the cheap per-axis
@@ -66,7 +67,8 @@ calculateGravity(Battle &b, EntityId id)
 		// `d` points from the test element toward us, so this accelerates it
 		// inward -- one world unit per frame, no falloff.
 		const int angle = arctan(d.x, d.y);
-		t->velocity.deltaComponents(cosine(angle, pull), sine(angle, pull));
+		b.find<Motion>(other)->velocity.deltaComponents(
+				cosine(angle, pull), sine(angle, pull));
 
 		if (b.has<PlayerShip>(other))
 		{
@@ -90,7 +92,8 @@ gravityPass(Battle &b)
 {
 	b.eachOrdered([&b](EntityId id) {
 		const Element *e = b.get(id);
-		if (e == nullptr || !b.collidable(id) || !isGravitySource(e->mass))
+		if (e == nullptr || !b.collidable(id)
+				|| !isGravitySource(b.find<Physique>(id)->mass))
 			return;
 		(void)calculateGravity(b, id);
 	});

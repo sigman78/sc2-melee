@@ -117,6 +117,14 @@ private:
 	int travelAngle_ = kFullCircle;
 };
 
+// Element's velocity, split out (review-007 W4a): every mover has one, and
+// Integrate (Battle.cpp) is the only pass that needs nothing else off
+// Element to advance a Position.
+struct Motion
+{
+	Velocity velocity;
+};
+
 }  // namespace uqm::sim
 
 #endif  // UQM2_SIM_VELOCITY_HPP

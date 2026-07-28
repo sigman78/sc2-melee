@@ -3,7 +3,9 @@
 #ifndef UQM2_SIM_ENTITY_HPP
 #define UQM2_SIM_ENTITY_HPP
 
+#include "engine/core/Geometry.hpp"
 #include "engine/core/Types.hpp"
+#include "sim/Trig.hpp"
 
 #include <entt/entity/entity.hpp>
 
@@ -18,6 +20,32 @@ using EntityId = entt::entity;
 // The no-entity value. entt::null never matches a live entity, like the
 // old generation-0 handle.
 inline constexpr EntityId kNoEntity = entt::null;
+
+// Where an element is, and which way it faces: split out of Element
+// (review-007 W4a) since every mover and every reader of a hotspot wants
+// this without the rest of Element's body. `current` is this frame's
+// published position; `next` is where the step is taking it -- published
+// at Commit (Battle.cpp). A beam has no Position at all -- see Beam below.
+struct Position
+{
+	Vec2i current;
+	Vec2i next;
+	Facing facing;
+};
+
+// A beam's two ends (the PD laser, Human.cpp): geometry, not motion, so it
+// gets its own component instead of abusing Position's current/next the way
+// BeamGeometry-tagged Elements used to (review-007 W4a). A beam carries no
+// Position at all -- Integrate and Commit's views over <Position, ...>
+// never see one, so no exemption is needed. It still gets Order (walked and
+// drawn like anything else) and the universal Motion/Physique/
+// CollisionScratch scaffold (Battle::spawnBeam), since the collision walk's
+// blanket reg_.get<T>(testId) calls must never meet a hole where a beam is.
+struct Beam
+{
+	Vec2i from;
+	Vec2i to;
+};
 
 // The declared traversal order (review-005 Y2): what the C encoded by
 // insertion position -- head for draw-behind decorations, tail for

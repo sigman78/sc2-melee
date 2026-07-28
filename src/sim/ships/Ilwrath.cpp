@@ -90,8 +90,9 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 	auto e = b.get(id);
 	if (e == nullptr)
 		return;
+	Position *pos = b.find<Position>(id);
 
-	Facing facing = e->facing;
+	Facing facing = pos->facing;
 	EntityId targetId;
 	if (trackShip(b, id, facing, &targetId) < 0)
 		return;
@@ -100,28 +101,30 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 	e = b.get(id);
 	if (t == nullptr || e == nullptr)
 		return;
+	pos = b.find<Position>(id);
+	const Position &targetPos = *b.find<Position>(targetId);
 
 	// GetNextVelocityComponents on *copies* (ilwrath.c:292-296): the lead is
 	// a question, not a step, and must not disturb either error accumulator.
-	Velocity tv = t->velocity;
-	Velocity ov = e->velocity;
+	Velocity tv = b.find<Motion>(targetId)->velocity;
+	Velocity ov = b.find<Motion>(id)->velocity;
 	const Vec2i dT = tv.advance(kCloakAimLookAhead);
 	const Vec2i dO = ov.advance(kCloakAimLookAhead);
 
 	// Raw deltas, no WRAP_DELTA -- the C computes these unwrapped
 	// (ilwrath.c:297-300), so an ambush across the seam aims the long way
 	// round. Faithful, not an oversight.
-	const i32 dx = (t->current.x + dT.x) - (e->current.x + dO.x);
-	const i32 dy = (t->current.y + dT.y) - (e->current.y + dO.y);
+	const i32 dx = (targetPos.current.x + dT.x) - (pos->current.x + dO.x);
+	const i32 dy = (targetPos.current.y + dT.y) - (pos->current.y + dO.y);
 
-	e->facing = Angle(arctan(dx, dy)).facing();
+	pos->facing = Angle(arctan(dx, dy)).facing();
 
 	// And the ship may not immediately turn away from its own snap
 	// (ilwrath.c:335-336).
 	if (e->turnWait == 0)
 		e->turnWait = 1;
 
-	applyFacingMask(b, id, *e, *b.ship(id)->spec);
+	applyFacingMask(b, id, pos->facing, *b.ship(id)->spec);
 }
 
 }  // namespace

@@ -37,12 +37,12 @@ deltaEnergy(ShipState &s, i32 delta) noexcept
 // spawned with no initial mask (nullptr, e.g. a headless test) gets its
 // first Collider exactly this way, on its own Appearing frame.
 void
-applyFacingMask(Battle &b, EntityId id, Element &e, const ShipSpec &spec) noexcept
+applyFacingMask(Battle &b, EntityId id, Facing facing, const ShipSpec &spec) noexcept
 {
 	if (spec.facingMasks.empty())
 		return;
 	const usize i =
-			static_cast<usize>(e.facing.raw()) % spec.facingMasks.size();
+			static_cast<usize>(facing.raw()) % spec.facingMasks.size();
 	const CollisionMask *mask = &spec.facingMasks[i];
 	if (Collider *c = b.find<Collider>(id))
 		c->mask = mask;
@@ -57,13 +57,12 @@ spawnPlayerShip(Battle &b, const ShipSpec &spec,
 {
 	Element e;
 	e.kind = ElementKind::Ship;
-	e.current = at;
-	e.next = at;
-	e.facing = facing;
 	e.playerNr = playerNr;
-	e.mass = spec.mass;
 	e.onCollision = solidCollision;
-	const EntityId id = b.spawn(Layer::Field, std::move(e), mask);
+	Position pos{at, at, facing};
+	const Physique phys{spec.mass};
+	const EntityId id =
+			b.spawn(Layer::Field, std::move(e), pos, Motion{}, phys, mask);
 	b.attach<IgnoreSimilar>(id);
 	b.attach<PlayerShip>(id);
 	if (warpIn)
@@ -103,10 +102,11 @@ turnShip(Battle &b, EntityId id, Element &e, ShipState &,
 	}
 	else if (any(in.buttons & (ShipInput::Left | ShipInput::Right)))
 	{
+		Position &pos = *b.find<Position>(id);
 		const int delta = any(in.buttons & ShipInput::Left) ? -1 : 1;
-		e.facing += delta;
+		pos.facing += delta;
 		e.turnWait = spec.turnWait;
-		applyFacingMask(b, id, e, spec);
+		applyFacingMask(b, id, pos.facing, spec);
 	}
 }
 
@@ -123,7 +123,9 @@ applyThrustInput(Battle &b, EntityId id, Element &e, ShipState &s,
 	}
 	else if (any(in.buttons & ShipInput::Thrust))
 	{
-		s.speed = thrust(e.velocity, e.facing, spec.thrust,
+		const Facing facing = b.find<Position>(id)->facing;
+		Motion &motion = *b.find<Motion>(id);
+		s.speed = thrust(motion.velocity, facing, spec.thrust,
 				ThrustState{s.speed, s.inGravityWell});
 		// ship.c:263-267 clears the whole speed/gravity group and ORs in the
 		// thrust result; gravity re-sets the well flag next frame if still inside
@@ -153,10 +155,12 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 	else if (any(in.buttons & ShipInput::Weapon)
 			&& deltaEnergy(s, -spec.weapon.energyCost))
 	{
+		const Position &shipPos = *b.find<Position>(id);
+		const Motion &shipMotion = *b.find<Motion>(id);
 		ShipView view;
-		view.position = e.next;
-		view.velocity = e.velocity;
-		view.facing = e.facing;
+		view.position = shipPos.next;
+		view.velocity = shipMotion.velocity;
+		view.facing = shipPos.facing;
 		view.playerNr = e.playerNr;
 		view.weaponSpeed = spec.weapon.speed;
 		view.weaponLife = spec.weapon.life;
@@ -176,15 +180,17 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			Element w;
 			w.kind = ElementKind::Weapon;
 			w.playerNr = sp.playerNr;
-			w.current = wrap(sp.position);
-			w.next = w.current;
-			w.facing = sp.facing;
+			Position wPos;
+			wPos.current = wrap(sp.position);
+			wPos.next = wPos.current;
+			wPos.facing = sp.facing;
+			Motion wMotion;
 			w.hitPoints = sp.hitPoints;
 			w.damage = sp.damage;
 			// A weapon's mass is its damage (weapon.c:101; laser's is 1, weapon.c:58).
 			// Not bookkeeping: CollisionPossible skips pairs where both masses are
 			// zero, so a massless shot can't hit another shot.
-			w.mass = sp.damage;
+			const Physique wPhys{sp.damage};
 			w.blastOffset = sp.blastOffset;
 			// The mask follows the sprite FRAME, not the facing: same thing for the
 			// nuke (16 facing cels, frameIndex = facing), different for the flame (8
@@ -199,17 +205,17 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 					: weaponCollision;
 			w.preProcess = sp.preProcess != nullptr ? sp.preProcess
 													: spec.weapon.preProcess;
-			w.velocity.setVector(sp.speed, sp.facing);
+			wMotion.velocity.setVector(sp.speed, sp.facing);
 			w.owner = id;  // pParent: what IGNORE_SIMILAR is tested against
 
 			// Backed off by one frame of its own muzzle velocity, as the C does for
 			// every missile (weapon.c:126-127); the catch-up pass integrates it
 			// forward, so total travel over its life is life frames, not life + 1.
 			{
-				const Vec2i v0 = w.velocity.current();
-				w.current = wrap(Vec2i{w.current.x - velocityToWorld(v0.x),
-						w.current.y - velocityToWorld(v0.y)});
-				w.next = w.current;
+				const Vec2i v0 = wMotion.velocity.current();
+				wPos.current = wrap(Vec2i{wPos.current.x - velocityToWorld(v0.x),
+						wPos.current.y - velocityToWorld(v0.y)});
+				wPos.next = wPos.current;
 			}
 
 			if (sp.inheritsVelocity)
@@ -217,11 +223,11 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 				// The ship's velocity adds on top of the muzzle velocity, and the start
 				// position backs off by one frame of it (ilwrath.c:219-222) -- otherwise
 				// the first frame of flame appears ahead of where the ship actually was.
-				const Vec2i v = e.velocity.current();
-				w.velocity.deltaComponents(v.x, v.y);
-				w.current = wrap(Vec2i{w.current.x - velocityToWorld(v.x),
-						w.current.y - velocityToWorld(v.y)});
-				w.next = w.current;
+				const Vec2i v = shipMotion.velocity.current();
+				wMotion.velocity.deltaComponents(v.x, v.y);
+				wPos.current = wrap(Vec2i{wPos.current.x - velocityToWorld(v.x),
+						wPos.current.y - velocityToWorld(v.y)});
+				wPos.next = wPos.current;
 			}
 
 			// Queued, not spawned: it enters the world at the sync point and
@@ -246,6 +252,9 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 						spec.weapon.thrustScale, spec.weapon.trackWait};
 			}
 			cmd.element = std::move(w);
+			cmd.position = wPos;
+			cmd.motion = wMotion;
+			cmd.physique = wPhys;
 			b.queueSpawn(std::move(cmd));
 		}
 
@@ -322,7 +331,7 @@ shipMachinesStep(Battle &b, EntityId id) noexcept
 		s.energy = spec.maxEnergy;
 		in.buttons = ShipInput::None;
 		e->owner = id;
-		applyFacingMask(b, id, *e, spec);
+		applyFacingMask(b, id, b.find<Position>(id)->facing, spec);
 		return;
 	}
 
@@ -425,6 +434,7 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 	auto e = b.get(id);
 	if (e == nullptr)
 		return;
+	Position *pos = b.find<Position>(id);
 	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
 	Guided *g = b.find<Guided>(id);
 	if (ws == nullptr || g == nullptr)
@@ -432,7 +442,7 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 
 	// Steer, but only every TRACK_WAIT frames (human.c:133-146). The clock
 	// is the component's own, not a repurposed Element::turnWait.
-	Facing facing = e->facing;
+	Facing facing = pos->facing;
 	if (g->clock > 0)
 	{
 		--g->clock;
@@ -443,17 +453,18 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 		e = b.get(id);
 		if (e == nullptr)
 			return;
-		e->facing = facing;
+		pos = b.find<Position>(id);
+		pos->facing = facing;
 		g->clock = g->trackWait;
 
 		// The mask follows the facing too, or a steering nuke's rect keeps the
 		// launch cel's size while the sprite changes cel. colorCycle is the cel
 		// the renderer draws.
-		e->colorCycle = e->facing.raw();
+		e->colorCycle = pos->facing.raw();
 		if (!ws->masks.empty())
 		{
 			if (Collider *c = b.find<Collider>(id))
-				c->mask = &ws->masks[static_cast<usize>(e->facing.raw())
+				c->mask = &ws->masks[static_cast<usize>(pos->facing.raw())
 						% ws->masks.size()];
 		}
 	}
@@ -464,7 +475,7 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 	i32 speed = ws->speed + (ws->life - lifeSpanOf(b, id)) * g->thrustScale;
 	if (speed > g->maxSpeed)
 		speed = g->maxSpeed;
-	e->velocity.setVector(speed, e->facing);
+	b.find<Motion>(id)->velocity.setVector(speed, pos->facing);
 }
 
 void
@@ -473,11 +484,12 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	const auto e = b.get(ship);
 	if (e == nullptr)
 		return;
+	const Position &shipPos = *b.find<Position>(ship);
 
 	// Behind the ship, along the reverse of its facing. The C offsets by the
 	// sprite's height so the exhaust leaves the hull rather than the hotspot
 	// (tactrans.c:808-812); the collision mask stands in for the frame rect.
-	const Angle angle = e->facing.angle().opposite();
+	const Angle angle = shipPos.facing.angle().opposite();
 	const Collider *hull = b.find<Collider>(ship);
 	const i32 back = hull != nullptr
 			? displayToWorld(static_cast<i32>(hull->mask->size().h) / 2)
@@ -487,15 +499,17 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	t.kind = ElementKind::IonTrail;
 	t.playerNr = -1;  // NEUTRAL: exhaust belongs to nobody
 	t.colorCycle = 0;
-	t.current = wrap(Vec2i{e->current.x + cosine(angle, back),
-			e->current.y + sine(angle, back)});
-	t.next = t.current;
+	Position pos;
+	pos.current = wrap(Vec2i{shipPos.current.x + cosine(angle, back),
+			shipPos.current.y + sine(angle, back)});
+	pos.next = pos.current;
 
 	// Queued, not spawned: Background layer so it draws behind everything
 	// that matters, once it exists next frame (review-006 §4).
 	SpawnCommand cmd;
 	cmd.layer = Layer::Background;
 	cmd.element = std::move(t);
+	cmd.position = pos;
 	cmd.lifetime = Lifetime{kIonTrailLife};
 	cmd.ignoreVelocity = true;
 	b.queueSpawn(std::move(cmd));
@@ -530,7 +544,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		if (const Collider *c = b.find<Collider>(id))
 			b.attach<StashedMask>(id, StashedMask{c->mask});
 		b.detach<Collider>(id);
-		e->velocity.zero();
+		b.find<Motion>(id)->velocity.zero();
 		return;
 	}
 
@@ -540,21 +554,24 @@ warpInStep(Battle &b, EntityId id) noexcept
 	// It never carries a Collider -- it was never collidable, and app/melee's
 	// Draw.cpp draws it hull-sized straight from content, not from here.
 	{
-		const Angle angle = e->facing.angle();
+		const Position &shipPos = *b.find<Position>(id);
+		const Angle angle = shipPos.facing.angle();
 		const i32 back = kTransitionSpeed * (lifeSpanOf(b, id) - 1);
 
 		Element shadow;
 		shadow.kind = ElementKind::ShipShadow;
 		shadow.playerNr = e->playerNr;  // picks which ship's sprites to draw
-		shadow.facing = e->facing;
-		shadow.current = wrap(Vec2i{e->current.x - cosine(angle, back),
-				e->current.y - sine(angle, back)});
-		shadow.next = shadow.current;
-		shadow.velocity.zero();
+		Position shadowPos;
+		shadowPos.facing = shipPos.facing;
+		shadowPos.current = wrap(Vec2i{shipPos.current.x - cosine(angle, back),
+				shipPos.current.y - sine(angle, back)});
+		shadowPos.next = shadowPos.current;
+		// Motion defaults to zero, matching the stationary shadow.
 
 		SpawnCommand cmd;
 		cmd.layer = Layer::Background;
 		cmd.element = std::move(shadow);
+		cmd.position = shadowPos;
 		cmd.lifetime = Lifetime{kIonTrailLife};
 		b.queueSpawn(std::move(cmd));
 	}
@@ -571,8 +588,8 @@ warpInStep(Battle &b, EntityId id) noexcept
 		// covers a spec with none to rebuild from (a null-mask test ship had
 		// nothing stashed either, so still nothing re-attaches).
 		b.detach<Lifetime>(id);  // NORMAL_LIFE: persistent again
-		e->velocity.zero();
-		applyFacingMask(b, id, *e, *sp->spec);
+		b.find<Motion>(id)->velocity.zero();
+		applyFacingMask(b, id, b.find<Position>(id)->facing, *sp->spec);
 		if (!b.has<Collider>(id))
 		{
 			if (const StashedMask *sm = b.find<StashedMask>(id);
@@ -614,7 +631,7 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	// The ship becomes its own explosion rather than vanishing
 	// (tactrans.c:703-728): stops dead, loses energy, stops colliding, and
 	// burns for a fixed number of frames.
-	e->velocity.zero();
+	b.find<Motion>(id)->velocity.zero();
 	if (ShipState *sp = b.ship(id))
 		sp->energy = 0;
 	e->colorCycle = 0;
@@ -650,7 +667,7 @@ explosionStep(Battle &b, EntityId id) noexcept
 		return;
 	}
 
-	const Vec2i from = e->current;
+	const Vec2i from = b.find<Position>(id)->current;
 	for (int n = 0; n < count; ++n)
 	{
 		// Scattered around the hull: random bearing, up to 8 display pixels out, a
@@ -673,18 +690,22 @@ explosionStep(Battle &b, EntityId id) noexcept
 		Element d;
 		d.kind = ElementKind::Debris;
 		d.playerNr = -1;  // NEUTRAL: wreckage belongs to nobody
-		d.current = wrap(Vec2i{from.x + cosine(spot, dist),
+		Position dPos;
+		dPos.current = wrap(Vec2i{from.x + cosine(spot, dist),
 				from.y + sine(spot, dist)});
-		d.next = d.current;
+		dPos.next = dPos.current;
 		// From components at the full 64-angle resolution, the way the C's
 		// SetVelocityComponents call is (tactrans.c:607-612). Rounding the
 		// drift to 16 facings visibly banded the cloud.
-		d.velocity.setComponents(cosine(drift, worldToVelocity(speed)),
+		Motion dMotion;
+		dMotion.velocity.setComponents(cosine(drift, worldToVelocity(speed)),
 				sine(drift, worldToVelocity(speed)));
 
 		SpawnCommand cmd;
 		cmd.layer = Layer::Background;
 		cmd.element = std::move(d);
+		cmd.position = dPos;
+		cmd.motion = dMotion;
 		cmd.lifetime = Lifetime{kDebrisLife};
 		b.queueSpawn(std::move(cmd));
 	}

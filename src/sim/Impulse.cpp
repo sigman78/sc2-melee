@@ -54,18 +54,20 @@ deriveSpeedState(const Velocity &v, const ThrustProfile &profile) noexcept
 }
 
 void
-applyImpulse(Element &a, bool aIsShip, CollisionScratch &aScratch, Element &b,
-		bool bIsShip, CollisionScratch &bScratch) noexcept
+applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
+		Element &a, bool aIsShip, CollisionScratch &aScratch,
+		const Position &bPos, Motion &bMotion, const Physique &bPhys,
+		Element &b, bool bIsShip, CollisionScratch &bScratch) noexcept
 {
 	// Impact axis: the line between the two at the moment they met.
-	const Vec2i rel{a.next.x - b.next.x, a.next.y - b.next.y};
+	const Vec2i rel{aPos.next.x - bPos.next.x, aPos.next.y - bPos.next.y};
 	int impactA = arctan(rel.x, rel.y);
 	int impactB = normalizeAngle(impactA + kHalfCircle);
 
-	const Vec2i va = a.velocity.current();
-	const Vec2i vb = b.velocity.current();
-	const int travelA = a.velocity.travelAngle();
-	const int travelB = b.velocity.travelAngle();
+	const Vec2i va = aMotion.velocity.current();
+	const Vec2i vb = bMotion.velocity.current();
+	const int travelA = aMotion.velocity.travelAngle();
+	const int travelB = bMotion.velocity.travelAngle();
 
 	const Vec2i vrel{va.x - vb.x, va.y - vb.y};
 	const int relTravel = arctan(vrel.x, vrel.y);
@@ -83,7 +85,7 @@ applyImpulse(Element &a, bool aIsShip, CollisionScratch &aScratch, Element &b,
 		impactB = travelB + kHalfCircle;
 	}
 
-	if (a.next == a.current && b.next == b.current)
+	if (aPos.next == aPos.current && bPos.next == bPos.current)
 	{
 		// Neither moved, so there is no relative motion to exchange.
 		if (aScratch.defyPhysics && bScratch.defyPhysics)
@@ -92,8 +94,8 @@ applyImpulse(Element &a, bool aIsShip, CollisionScratch &aScratch, Element &b,
 			// an octant, which is what eventually works them apart.
 			impactA = travelA + (kHalfCircle - kOctant);
 			impactB = travelB + (kHalfCircle - kOctant);
-			a.velocity.zero();
-			b.velocity.zero();
+			aMotion.velocity.zero();
+			bMotion.velocity.zero();
 		}
 		aScratch.defyPhysics = true;
 		aScratch.collided = true;
@@ -101,15 +103,14 @@ applyImpulse(Element &a, bool aIsShip, CollisionScratch &aScratch, Element &b,
 		bScratch.collided = true;
 	}
 
-	const i32 massA = a.mass;
-	const i32 massB = b.mass;
+	const i32 massA = aPhys.mass;
+	const i32 massB = bPhys.mass;
 	const i64 scalar = i64{sine(directness, speed << 1)} * (massA * massB);
 
-	const auto push = [&](Element &self, bool selfIsShip,
-							  CollisionScratch &selfScratch, Element &other,
-							  int impactAngle, i32 selfMass,
-							  i32 otherMass) {
-		if (isGravityMass(self.mass + 1))
+	const auto push = [&](Motion &selfMotion, Element &self, bool selfIsShip,
+							  CollisionScratch &selfScratch, int impactAngle,
+							  i32 selfMass, i32 otherMass) {
+		if (isGravityMass(selfMass + 1))
 			return;  // a planet is not pushed
 
 		if (selfIsShip)
@@ -130,26 +131,25 @@ applyImpulse(Element &a, bool aIsShip, CollisionScratch &aScratch, Element &b,
 			return;
 		const auto impulse = static_cast<i32>(scalar / denom);
 
-		self.velocity.deltaComponents(
+		selfMotion.velocity.deltaComponents(
 				cosine(impactAngle, impulse), sine(impactAngle, impulse));
 
 		// A collision must not leave something almost stationary -- it would
 		// sit inside the other shape and collide again. Give it a minimum
 		// nudge along the impact axis (collide.c:126-136).
-		const Vec2i now = self.velocity.current();
+		const Vec2i now = selfMotion.velocity.current();
 		const i32 mag =
 				(now.x < 0 ? -now.x : now.x) + (now.y < 0 ? -now.y : now.y);
 		if (velocityToWorld(mag) < kScaledOne)
 		{
 			const i32 least = worldToVelocity(kScaledOne) - 1;
-			self.velocity.setComponents(
+			selfMotion.velocity.setComponents(
 					cosine(impactAngle, least), sine(impactAngle, least));
 		}
-		(void)other;
 	};
 
-	push(a, aIsShip, aScratch, b, impactA, massA, massB);
-	push(b, bIsShip, bScratch, a, impactB, massB, massA);
+	push(aMotion, a, aIsShip, aScratch, impactA, massA, massB);
+	push(bMotion, b, bIsShip, bScratch, impactB, massB, massA);
 }
 
 }  // namespace uqm::sim

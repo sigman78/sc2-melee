@@ -327,6 +327,22 @@ draw(Game &g)
 			v = &missing;
 		}
 
+		// A beam is a line between two points, not a sprite at one -- and,
+		// alone among elements, has no Position at all (review-007 W4a): its
+		// ends live in Beam{from,to}, read before the general `pos` fetch
+		// below, which a beam would fail.
+		if (v->policy == CelPolicy::BeamLine)
+		{
+			const sim::Beam *beam = g.battle.find<sim::Beam>(id);
+			if (beam == nullptr)
+				return;
+			g.window.drawLine(g.camera.toScreen(beam->from),
+					g.camera.toScreen(beam->to), 0xFF, 0xFF, 0xFF);
+			return;
+		}
+
+		const sim::Position *pos = g.battle.find<sim::Position>(id);
+
 		// Exhaust: a single point stepping through the colour ramp as it
 		// ages. Lifetime::remaining counts down, so the ramp index counts up.
 		if (v->policy == CelPolicy::RampPoint)
@@ -336,7 +352,7 @@ draw(Game &g)
 			if (step >= kIonRamp.size())
 				return;
 			const Colour c = kIonRamp[step];
-			const Vec2i at = g.camera.toScreen(e->current);
+			const Vec2i at = g.camera.toScreen(pos->current);
 			g.window.fillRect(at, Extent2u{1, 1}, c.r, c.g, c.b);
 			return;
 		}
@@ -346,7 +362,7 @@ draw(Game &g)
 		if (v->policy == CelPolicy::DebrisFrames)
 		{
 			const game::SpriteSet *set = v->sprites;
-			const Vec2i at = g.camera.toScreen(e->current);
+			const Vec2i at = g.camera.toScreen(pos->current);
 			if (set == nullptr || set->frames.empty())
 			{
 				g.window.fillRect(at, Extent2u{2, 2}, 0xFF, 0xC0, 0x40);
@@ -376,16 +392,7 @@ draw(Game &g)
 			return;
 		}
 
-		// A beam is a line between two points, not a sprite at one. Drawn
-		// before the width/height work below, none of which applies.
-		if (v->policy == CelPolicy::BeamLine)
-		{
-			g.window.drawLine(g.camera.toScreen(e->current),
-					g.camera.toScreen(e->next), 0xFF, 0xFF, 0xFF);
-			return;
-		}
-
-		const Vec2i at = g.camera.toScreen(e->current);
+		const Vec2i at = g.camera.toScreen(pos->current);
 
 		// A weapon draws the cel colorCycle names -- the facing for a
 		// directional missile, the animation frame for the flame. Worked out
@@ -395,7 +402,7 @@ draw(Game &g)
 				? (v->policy == CelPolicy::ByFrame
 								? static_cast<usize>(e->colorCycle)
 										% set->frames.size()
-								: static_cast<usize>(e->facing.raw())
+								: static_cast<usize>(pos->facing.raw())
 										% set->frames.size())
 				: 0;
 
@@ -555,7 +562,8 @@ drawOverlay(Game &g)
 		if (e == nullptr || c == nullptr)
 			return;
 
-		const Vec2i at = g.camera.toScreen(e->current);
+		const sim::Position *pos = g.battle.find<sim::Position>(id);
+		const Vec2i at = g.camera.toScreen(pos->current);
 		const Extent2u m = c->mask->size();
 		const i32 w = g.camera.scale(
 				sim::displayToWorld(static_cast<i32>(m.w)));

@@ -50,7 +50,7 @@ asteroidPreProcess(Battle &b, EntityId id) noexcept
 		return;
 	}
 
-	e->facing += spin->backwards ? -1 : 1;
+	b.find<Position>(id)->facing += spin->backwards ? -1 : 1;
 	spin->countdown = spin->period;
 }
 
@@ -86,13 +86,14 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 	if (self == nullptr || selfCollider == nullptr)
 		return false;
 
-	const Body a{selfCollider->mask, self->current, self->current};
+	const Vec2i selfAt = b.find<Position>(id)->current;
+	const Body a{selfCollider->mask, selfAt, selfAt};
 
 	// Order-independent: a plain OR over every other element, so the walk
 	// need not be the spine -- eachElement is enough, and keeps
 	// entt::registry out of this file.
 	bool conflict = false;
-	b.eachElement([&](EntityId other, Element &t) {
+	b.eachElement([&](EntityId other, Element &) {
 		if (conflict || other == id)
 			return;
 		const Collider *tCollider = b.find<Collider>(other);
@@ -105,7 +106,8 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 		if (!b.collidable(other) && !b.has<PlayerShip>(other))
 			return;
 
-		const Body other_{tCollider->mask, t.current, t.current};
+		const Vec2i at = b.find<Position>(other)->current;
+		const Body other_{tCollider->mask, at, at};
 		if (sweptIntersect(a, other_))
 			conflict = true;
 	});
@@ -125,13 +127,14 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 	const auto farEnough = [&b, id](i32 want) {
 		if (want <= 0)
 			return true;
-		auto self = b.get(id);
+		const Vec2i selfAt = b.find<Position>(id)->current;
 		bool tooClose = false;
-		b.eachElement([&](EntityId other, Element &t) {
+		b.eachElement([&](EntityId other, Element &) {
 			if (tooClose || other == id || !b.has<PlayerShip>(other))
 				return;
-			const Vec2i d = wrapDelta(Vec2i{t.current.x - self->current.x,
-					t.current.y - self->current.y});
+			const Vec2i tAt = b.find<Position>(other)->current;
+			const Vec2i d = wrapDelta(
+					Vec2i{tAt.x - selfAt.x, tAt.y - selfAt.y});
 			if (d.x * d.x + d.y * d.y < want * want)
 				tooClose = true;
 		});
@@ -140,10 +143,10 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 
 	for (int tries = 0;; ++tries)
 	{
-		auto e = b.get(id);
-		e->current = wrap(Vec2i{displayAlignX(b.rng().next()),
+		Position *pos = b.find<Position>(id);
+		pos->current = wrap(Vec2i{displayAlignX(b.rng().next()),
 				displayAlignY(b.rng().next())});
-		e->next = e->current;
+		pos->next = pos->current;
 
 		if (calculateGravity(b, id) || timeSpaceMatterConflict(b, id))
 			continue;
@@ -164,14 +167,13 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	p.playerNr = -1;             // NEUTRAL_PLAYER_NUM
 	p.hitPoints = 200;
 	p.onCollision = solidCollision;
-	p.velocity.zero();
+	// Motion defaults to zero; the planet never moves.
 
 	// Mass is assigned only *after* placement (misc.c:71): while the loop runs
 	// the planet isn't yet a gravity source, so calculateGravity asks only
 	// "is this spot inside someone else's well?" -- which is what rejects it.
-	p.mass = 0;
-
-	const EntityId id = b.spawn(Layer::Field, std::move(p), mask);
+	const EntityId id = b.spawn(
+			Layer::Field, std::move(p), Position{}, Motion{}, Physique{}, mask);
 
 	// NORMAL_LIFE + 1 (misc.c:55), WITHOUT FiniteLife: the one entity whose
 	// lifeSpan isn't 1 despite being persistent. `ages = false` is what
@@ -180,13 +182,13 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 
 	do
 	{
-		auto e = b.get(id);
-		e->current = wrap(Vec2i{displayAlignX(b.rng().next()),
+		Position *pos = b.find<Position>(id);
+		pos->current = wrap(Vec2i{displayAlignX(b.rng().next()),
 				displayAlignY(b.rng().next())});
-		e->next = e->current;
+		pos->next = pos->current;
 	} while (calculateGravity(b, id) || timeSpaceMatterConflict(b, id));
 
-	b.get(id)->mass = b.get(id)->hitPoints;
+	b.find<Physique>(id)->mass = b.get(id)->hitPoints;
 	return id;
 }
 
@@ -197,7 +199,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	a.kind = ElementKind::Asteroid;
 	a.playerNr = -1;
 	a.hitPoints = 1;
-	a.mass = 3;                  // NORMAL_LIFE, persistent: no Lifetime at all
+	const Physique phys{3};      // NORMAL_LIFE, persistent: no Lifetime at all
 	a.preProcess = asteroidPreProcess;
 	a.onCollision = solidCollision;
 	a.onDeath = asteroidDeath;
@@ -205,23 +207,26 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	// Six draws, in the order misc.c:156-191 makes them -- not stylistic:
 	// getting the sequence wrong desynchronised network play there, and would
 	// desynchronise a replay here.
+	Position pos;
 	const u32 edge = b.rng().next();
 	if ((edge & (1u << 0)) != 0)
 	{
-		a.current.x = (edge & (1u << 1)) != 0 ? kLogSpaceWidth : 0;
-		a.current.y = wrapY(displayAlignY(b.rng().next()));
+		pos.current.x = (edge & (1u << 1)) != 0 ? kLogSpaceWidth : 0;
+		pos.current.y = wrapY(displayAlignY(b.rng().next()));
 	}
 	else
 	{
-		a.current.x = wrapX(displayAlignX(b.rng().next()));
-		a.current.y = (edge & (1u << 1)) != 0 ? kLogSpaceHeight : 0;
+		pos.current.x = wrapX(displayAlignX(b.rng().next()));
+		pos.current.y = (edge & (1u << 1)) != 0 ? kLogSpaceHeight : 0;
 	}
 
 	const i32 magnitude =
 			displayToWorld(static_cast<i32>(b.rng().next() & 7) + 4);
-	a.velocity.setVector(magnitude, Facing(static_cast<int>(b.rng().next())));
+	Motion motion;
+	motion.velocity.setVector(
+			magnitude, Facing(static_cast<int>(b.rng().next())));
 
-	a.facing = Facing(static_cast<int>(b.rng().next()));
+	pos.facing = Facing(static_cast<int>(b.rng().next()));
 
 	// Draws six and seven, in the C's order and truncations (misc.c:156-193):
 	// the period, then the direction bit. They used to be bit-packed into
@@ -232,8 +237,9 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	spin.countdown = spin.period;
 	spin.backwards = (b.rng().next() & (1u << 7)) != 0;
 
-	a.next = a.current;
-	const EntityId id = b.spawn(Layer::Field, std::move(a), mask);
+	pos.next = pos.current;
+	const EntityId id =
+			b.spawn(Layer::Field, std::move(a), pos, motion, phys, mask);
 	b.attach<Spin>(id, spin);
 
 	// A standing copy of the birth mask, independent of the Collider: a kill
@@ -252,14 +258,16 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 		return;
 
 	const StashedMask *deadMask = b.find<StashedMask>(id);
+	const Position *deadPos = b.find<Position>(id);
 
 	Element r;
 	r.kind = ElementKind::Blast;
 	r.playerNr = dead->playerNr;
-	r.current = dead->current;
-	r.next = r.current;
 	r.turnWait = 0;
 	r.onDeath = rubbleDeath;
+	Position rPos;
+	rPos.current = deadPos->current;
+	rPos.next = rPos.current;
 
 	// Queued, not spawned: it enters the world at the sync point and acts
 	// next frame (review-006 §4's accepted one-frame latency), where the C's
@@ -270,6 +278,7 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	SpawnCommand cmd;
 	cmd.layer = Layer::Ordnance;
 	cmd.element = std::move(r);
+	cmd.position = rPos;
 	cmd.lifetime = Lifetime{5};
 	cmd.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr;
 	b.queueSpawn(std::move(cmd));

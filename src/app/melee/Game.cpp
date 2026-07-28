@@ -224,7 +224,7 @@ iterate(Game &g)
 	usize living = 0;
 	for (const sim::EntityId id : g.ships)
 		if (auto e = g.battle.get(id); e != nullptr)
-			eyes[living++] = e->current;
+			eyes[living++] = g.battle.find<sim::Position>(id)->current;
 	if (living > 0)
 		g.camera.follow(std::span<const Vec2i>{eyes.data(), living});
 

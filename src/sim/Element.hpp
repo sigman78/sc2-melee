@@ -32,13 +32,6 @@ struct IgnoreVelocity
 {
 };
 
-// `current` and `next` are the two ENDS of a beam, not motion -- the C's
-// LINE_PRIM elements (weapon.c:44-85). The step neither seeds next from
-// current at spawn nor commits current = next.
-struct BeamGeometry
-{
-};
-
 // GRAVITY_MASS (element.h:198) is `mass > 100`; gravity.c/collide.c ask
 // `mass + 1 > 100` instead (gravity.c:34,45, collide.c:102,139) -- exempting
 // a fleeing ship (battle.c:92) from gravity/impulse but not damage (misc.c:214).
@@ -59,6 +52,16 @@ isGravitySource(i32 massPoints) noexcept
 	return massPoints + 1 > kGravityMass;
 }
 
+// Element's mass, split out (review-007 W4a): the plan table missed this
+// one, named here after the user's own sketch. Every collidable thing has
+// one -- collisionPossible's both-massless skip, Impulse's denominators and
+// isGravityMass/isGravitySource all read it without needing anything else
+// off Element.
+struct Physique
+{
+	i32 mass = 0;
+};
+
 // What kind of thing this is: a real tag, not a frame-pointer comparison
 // (cyborg.c:1222-1227) or a cross-ship header include for constants
 // (shofixti.c:251-253 pulls in orz.h to recognise a turret).
@@ -72,7 +75,7 @@ enum class ElementKind : u8
 	Blast,
 	Turret,
 
-	// A beam: `current`/`next` are its two *ends*, not before/after positions --
+	// A beam: Beam{from,to} is its two *ends*, not before/after positions --
 	// matching the C's LINE_PRIM reuse of one element for it (weapon.c:44-85).
 	Laser,
 
@@ -104,21 +107,12 @@ struct Element
 	// and entt's default swap-and-pop storage does not.
 	static constexpr auto in_place_delete = true;
 
-	// Where it is now, and where the step is taking it.
-	Vec2i current;
-	Vec2i next;
-
-	Velocity velocity;
-
 	ElementKind kind = ElementKind::Unknown;
 
 	// -1 for things nobody owns, like asteroids.
 	i32 playerNr = -1;
 
-	Facing facing;
-
 	i32 hitPoints = 0;
-	i32 mass = 0;
 	i32 damage = 0;
 
 	// How far along its travel direction a weapon's blast sits, in display

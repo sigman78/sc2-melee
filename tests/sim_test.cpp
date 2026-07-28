@@ -811,27 +811,24 @@ struct Trace
 };
 Trace g_trace;
 
-// Tags an element so the trace can name it. `mass` is unused by these tests,
-// so it doubles as a label.
+// Tags an element so the trace can name it. Physique::mass is unused by
+// these tests, so it doubles as a label (moved off Element, review-007 W4a).
 void
 recordPre(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	g_trace.preOrder.push_back(static_cast<int>(e->mass));
+	g_trace.preOrder.push_back(static_cast<int>(b.find<Physique>(id)->mass));
 }
 
 void
 recordDeath(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	g_trace.deaths.push_back(static_cast<int>(e->mass));
+	g_trace.deaths.push_back(static_cast<int>(b.find<Physique>(id)->mass));
 }
 
 Element
-plain(int label)
+plain()
 {
 	Element e;
-	e.mass = label;
 	e.preProcess = recordPre;
 	return e;
 }
@@ -855,9 +852,9 @@ testStepVisitsInListOrder()
 	// the hook once, same as always, so each check needs a settling step.
 	g_trace = Trace{};
 	Battle b(1);
-	b.spawn(Layer::Field, plain(1));
-	b.spawn(Layer::Field, plain(2));
-	b.spawn(Layer::Field, plain(3));
+	b.spawn(Layer::Field, plain(), Position{}, Motion{}, Physique{1});
+	b.spawn(Layer::Field, plain(), Position{}, Motion{}, Physique{2});
+	b.spawn(Layer::Field, plain(), Position{}, Motion{}, Physique{3});
 	b.step();
 	g_trace.preOrder.clear();
 	b.step();
@@ -866,7 +863,7 @@ testStepVisitsInListOrder()
 
 	// An earlier layer puts the newcomer first -- the pkunk.c phoenix
 	// ordering, declared instead of head-inserted.
-	b.spawn(Layer::Background, plain(0));
+	b.spawn(Layer::Background, plain(), Position{}, Motion{}, Physique{0});
 	b.step();
 	g_trace.preOrder.clear();
 	b.step();
@@ -886,12 +883,16 @@ testSpawnLandsAtSyncAndActsNextFrame()
 	Element trigger;
 	trigger.onDeath = [](Battle &bb, EntityId) noexcept {
 		Element child;
-		child.current = Vec2i{100, 100};
-		child.next = child.current;
-		child.velocity.setComponents(worldToVelocity(10), 0);
+		Motion motion;
+		motion.velocity.setComponents(worldToVelocity(10), 0);
+		Position pos;
+		pos.current = Vec2i{100, 100};
+		pos.next = pos.current;
 		SpawnCommand cmd;
 		cmd.layer = Layer::Field;
 		cmd.element = std::move(child);
+		cmd.position = pos;
+		cmd.motion = motion;
 		bb.queueSpawn(std::move(cmd));
 	};
 	const EntityId triggerId = b.spawn(Layer::Field, std::move(trigger));
@@ -905,14 +906,14 @@ testSpawnLandsAtSyncAndActsNextFrame()
 	const EntityId child = b.spawns()[0].id;
 	CHECK(b.alive(child), "the child should exist by the end of this step");
 	const Vec2i wantStart{100, 100};
-	CHECK(b.get(child)->current == wantStart,
+	CHECK(b.find<Position>(child)->current == wantStart,
 			"and not have moved the frame it was emitted");
 
 	b.step();
 	CHECK(b.alive(child), "the child should still be alive");
-	CHECK(b.get(child)->current.x == 110,
+	CHECK(b.find<Position>(child)->current.x == 110,
 			"it should move exactly once the following frame, got %ld",
-			static_cast<long>(b.get(child)->current.x));
+			static_cast<long>(b.find<Position>(child)->current.x));
 }
 
 void
@@ -921,9 +922,10 @@ testFiniteLifeExpiresAndCallsDeath()
 	g_trace = Trace{};
 	Battle b(1);
 
-	Element shot = plain(7);
+	Element shot = plain();
 	shot.onDeath = recordDeath;
 	const EntityId id = spawnShip(b, std::move(shot));
+	b.find<Physique>(id)->mass = 7;
 	b.attach<Lifetime>(id, Lifetime{3});
 
 	// Life is spent in the pre pass and death is decided at the *start* of
@@ -944,22 +946,24 @@ testMotionIntegratesAndWraps()
 {
 	Battle b(1);
 	Element e;
-	e.current = Vec2i{100, 100};
-	e.velocity.setComponents(worldToVelocity(10), 0);
-	const EntityId id = b.spawn(Layer::Field, std::move(e));
+	Motion motion;
+	motion.velocity.setComponents(worldToVelocity(10), 0);
+	Position pos;
+	pos.current = Vec2i{100, 100};
+	const EntityId id = b.spawn(Layer::Field, std::move(e), pos, motion);
 
 	// A newly spawned element *does* move on its first step. Appearing
 	// suppresses the preprocess hook, not the motion -- process.c:163 gates
 	// movement on IGNORE_VELOCITY alone. Getting this wrong costs every
 	// projectile its first frame of flight.
 	b.step();
-	CHECK(b.get(id)->current.x == 110,
+	CHECK(b.find<Position>(id)->current.x == 110,
 			"it should move 10 on its very first step, got %ld",
-			static_cast<long>(b.get(id)->current.x));
+			static_cast<long>(b.find<Position>(id)->current.x));
 
 	b.step();
-	CHECK(b.get(id)->current.x == 120, "and 10 a frame after, got %ld",
-			static_cast<long>(b.get(id)->current.x));
+	CHECK(b.find<Position>(id)->current.x == 120, "and 10 a frame after, got %ld",
+			static_cast<long>(b.find<Position>(id)->current.x));
 
 	// And the arena is a torus. Teleporting means moving BOTH points, the way
 	// placeShipAtRandom does: integration adds to `next` (process.c:172-173),
@@ -967,12 +971,12 @@ testMotionIntegratesAndWraps()
 	// The wrap itself happens at the commit too (process.c:899-916), so
 	// mid-frame coordinates may run off the edge -- what matters is what the
 	// element's position is when the frame is done.
-	b.get(id)->current = Vec2i{kLogSpaceWidth - 5, 0};
-	b.get(id)->next = b.get(id)->current;
+	b.find<Position>(id)->current = Vec2i{kLogSpaceWidth - 5, 0};
+	b.find<Position>(id)->next = b.find<Position>(id)->current;
 	b.step();
-	CHECK(b.get(id)->current.x < 100,
+	CHECK(b.find<Position>(id)->current.x < 100,
 			"crossing the seam should wrap, got %ld",
-			static_cast<long>(b.get(id)->current.x));
+			static_cast<long>(b.find<Position>(id)->current.x));
 }
 
 void
@@ -984,24 +988,28 @@ testCollisionPairsAreVisitedOnce()
 			Extent2u{4, 4}, Vec2i{2, 2}, bits);
 
 	Element a;
-	a.current = Vec2i{500, 500};
 	a.kind = ElementKind::Weapon;
 	a.playerNr = 0;
+	Position aPos;
+	aPos.current = Vec2i{500, 500};
 	// Transient, like a real weapon -- and load-bearing here: an at-rest
 	// overlap between two *solid* bodies is the "BAD NEWS" case the step
 	// skips, so only a transient can register this stationary hit at all.
 	// Two frames of life, because the first is spent before the test runs.
-	const EntityId ia = b.spawn(Layer::Field, std::move(a), &mask);
+	const EntityId ia = b.spawn(
+			Layer::Field, std::move(a), aPos, Motion{}, Physique{}, &mask);
 	b.attach<Lifetime>(ia, Lifetime{2});
 
 	Element c;
-	c.current = Vec2i{500, 500};
 	c.kind = ElementKind::Ship;
 	c.playerNr = 1;
 	// At least one side must have mass, or the pair is skipped entirely
 	// (collide.h:39). Two massless things have no momentum to exchange.
-	c.mass = 6;
-	const EntityId ic = b.spawn(Layer::Field, std::move(c), &mask);
+	const Physique cPhys{6};
+	Position cPos;
+	cPos.current = Vec2i{500, 500};
+	const EntityId ic = b.spawn(
+			Layer::Field, std::move(c), cPos, Motion{}, cPhys, &mask);
 
 	b.step();
 	CHECK(b.get(ia)->collidedWith == ic, "a should record hitting c");
@@ -1014,11 +1022,13 @@ testCollisionPairsAreVisitedOnce()
 	Battle b2(1);
 
 	Element f1;
-	f1.current = Vec2i{500, 500};
 	f1.kind = ElementKind::Weapon;
 	f1.playerNr = 0;
-	f1.mass = 4;
-	const EntityId if1 = b2.spawn(Layer::Field, std::move(f1), &mask);
+	const Physique f1Phys{4};
+	Position f1Pos;
+	f1Pos.current = Vec2i{500, 500};
+	const EntityId if1 = b2.spawn(
+			Layer::Field, std::move(f1), f1Pos, Motion{}, f1Phys, &mask);
 	b2.attach<IgnoreSimilar>(if1);
 	// A synthesized EntityId{index, generation} literal no longer compiles
 	// -- entt's handle has no such constructor -- so f1 stands in as its own
@@ -1029,8 +1039,10 @@ testCollisionPairsAreVisitedOnce()
 	// A *ship*, not another flame -- the kinds differ, which is precisely the
 	// case the old same-kind test let through.
 	f2.kind = ElementKind::Ship;
-	f2.mass = 7;
-	const EntityId if2 = b2.spawn(Layer::Field, std::move(f2), &mask);
+	const Physique f2Phys{7};
+	const Position f2Pos = *b2.find<Position>(if1);
+	const EntityId if2 = b2.spawn(
+			Layer::Field, std::move(f2), f2Pos, Motion{}, f2Phys, &mask);
 	b2.attach<IgnoreSimilar>(if2);
 
 	b2.step();
@@ -1042,15 +1054,21 @@ testCollisionPairsAreVisitedOnce()
 	Battle b3(1);
 	Element g1 = *b2.get(if1);
 	g1.collidedWith = kNoEntity;
+	const Position g1Pos = *b2.find<Position>(if1);
+	const Physique g1Phys = *b2.find<Physique>(if1);
 	// Transient for the same reason as above: the target is solid, so the
 	// flame must be finite-life for a stationary overlap to be a hit.
-	const EntityId ig1 = b3.spawn(Layer::Field, std::move(g1), &mask);
+	const EntityId ig1 = b3.spawn(
+			Layer::Field, std::move(g1), g1Pos, Motion{}, g1Phys, &mask);
 	b3.attach<Lifetime>(ig1, Lifetime{2});
 	b3.attach<IgnoreSimilar>(ig1);
 
 	Element g2 = *b2.get(if2);
 	g2.collidedWith = kNoEntity;
-	const EntityId ig2 = b3.spawn(Layer::Field, std::move(g2), &mask);
+	const Position g2Pos = *b2.find<Position>(if2);
+	const Physique g2Phys = *b2.find<Physique>(if2);
+	const EntityId ig2 = b3.spawn(
+			Layer::Field, std::move(g2), g2Pos, Motion{}, g2Phys, &mask);
 	b3.attach<IgnoreSimilar>(ig2);
 
 	// Two distinct real owners, in place of the old EntityId{7,1} /
@@ -1086,24 +1104,29 @@ void
 testHeadOnCollisionExchangesMomentum()
 {
 	Element a;
-	a.mass = 5;
-	a.current = Vec2i{0, 0};
-	a.next = Vec2i{100, 0};
-	a.velocity.setComponents(worldToVelocity(20), 0);
 	a.kind = ElementKind::Ship;
+	const Physique aPhys{5};
+	Motion aMotion;
+	aMotion.velocity.setComponents(worldToVelocity(20), 0);
+	Position aPos;
+	aPos.current = Vec2i{0, 0};
+	aPos.next = Vec2i{100, 0};
 
 	Element b;
-	b.mass = 5;
-	b.current = Vec2i{200, 0};
-	b.next = Vec2i{110, 0};
-	b.velocity.setComponents(-worldToVelocity(20), 0);
 	b.kind = ElementKind::Ship;
+	const Physique bPhys{5};
+	Motion bMotion;
+	bMotion.velocity.setComponents(-worldToVelocity(20), 0);
+	Position bPos;
+	bPos.current = Vec2i{200, 0};
+	bPos.next = Vec2i{110, 0};
 
 	// The trait is a tag now; pure physics is told who is a ship.
-	const Vec2i beforeA = a.velocity.current();
+	const Vec2i beforeA = aMotion.velocity.current();
 	CollisionScratch aScratch, bScratch;
-	applyImpulse(a, true, aScratch, b, true, bScratch);
-	const Vec2i afterA = a.velocity.current();
+	applyImpulse(aPos, aMotion, aPhys, a, true, aScratch, bPos, bMotion, bPhys,
+			b, true, bScratch);
+	const Vec2i afterA = aMotion.velocity.current();
 
 	CHECK(afterA.x < beforeA.x,
 			"a head-on hit should reverse the mover, %ld -> %ld",
@@ -1122,22 +1145,27 @@ testGravityMassIsNotPushed()
 	CHECK(!isGravityMass(10), "a ship is not");
 
 	Element ship;
-	ship.mass = 5;
-	ship.current = Vec2i{0, 0};
-	ship.next = Vec2i{100, 0};
-	ship.velocity.setComponents(worldToVelocity(20), 0);
 	ship.kind = ElementKind::Ship;
+	const Physique shipPhys{5};
+	Motion shipMotion;
+	shipMotion.velocity.setComponents(worldToVelocity(20), 0);
+	Position shipPos;
+	shipPos.current = Vec2i{0, 0};
+	shipPos.next = Vec2i{100, 0};
 
 	Element planet;
-	planet.mass = 200;
-	planet.current = Vec2i{200, 0};
-	planet.next = Vec2i{200, 0};
 	planet.kind = ElementKind::Planet;
+	const Physique planetPhys{200};
+	Motion planetMotion;
+	Position planetPos;
+	planetPos.current = Vec2i{200, 0};
+	planetPos.next = Vec2i{200, 0};
 
 	CollisionScratch shipScratch, planetScratch;
-	applyImpulse(ship, true, shipScratch, planet, false, planetScratch);
-	CHECK(planet.velocity.isZero(), "the planet must not move");
-	CHECK(!ship.velocity.isZero(), "the ship must");
+	applyImpulse(shipPos, shipMotion, shipPhys, ship, true, shipScratch,
+			planetPos, planetMotion, planetPhys, planet, false, planetScratch);
+	CHECK(planetMotion.velocity.isZero(), "the planet must not move");
+	CHECK(!shipMotion.velocity.isZero(), "the ship must");
 }
 
 void
@@ -1148,23 +1176,30 @@ testStuckPairIsWorkedApart()
 	// them and skews the impact axis by an octant, which is what eventually
 	// separates two stuck objects rather than leaving them welded.
 	Element a;
-	a.mass = 5;
-	a.current = a.next = Vec2i{100, 100};
 	a.kind = ElementKind::Ship;
+	const Physique aPhys{5};
+	Motion aMotion;
+	Position aPos;
+	aPos.current = aPos.next = Vec2i{100, 100};
 
 	Element b = a;
-	b.current = b.next = Vec2i{100, 100};
+	const Physique &bPhys = aPhys;
+	Motion bMotion;
+	Position bPos;
+	bPos.current = bPos.next = Vec2i{100, 100};
 
 	CollisionScratch aScratch, bScratch;
-	applyImpulse(a, true, aScratch, b, true, bScratch);
+	applyImpulse(aPos, aMotion, aPhys, a, true, aScratch, bPos, bMotion, bPhys,
+			b, true, bScratch);
 	CHECK(aScratch.defyPhysics,
 			"a stationary pair should defy physics rather than exchange nothing");
 	CHECK(bScratch.defyPhysics, "both of them");
 
 	// Second time round, already defying: velocities are zeroed and the pair
 	// gets pushed apart along a skewed axis.
-	applyImpulse(a, true, aScratch, b, true, bScratch);
-	CHECK(!a.velocity.isZero() || !b.velocity.isZero(),
+	applyImpulse(aPos, aMotion, aPhys, a, true, aScratch, bPos, bMotion, bPhys,
+			b, true, bScratch);
+	CHECK(!aMotion.velocity.isZero() || !bMotion.velocity.isZero(),
 			"an already-stuck pair should be given a way out");
 }
 
@@ -1219,16 +1254,16 @@ testTurningIsGatedByTurnWait()
 	// turnWait N means a turn every N+1 frames, not every N: the counter is
 	// set to N *after* a turn and has to reach zero again (ship.c:238-253).
 	// The Avenger's 2 therefore turns on frames 1, 4, 7...
-	const Facing start = b.get(slow)->facing;
+	const Facing start = b.find<Position>(slow)->facing;
 	b.step();
-	CHECK(b.get(slow)->facing == start + 1,
+	CHECK(b.find<Position>(slow)->facing == start + 1,
 			"the first turn should happen immediately");
 	b.step();
 	b.step();
-	CHECK(b.get(slow)->facing == start + 1,
+	CHECK(b.find<Position>(slow)->facing == start + 1,
 			"and the next two frames should be spent waiting");
 	b.step();
-	CHECK(b.get(slow)->facing == start + 2,
+	CHECK(b.find<Position>(slow)->facing == start + 2,
 			"then turn again on the fourth");
 }
 
@@ -1296,9 +1331,9 @@ testMissileFliesAndExpires()
 	});
 	CHECK(shot != kNoEntity, "the missile should be in the list");
 
-	const Vec2i first = b.get(shot)->current;
+	const Vec2i first = b.find<Position>(shot)->current;
 	b.step();
-	const Vec2i second = b.get(shot)->current;
+	const Vec2i second = b.find<Position>(shot)->current;
 	CHECK(!(first == second), "the missile should move");
 	CHECK(second.y < first.y, "and facing 0 is up, so it goes -y");
 
@@ -1461,10 +1496,12 @@ addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
 	p.kind = ElementKind::Planet;
 	p.playerNr = -1;
 	p.hitPoints = 200;
-	p.mass = 200;
-	p.current = at;
-	p.next = at;
-	const EntityId id = b.spawn(Layer::Field, std::move(p), &m);
+	const Physique phys{200};
+	Position pos;
+	pos.current = at;
+	pos.next = at;
+	const EntityId id =
+			b.spawn(Layer::Field, std::move(p), pos, Motion{}, phys, &m);
 	b.attach<Lifetime>(id, Lifetime{2, /*ages=*/false});
 	return id;
 }
@@ -1504,7 +1541,7 @@ testGravityPullsTowardTheSource()
 	CHECK(!calculateGravity(b, planet),
 			"the source itself is never in a well");
 
-	const Vec2i v = b.get(ship)->velocity.current();
+	const Vec2i v = b.find<Motion>(ship)->velocity.current();
 	CHECK(v.x < 0, "the ship should be pulled back toward the planet, got %ld",
 			static_cast<long>(v.x));
 	CHECK(v.y == 0, "and straight along the axis, got %ld",
@@ -1538,7 +1575,7 @@ testGravityHasAHardEdge()
 		b.attach<Collider>(ship, &m);
 
 		(void)calculateGravity(b, planet);
-		const bool moved = !b.get(ship)->velocity.isZero();
+		const bool moved = !b.find<Motion>(ship)->velocity.isZero();
 		CHECK(moved == pulled, "at %d world units the pull should be %s", dx,
 				pulled ? "on" : "off");
 	}
@@ -1554,10 +1591,10 @@ testFleeingShipIsImmuneToGravity()
 			spawnPlayerShip(b, earthlingCruiser(), nullptr,
 					Vec2i{4100, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.attach<Collider>(ship, &m);
-	b.get(ship)->mass = kGravityMass;  // DoRunAway, battle.c:92
+	b.find<Physique>(ship)->mass = kGravityMass;  // DoRunAway, battle.c:92
 
 	(void)calculateGravity(b, planet);
-	CHECK(b.get(ship)->velocity.isZero(),
+	CHECK(b.find<Motion>(ship)->velocity.isZero(),
 			"a ship at mass 100 reads as a source, so the planet skips it");
 }
 
@@ -1573,21 +1610,22 @@ testAsteroidsSpawnOnAnEdgeAndRepeatably()
 		const EntityId a = spawnAsteroid(b, &m);
 		const EntityId a2 = spawnAsteroid(c, &m);
 
-		auto e = b.get(a);
-		const bool onEdge = e->current.x == 0 || e->current.x == kLogSpaceWidth
-				|| e->current.y == 0 || e->current.y == kLogSpaceHeight;
+		const Position *pos = b.find<Position>(a);
+		const bool onEdge = pos->current.x == 0
+				|| pos->current.x == kLogSpaceWidth || pos->current.y == 0
+				|| pos->current.y == kLogSpaceHeight;
 		CHECK(onEdge, "asteroid %d should enter from an edge, got (%ld,%ld)", i,
-				static_cast<long>(e->current.x),
-				static_cast<long>(e->current.y));
-		CHECK(!e->velocity.isZero(), "and should be moving");
+				static_cast<long>(pos->current.x),
+				static_cast<long>(pos->current.y));
+		CHECK(!b.find<Motion>(a)->velocity.isZero(), "and should be moving");
 
 		// Same seed, same asteroid: the seven draws happen in a fixed order.
 		// The spin rides its own component now (review-005 Y1), so the pin
 		// compares it there -- not a vacuous 0 == 0 on the retired field.
-		auto e2 = c.get(a2);
+		const Position *pos2 = c.find<Position>(a2);
 		const Spin &s1 = *b.find<Spin>(a);
 		const Spin &s2 = *c.find<Spin>(a2);
-		CHECK(e->current == e2->current && e->facing == e2->facing
+		CHECK(pos->current == pos2->current && pos->facing == pos2->facing
 						&& s1.period == s2.period
 						&& s1.backwards == s2.backwards
 						&& s1.countdown == s2.countdown,
@@ -1605,18 +1643,18 @@ testAsteroidTumbles()
 	// The spin period means "every N+1 frames", like turn_wait
 	// (misc.c:117-126); it lives in the Spin component.
 	const int period = static_cast<int>(b.find<Spin>(a)->period);
-	const Facing start = b.get(a)->facing;
+	const Facing start = b.find<Position>(a)->facing;
 
 	// period + 1 frames of stillness, not period: the first step is the
 	// asteroid's appearing frame and an asteroid is not a PLAYER_SHIP, so its
 	// preprocess hook does not run at all that frame (process.c:150-154).
 	for (int i = 0; i < period + 1; ++i)
 		b.step();
-	CHECK(b.get(a)->facing == start, "it should hold still for %d frames",
-			period + 1);
+	CHECK(b.find<Position>(a)->facing == start,
+			"it should hold still for %d frames", period + 1);
 
 	b.step();
-	CHECK(b.get(a)->facing != start, "then rotate one frame index");
+	CHECK(b.find<Position>(a)->facing != start, "then rotate one frame index");
 }
 
 void
@@ -1668,9 +1706,9 @@ testPlanetPlacementAvoidsEverything()
 	b.attach<Collider>(ship, &m);
 
 	const EntityId planet = spawnPlanet(b, &m);
-	CHECK(b.get(planet)->mass == 200,
+	CHECK(b.find<Physique>(planet)->mass == 200,
 			"mass is assigned after placement, got %ld",
-			static_cast<long>(b.get(planet)->mass));
+			static_cast<long>(b.find<Physique>(planet)->mass));
 	CHECK(!timeSpaceMatterConflict(b, planet),
 			"the planet should not overlap the ship");
 	CHECK(!calculateGravity(b, ship),
@@ -1717,9 +1755,9 @@ testPlanetsTakeNoDamage()
 
 	Element planet;
 	planet.kind = ElementKind::Planet;
-	planet.mass = 200;
 	planet.hitPoints = 200;
-	const EntityId planetId = b.spawn(Layer::Field, std::move(planet));
+	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
+			Position{}, Motion{}, Physique{200});
 	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
 
 	doDamage(b, planetId, 50);
@@ -1733,9 +1771,9 @@ testPlanetsTakeNoDamage()
 	// even while gravity treats it as a source.
 	Element fleeing;
 	fleeing.kind = ElementKind::Ship;
-	fleeing.mass = kGravityMass;
 	fleeing.hitPoints = 10;
-	const EntityId fleeingId = b.spawn(Layer::Field, std::move(fleeing));
+	const EntityId fleeingId = b.spawn(Layer::Field, std::move(fleeing),
+			Position{}, Motion{}, Physique{kGravityMass});
 
 	doDamage(b, fleeingId, 4);
 	auto f = b.get(fleeingId);
@@ -1817,12 +1855,13 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	Element planet;
 	planet.kind = ElementKind::Planet;
 	planet.playerNr = -1;
-	planet.mass = 200;
 	planet.hitPoints = 200;
-	planet.current = Vec2i{4000, 4000};
-	planet.next = planet.current;
 	planet.onCollision = solidCollision;
-	const EntityId planetId = b.spawn(Layer::Field, std::move(planet), &m);
+	Position planetPos;
+	planetPos.current = Vec2i{4000, 4000};
+	planetPos.next = planetPos.current;
+	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
+			planetPos, Motion{}, Physique{200}, &m);
 	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
 
 	// Spawned clear of the planet, then moved into it. Starting them on top of
@@ -1846,9 +1885,9 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	// overlapping at rest is the "BAD NEWS" case the step deliberately skips
 	// (process.c:397-416) -- an embedded ship takes no new damage -- so the
 	// contact has to happen mid-motion, the way it does in play.
-	b.get(ship)->current = Vec2i{4000, 4064};
-	b.get(ship)->next = b.get(ship)->current;
-	b.get(ship)->velocity.setComponents(0, -worldToVelocity(40));
+	b.find<Position>(ship)->current = Vec2i{4000, 4064};
+	b.find<Position>(ship)->next = b.find<Position>(ship)->current;
+	b.find<Motion>(ship)->velocity.setComponents(0, -worldToVelocity(40));
 	b.step();
 	CHECK(b.get(ship) != nullptr, "and should survive one planet graze");
 	if (b.get(ship) == nullptr)
@@ -1882,16 +1921,18 @@ testOverlappingShipsSeparateInsteadOfSticking()
 	Element a;
 	a.kind = ElementKind::Ship;
 	a.playerNr = 0;
-	a.mass = 6;
-	a.current = a.next = Vec2i{4000, 4000};
-	const EntityId ia = b.spawn(Layer::Field, std::move(a), &m);
+	Position aPos;
+	aPos.current = aPos.next = Vec2i{4000, 4000};
+	const EntityId ia = b.spawn(
+			Layer::Field, std::move(a), aPos, Motion{}, Physique{6}, &m);
 
 	Element c;
 	c.kind = ElementKind::Ship;
 	c.playerNr = 1;
-	c.mass = 6;
-	c.current = c.next = Vec2i{6000, 6000};
-	const EntityId ic = b.spawn(Layer::Field, std::move(c), &m);
+	Position cPos;
+	cPos.current = cPos.next = Vec2i{6000, 6000};
+	const EntityId ic = b.spawn(
+			Layer::Field, std::move(c), cPos, Motion{}, Physique{6}, &m);
 
 	// Spawned far apart and established first. The distinction is the C's:
 	// an APPEARING element found overlapping something is EXECUTED on the
@@ -1902,19 +1943,19 @@ testOverlappingShipsSeparateInsteadOfSticking()
 	// Now manufacture the post-impact state: overlapping -- 16 world units
 	// is 4 display pixels, half a mask -- and moving apart, exactly what an
 	// impact response leaves behind.
-	b.get(ia)->current = b.get(ia)->next = Vec2i{4000, 4000};
-	b.get(ia)->velocity.setComponents(-worldToVelocity(20), 0);
-	b.get(ic)->current = b.get(ic)->next = Vec2i{4016, 4000};
-	b.get(ic)->velocity.setComponents(worldToVelocity(20), 0);
+	b.find<Position>(ia)->current = b.find<Position>(ia)->next = Vec2i{4000, 4000};
+	b.find<Motion>(ia)->velocity.setComponents(-worldToVelocity(20), 0);
+	b.find<Position>(ic)->current = b.find<Position>(ic)->next = Vec2i{4016, 4000};
+	b.find<Motion>(ic)->velocity.setComponents(worldToVelocity(20), 0);
 
 	b.step();
 	CHECK(b.collisions().empty(), "an at-rest overlap is not a collision");
-	CHECK(b.get(ia)->current.x == 3980,
+	CHECK(b.find<Position>(ia)->current.x == 3980,
 			"the left ship keeps its full motion, got %ld",
-			static_cast<long>(b.get(ia)->current.x));
-	CHECK(b.get(ic)->current.x == 4036,
+			static_cast<long>(b.find<Position>(ia)->current.x));
+	CHECK(b.find<Position>(ic)->current.x == 4036,
 			"and the right ship its own, got %ld",
-			static_cast<long>(b.get(ic)->current.x));
+			static_cast<long>(b.find<Position>(ic)->current.x));
 
 	// And they stay separated: no re-collision as they clear each other.
 	for (int i = 0; i < 10; ++i)
@@ -1923,7 +1964,8 @@ testOverlappingShipsSeparateInsteadOfSticking()
 		CHECK(b.collisions().empty(),
 				"separating ships must not collide again (frame %d)", i);
 	}
-	CHECK(b.get(ic)->current.x - b.get(ia)->current.x > 32 * kScaledOne,
+	CHECK(b.find<Position>(ic)->current.x - b.find<Position>(ia)->current.x
+					> 32 * kScaledOne,
 			"ten frames later they are well clear of each other");
 }
 
@@ -1939,11 +1981,13 @@ spawnTestShot(Battle &b, const CollisionMask &mask, Vec2i at, i32 playerNr,
 	e.kind = ElementKind::Weapon;
 	e.playerNr = playerNr;
 	e.hitPoints = hitPoints;
-	e.mass = mass;
-	e.current = e.next = at;
-	e.velocity.setComponents(vx, vy);
 	e.onCollision = weaponCollision;
-	const EntityId id = b.spawn(Layer::Field, std::move(e), &mask);
+	Position pos;
+	pos.current = pos.next = at;
+	Motion motion;
+	motion.velocity.setComponents(vx, vy);
+	const EntityId id = b.spawn(
+			Layer::Field, std::move(e), pos, motion, Physique{mass}, &mask);
 	b.attach<Lifetime>(id, Lifetime{lifeSpan});
 	return id;
 }
@@ -1962,9 +2006,10 @@ testShipShotMidFlightKeepsItsMotion()
 	Element ship;
 	ship.kind = ElementKind::Ship;
 	ship.playerNr = 0;
-	ship.mass = 6;
-	ship.current = ship.next = Vec2i{4000, 4000};
-	const EntityId is = b.spawn(Layer::Field, std::move(ship), &m);
+	Position shipPos;
+	shipPos.current = shipPos.next = Vec2i{4000, 4000};
+	const EntityId is = b.spawn(Layer::Field, std::move(ship), shipPos,
+			Motion{}, Physique{6}, &m);
 	b.attach<PlayerShip>(is);
 
 	// A stationary shot in the ship's path. Zero damage, so the run is about
@@ -1976,25 +2021,25 @@ testShipShotMidFlightKeepsItsMotion()
 
 	b.step();  // spawn frame: 50 display pixels apart, nothing touches
 
-	b.get(is)->velocity.setComponents(worldToVelocity(80), 0);
+	b.find<Motion>(is)->velocity.setComponents(worldToVelocity(80), 0);
 	bool hit = false;
 	for (int i = 0; i < 6 && !hit; ++i)
 	{
-		const i32 beforeX = b.get(is)->current.x;
+		const i32 beforeX = b.find<Position>(is)->current.x;
 		b.step();
 		if (!b.collisions().empty())
 		{
 			hit = true;
-			CHECK(b.get(is)->current.x == beforeX + 80,
+			CHECK(b.find<Position>(is)->current.x == beforeX + 80,
 					"the ship keeps its full motion through a weapon hit, "
 					"got %ld from %ld",
-					static_cast<long>(b.get(is)->current.x),
+					static_cast<long>(b.find<Position>(is)->current.x),
 					static_cast<long>(beforeX));
 		}
 	}
 	CHECK(hit, "the ship should have crossed the shot");
 
-	const Vec2i v = b.get(is)->velocity.current();
+	const Vec2i v = b.find<Motion>(is)->velocity.current();
 	CHECK(velocityToWorld(v.x) == 80,
 			"and its velocity untouched -- weapons carry no impulse, got %ld",
 			static_cast<long>(velocityToWorld(v.x)));
@@ -2036,9 +2081,9 @@ testToughWeaponPiercesWeakOne()
 			static_cast<long>(b.get(it)->hitPoints));
 	// They meet near x=4000 at frame 5; eight frames of unimpeded flight from
 	// 3800 is 4120 -- well past the impact point, with no truncation.
-	CHECK(b.get(it)->current.x == 3800 + 8 * 40,
+	CHECK(b.find<Position>(it)->current.x == 3800 + 8 * 40,
 			"and carried on past the impact point unimpeded, got %ld",
-			static_cast<long>(b.get(it)->current.x));
+			static_cast<long>(b.find<Position>(it)->current.x));
 }
 
 void
@@ -2064,11 +2109,12 @@ testTurningIntoOverlapIsReverted()
 	Element planet;
 	planet.kind = ElementKind::Planet;
 	planet.playerNr = -1;
-	planet.mass = 200;
 	planet.hitPoints = 200;
-	planet.current = planet.next = Vec2i{4000, 4000};
 	planet.onCollision = solidCollision;
-	const EntityId planetId = b.spawn(Layer::Field, std::move(planet), &wall);
+	Position planetPos;
+	planetPos.current = planetPos.next = Vec2i{4000, 4000};
+	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
+			planetPos, Motion{}, Physique{200}, &wall);
 	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
 
 	// Adjacent at facing 0 (a 4x4 mask), overlapping at facing 1 (16x16).
@@ -2081,9 +2127,9 @@ testTurningIntoOverlapIsReverted()
 	b.find<Input>(ship)->buttons = ShipInput::Right;
 	b.step();
 
-	CHECK(b.get(ship)->facing == Facing(0),
+	CHECK(b.find<Position>(ship)->facing == Facing(0),
 			"the turn into the wall should have been undone, facing %d",
-			b.get(ship)->facing.raw());
+			b.find<Position>(ship)->facing.raw());
 	CHECK(b.collisions().empty(),
 			"and a reverted turn is not a collision");
 	CHECK(b.ship(ship)->crew == crew,
@@ -2113,11 +2159,12 @@ testSpawnInsideSomethingIsExecuted()
 	Element planet;
 	planet.kind = ElementKind::Planet;
 	planet.playerNr = -1;
-	planet.mass = 200;
 	planet.hitPoints = 200;
-	planet.current = planet.next = Vec2i{4000, 4000};
 	planet.onCollision = solidCollision;
-	const EntityId planetId = b.spawn(Layer::Field, std::move(planet), &m);
+	Position planetPos;
+	planetPos.current = planetPos.next = Vec2i{4000, 4000};
+	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
+			planetPos, Motion{}, Physique{200}, &m);
 	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
 	b.step();  // established
 
@@ -2125,11 +2172,13 @@ testSpawnInsideSomethingIsExecuted()
 	rock.kind = ElementKind::Asteroid;
 	rock.playerNr = -1;
 	rock.hitPoints = 1;
-	rock.mass = 3;              // NORMAL_LIFE, persistent: no Lifetime at all
-	rock.current = rock.next = Vec2i{4004, 4000};  // inside the planet
 	rock.onCollision = solidCollision;
 	rock.onDeath = countOverlapDeath;
-	const EntityId ir = b.spawn(Layer::Field, std::move(rock), &m);
+	Position rockPos;
+	rockPos.current = rockPos.next = Vec2i{4004, 4000};  // inside the planet
+	// NORMAL_LIFE, persistent: no Lifetime at all
+	const EntityId ir = b.spawn(Layer::Field, std::move(rock), rockPos,
+			Motion{}, Physique{3}, &m);
 
 	g_overlapDeaths = 0;
 	b.step();
@@ -2203,14 +2252,14 @@ testCommittedElementsAreNotIntegratedTwice()
 	// Turn and fire together. The Avenger turns every turnWait+1 = 3 frames:
 	// frames 1, 4, 7, 10 -- four steps in twelve. A double-preprocessed ship
 	// turns visibly faster.
-	const Facing start = b.get(id)->facing;
+	const Facing start = b.find<Position>(id)->facing;
 	b.find<Input>(id)->buttons = ShipInput::Right | ShipInput::Weapon;
 	for (int i = 0; i < 12; ++i)
 		b.step();
 
-	CHECK(b.get(id)->facing == start + 4,
+	CHECK(b.find<Position>(id)->facing == start + 4,
 			"twelve frames of turn-and-fire should turn exactly 4 facings, "
-			"got %d from %d", b.get(id)->facing.raw(), start.raw());
+			"got %d from %d", b.find<Position>(id)->facing.raw(), start.raw());
 }
 
 void
@@ -2248,9 +2297,10 @@ testPointDefenceBurnsIncomingFire()
 	shot.playerNr = 1;
 	shot.hitPoints = 1;
 	shot.damage = 1;
-	shot.mass = 1;
-	shot.current = shot.next = Vec2i{4000, 4200};
-	const EntityId incoming = b.spawn(Layer::Field, std::move(shot), &m);
+	Position shotPos;
+	shotPos.current = shotPos.next = Vec2i{4000, 4200};
+	const EntityId incoming = b.spawn(Layer::Field, std::move(shot), shotPos,
+			Motion{}, Physique{1}, &m);
 	b.attach<Lifetime>(incoming, Lifetime{20});
 
 	b.find<Input>(ship)->buttons = ShipInput::Special;
@@ -2347,7 +2397,7 @@ testShipWarpsInBeforeItIsSolid()
 	// points, and -- the part that was wrong twice -- each new one is laid
 	// *closer* to the arrival point than the last, so the trail converges onto
 	// the ship instead of streaming away from it.
-	const Vec2i arrival = ship()->current;
+	const Vec2i arrival = b.find<sim::Position>(shipId)->current;
 	const auto newestDistance = [&b, &arrival]() -> i64 {
 		i32 best = -1;
 		i64 dist = -1;
@@ -2359,8 +2409,9 @@ testShipWarpsInBeforeItIsSolid()
 			if (life <= best)
 				return;
 			best = life;
-			const Vec2i d = sim::wrapDelta(Vec2i{p->current.x - arrival.x,
-					p->current.y - arrival.y});
+			const Vec2i shadowAt = b.find<sim::Position>(id)->current;
+			const Vec2i d = sim::wrapDelta(
+					Vec2i{shadowAt.x - arrival.x, shadowAt.y - arrival.y});
 			dist = static_cast<i64>(d.x) * d.x
 					+ static_cast<i64>(d.y) * d.y;
 		});
@@ -2412,7 +2463,8 @@ testShipWarpsInBeforeItIsSolid()
 		// from a copied mask here (its old carrier, which died with Move A).
 		CHECK(!b.has<sim::Collider>(sId),
 				"a shadow never collides, and never did");
-		CHECK(s->facing == Facing(4), "a shadow keeps the facing it was shed at");
+		const sim::Position &sPos = *b.find<sim::Position>(sId);
+		CHECK(sPos.facing == Facing(4), "a shadow keeps the facing it was shed at");
 
 		// And it lies *behind* the ship. The exhaust's own direction is the
 		// reference: spawnIonTrail offsets along facingToAngle + kHalfCircle
@@ -2421,7 +2473,7 @@ testShipWarpsInBeforeItIsSolid()
 		const int ahead = sim::facingToAngle(4);
 		const Vec2i fwd{sim::cosine(ahead, 1000), sim::sine(ahead, 1000)};
 		const Vec2i off = sim::wrapDelta(
-				Vec2i{s->current.x - arrival.x, s->current.y - arrival.y});
+				Vec2i{sPos.current.x - arrival.x, sPos.current.y - arrival.y});
 		const i64 dot = static_cast<i64>(off.x) * fwd.x
 				+ static_cast<i64>(off.y) * fwd.y;
 		CHECK(dot < 0,
@@ -2551,16 +2603,16 @@ testCloakedFiringSnapAims()
 			"setup: the Avenger should be hidden");
 
 	// Point it the wrong way, then fire from the dark.
-	b.get(avenger)->facing = Facing(8);
+	b.find<Position>(avenger)->facing = Facing(8);
 	b.find<Input>(avenger)->buttons = ShipInput::Weapon;
 	b.step();
 
 	// The ambush snap (ilwrath.c:281-342): the discharge aims the ship at
 	// the lead-predicted target before the shot leaves. Both ships are at
 	// rest here, so the prediction is the target itself -- due +x, facing 4.
-	CHECK(b.get(avenger)->facing == Facing(4),
+	CHECK(b.find<Position>(avenger)->facing == Facing(4),
 			"firing from full black should snap the facing onto the target, "
-			"got %d", b.get(avenger)->facing.raw());
+			"got %d", b.find<Position>(avenger)->facing.raw());
 	CHECK(!isCloaked(b, avenger),
 			"and the discharge steps the cloak off black");
 	CHECK(b.ship(avenger)->specialCounter == 0,

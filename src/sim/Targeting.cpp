@@ -22,7 +22,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 	// every target alike -- the old read-`next`-if-already-preprocessed
 	// dance existed only because the interleaved walk moved half the list
 	// before the other half looked.
-	const Vec2i from = self->current;
+	const Vec2i from = b.find<Position>(tracker)->current;
 
 	int bestDelta = 0;
 	i32 bestDistance = 0;
@@ -45,7 +45,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 		if (isCloaked(b, id))
 			return;
 
-		const Vec2i to = t->current;
+		const Vec2i to = b.find<Position>(id)->current;
 		const Vec2i d = wrapDelta(Vec2i{to.x - from.x, to.y - from.y});
 		const int deltaFacing = Angle(arctan(d.x, d.y)).facing() - facing;
 

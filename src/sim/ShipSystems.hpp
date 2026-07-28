@@ -59,7 +59,7 @@ void guidedShotPreProcess(Battle &b, EntityId id) noexcept;
 // from their own hooks.
 bool deltaEnergy(ShipState &s, i32 delta) noexcept;
 void applyFacingMask(
-		Battle &b, EntityId id, Element &e, const ShipSpec &spec) noexcept;
+		Battle &b, EntityId id, Facing facing, const ShipSpec &spec) noexcept;
 
 }  // namespace uqm::sim
 

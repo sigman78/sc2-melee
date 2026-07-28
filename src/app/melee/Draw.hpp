@@ -28,7 +28,7 @@ enum class CelPolicy : u8
 	RampPoint,       // ion trail: 1px kIonRamp[age] dot
 	RampSilhouette,  // warp shadow: silhouette tinted kIonRamp[age]
 	DebrisFrames,    // dying-ship spark: boom frames stepped by age
-	BeamLine,        // laser: line current->next
+	BeamLine,        // laser: line Beam.from->to
 	Rect,            // fallback: fillRect in `fallback` colour
 };
 

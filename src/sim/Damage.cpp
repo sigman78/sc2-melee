@@ -76,7 +76,7 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 
 	// A gravity mass is not damageable. Asked without gravity.c's `+ 1`, so a
 	// planet is immune and a fleeing ship at mass 100 is not.
-	if (isGravityMass(e->mass))
+	if (isGravityMass(b.find<Physique>(id)->mass))
 		return;
 
 	if (damage < e->hitPoints)
@@ -113,7 +113,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	CollisionScratch &targetScratch = *b.find<CollisionScratch>(targetId);
 
 	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
-	const i32 damage = w->mass;
+	const i32 damage = b.find<Physique>(id)->mass;
 
 	// weapon.c:145-158: hurts anything transient or at NORMAL_LIFE (excludes
 	// something already dying). A target that SURVIVES marks the weapon
@@ -141,11 +141,12 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame don't).
 	if (target != nullptr
 			&& isFiniteLife(b, targetId)
-			&& (targetScratch.collided || w->hitPoints > target->mass))
+			&& (targetScratch.collided
+					|| w->hitPoints > b.find<Physique>(targetId)->mass))
 		return;
 
-	const Vec2i at = w->next;
-	const int angle = w->velocity.travelAngle();
+	const Vec2i at = b.find<Position>(id)->next;
+	const int angle = b.find<Motion>(id)->velocity.travelAngle();
 	const i32 blastOffset = w->blastOffset;
 
 	w->hitPoints = 0;
@@ -163,9 +164,10 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	Element blast;
 	blast.kind = ElementKind::Blast;
 	blast.playerNr = w->playerNr;
-	blast.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(blastOffset)),
+	Position blastPos;
+	blastPos.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(blastOffset)),
 			at.y + sine(angle, displayToWorld(blastOffset))});
-	blast.next = blast.current;
+	blastPos.next = blastPos.current;
 
 	// Queued, not spawned: it enters the world at the sync point and acts
 	// next frame, one frame later than the C's same-step catch-up gave it
@@ -173,6 +175,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	SpawnCommand cmd;
 	cmd.layer = Layer::Ordnance;
 	cmd.element = std::move(blast);
+	cmd.position = blastPos;
 	cmd.lifetime = Lifetime{kBlastLife};
 	b.queueSpawn(std::move(cmd));
 }
@@ -198,7 +201,7 @@ solidCollision(Battle &b, EntityId id) noexcept
 	// makes solid-on-solid exchange momentum in the step loop.
 	b.find<CollisionScratch>(id)->collided = true;
 
-	if (!isGravityMass(other->mass))
+	if (!isGravityMass(b.find<Physique>(e->collidedWith)->mass))
 		return;
 
 	// ship.c:364-367: damage = hit_points >> 2, floored at one. For a

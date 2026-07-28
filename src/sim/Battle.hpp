@@ -66,6 +66,14 @@ struct SpawnCommand
 {
 	Layer layer = Layer::Field;
 	Element element;
+	Position position;
+	Motion motion;
+	Physique physique;
+
+	// Set only for a beam: routes the drain through Battle::spawnBeam
+	// instead of Battle::spawn, so `position` above is never even read for
+	// one -- a beam has no Position at all (review-007 W4a).
+	std::optional<Beam> beam;
 
 	// Non-null for a weapon: attachWeaponSpec's payload.
 	Borrowed<const WeaponSpec> weaponSpec = nullptr;
@@ -75,7 +83,6 @@ struct SpawnCommand
 	std::optional<Guided> guided;
 
 	bool ignoreVelocity = false;
-	bool beamGeometry = false;
 	bool ignoreSimilar = false;
 
 	// Set for a transient spawn: Lifetime attaches once the spawn lands.
@@ -153,8 +160,20 @@ public:
 	// with the same value in the same call -- centralised here so no caller
 	// can attach one a statement late and leave the overlap-repair protocol's
 	// first-frame comparison reading a stale null (see the .cpp).
-	EntityId spawn(Layer layer, Element e,
+	// `pos`, `motion` and `physique` default to Position{}/Motion{}/
+	// Physique{} -- current/next/facing, velocity and mass all zero, same as
+	// Element's own fields defaulted before the split (review-007 W4a).
+	EntityId spawn(Layer layer, Element e, Position pos = Position{},
+			Motion motion = Motion{}, Physique physique = Physique{},
 			Borrowed<const CollisionMask> collider = nullptr);
+
+	// A beam's own spawn (review-007 W4a): no Position, no Collider, no
+	// caller-supplied Motion/Physique -- a beam never moves and never
+	// collides, so those stay at their harmless defaults; `beam` is what a
+	// mover's `pos` is elsewhere. Still gets Order, Appearing and the
+	// CollisionScratch/PriorSilhouette scaffold the collision walk's blanket
+	// per-entity reads assume every Element has.
+	EntityId spawnBeam(Layer layer, Element e, Beam beam);
 
 	// Registers a spawn for the sync point instead of creating it now --
 	// what a pipeline pass calls in place of spawn() (see SpawnCommand).

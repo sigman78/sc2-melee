@@ -34,9 +34,10 @@ struct PriorSilhouette
 // stopped, when both carry IGNORE_SIMILAR and share an owner (both, not
 // either; owner, not player or kind), or when neither side has mass.
 [[nodiscard]] bool
-collisionPossible(const Element &test, const Element &elem,
-		bool testCollidable, bool testCollided, bool elemCollided,
-		bool testIgnoreSimilar, bool elemIgnoreSimilar) noexcept
+collisionPossible(const Element &test, const Physique &testPhys,
+		const Element &elem, const Physique &elemPhys, bool testCollidable,
+		bool testCollided, bool elemCollided, bool testIgnoreSimilar,
+		bool elemIgnoreSimilar) noexcept
 {
 	if (!testCollidable)
 		return false;
@@ -45,7 +46,7 @@ collisionPossible(const Element &test, const Element &elem,
 	if (testIgnoreSimilar && elemIgnoreSimilar && test.owner != kNoEntity
 			&& test.owner == elem.owner)
 		return false;
-	if (test.mass == 0 && elem.mass == 0)
+	if (testPhys.mass == 0 && elemPhys.mass == 0)
 		return false;
 	return true;
 }
@@ -54,9 +55,9 @@ collisionPossible(const Element &test, const Element &elem,
 // isn't optional, or the intersect test sees everything 4x further apart.
 // The C converts at this exact boundary (collide.h:44-54).
 [[nodiscard]] Body
-bodyOf(const Element &e, const CollisionMask *mask) noexcept
+bodyOf(const Position &pos, const CollisionMask *mask) noexcept
 {
-	return Body{mask, worldToDisplay(e.current), worldToDisplay(e.next)};
+	return Body{mask, worldToDisplay(pos.current), worldToDisplay(pos.next)};
 }
 
 // The entity's current mask, or null if it has no Collider -- Collider took
@@ -82,9 +83,9 @@ rewindTo(Vec2i from, Vec2i to, TimeValue time) noexcept
 
 // In world units per frame, so consumers never see the packed fixed point.
 [[nodiscard]] Vec2i
-worldVelocityOf(const Element &e) noexcept
+worldVelocityOf(const Motion &m) noexcept
 {
-	const Vec2i v = e.velocity.current();
+	const Vec2i v = m.velocity.current();
 	return Vec2i{velocityToWorld(v.x), velocityToWorld(v.y)};
 }
 
@@ -109,6 +110,9 @@ Battle::Battle(u32 seed) : rng_(seed)
 	// One chunk was the whole battle in the old arena (EntityList's
 	// kChunkSize); the reserve keeps the steady-state step allocation-free.
 	reg_.storage<Element>().reserve(64);
+	reg_.storage<Position>().reserve(64);
+	reg_.storage<Motion>().reserve(64);
+	reg_.storage<Physique>().reserve(64);
 	reg_.storage<Order>().reserve(64);
 	reg_.storage<PriorSilhouette>().reserve(64);
 	reg_.storage<CollisionScratch>().reserve(64);
@@ -198,7 +202,8 @@ Battle::attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec)
 }
 
 EntityId
-Battle::spawn(Layer layer, Element e, Borrowed<const CollisionMask> collider)
+Battle::spawn(Layer layer, Element e, Position pos, Motion motion,
+		Physique physique, Borrowed<const CollisionMask> collider)
 {
 	const EntityId id = reg_.create();
 	recordSpawn(id, e);
@@ -211,14 +216,38 @@ Battle::spawn(Layer layer, Element e, Borrowed<const CollisionMask> collider)
 	// element. Attaching the Collider here too, in the same call, is what
 	// keeps this seed and the component in agreement -- a caller attaching
 	// one a statement later would leave this reading stale.
-	const PriorSilhouette prior{collider, e.facing};
+	const PriorSilhouette prior{collider, pos.facing};
 	reg_.emplace<Element>(id, std::move(e));
+	reg_.emplace<Position>(id, pos);
+	reg_.emplace<Motion>(id, motion);
+	reg_.emplace<Physique>(id, physique);
 	reg_.emplace<PriorSilhouette>(id, prior);
 	reg_.emplace<CollisionScratch>(id);
 	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
 	reg_.emplace<Appearing>(id);
 	if (collider != nullptr)
 		reg_.emplace<Collider>(id, Collider{collider});
+	++count_;
+	return id;
+}
+
+EntityId
+Battle::spawnBeam(Layer layer, Element e, Beam beam)
+{
+	const EntityId id = reg_.create();
+	recordSpawn(id, e);
+
+	// No facing to seed PriorSilhouette from, and no Collider ever attaches
+	// to a beam -- the null mask is permanent, not a stand-in for one filled
+	// in later.
+	reg_.emplace<Element>(id, std::move(e));
+	reg_.emplace<Beam>(id, beam);
+	reg_.emplace<Motion>(id, Motion{});
+	reg_.emplace<Physique>(id, Physique{});
+	reg_.emplace<PriorSilhouette>(id, PriorSilhouette{nullptr, Facing{}});
+	reg_.emplace<CollisionScratch>(id);
+	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
+	reg_.emplace<Appearing>(id);
 	++count_;
 	return id;
 }
@@ -262,9 +291,16 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// (see processCollisions), so neither pool moves under these references.
 	CollisionScratch &eScratch = reg_.get<CollisionScratch>(elemId);
 	CollisionScratch &tScratch = reg_.get<CollisionScratch>(testId);
+	Position *ePos = reg_.try_get<Position>(elemId);
+	Position *tPos = reg_.try_get<Position>(testId);
+	Motion *eMotion = reg_.try_get<Motion>(elemId);
+	Motion *tMotion = reg_.try_get<Motion>(testId);
+	Physique *ePhys = reg_.try_get<Physique>(elemId);
+	Physique *tPhys = reg_.try_get<Physique>(testId);
 
-	if (!collisionPossible(*t, *e, collidable(testId), tScratch.collided,
-			eScratch.collided, reg_.all_of<IgnoreSimilar>(testId),
+	if (!collisionPossible(*t, *tPhys, *e, *ePhys, collidable(testId),
+			tScratch.collided, eScratch.collided,
+			reg_.all_of<IgnoreSimilar>(testId),
 			reg_.all_of<IgnoreSimilar>(elemId)))
 		return false;
 
@@ -279,9 +315,8 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 
 	const bool bothSolid =
 			!(isFiniteLife(*this, elemId) || isFiniteLife(*this, testId));
-	Impact hit = sweptIntersect(
-			bodyOf(*e, maskOf(reg_, elemId)), bodyOf(*t, maskOf(reg_, testId)),
-			maxTime);
+	Impact hit = sweptIntersect(bodyOf(*ePos, maskOf(reg_, elemId)),
+			bodyOf(*tPos, maskOf(reg_, testId)), maxTime);
 
 	// "BAD NEWS" (process.c:397-516): impact at time 1 between two solids is a
 	// standing overlap, not a new collision -- a repair protocol, not a
@@ -293,9 +328,9 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			// The scanner already stopped this frame; the overlap is real
 			// only if it persists with the test element taken at its END
 			// position (process.c:405-413).
-			const Body still{maskOf(reg_, testId), worldToDisplay(t->next),
-					worldToDisplay(t->next)};
-			hit = sweptIntersect(bodyOf(*e, maskOf(reg_, elemId)), still, 1);
+			const Body still{maskOf(reg_, testId), worldToDisplay(tPos->next),
+					worldToDisplay(tPos->next)};
+			hit = sweptIntersect(bodyOf(*ePos, maskOf(reg_, elemId)), still, 1);
 			if (hit.time != 1)
 				break;
 		}
@@ -332,7 +367,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 				reg_.get<Collider>(elemId).mask = ePrior.mask;
 			else
 				reg_.remove<Collider>(elemId);
-			e->facing = ePrior.facing;
+			ePos->facing = ePrior.facing;
 		}
 		if (tTurned)
 		{
@@ -340,17 +375,17 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 				reg_.get<Collider>(testId).mask = tPrior.mask;
 			else
 				reg_.remove<Collider>(testId);
-			t->facing = tPrior.facing;
+			tPos->facing = tPrior.facing;
 		}
-		hit = sweptIntersect(bodyOf(*e, maskOf(reg_, elemId)),
-				bodyOf(*t, maskOf(reg_, testId)), maxTime);
+		hit = sweptIntersect(bodyOf(*ePos, maskOf(reg_, elemId)),
+				bodyOf(*tPos, maskOf(reg_, testId)), maxTime);
 	}
 
 	if (!hit)
 		return false;
 
-	const Vec2i elemStop = rewindTo(e->current, e->next, hit.time);
-	const Vec2i testStop = rewindTo(t->current, t->next, hit.time);
+	const Vec2i elemStop = rewindTo(ePos->current, ePos->next, hit.time);
+	const Vec2i testStop = rewindTo(tPos->current, tPos->next, hit.time);
 
 	// Earliest-collision-wins (process.c:531-540): before resolving at
 	// `hit.time`, recursively resolve whether either side hits something
@@ -364,6 +399,12 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			return false;
 		e = get(elemId);
 		t = get(testId);
+		ePos = reg_.try_get<Position>(elemId);
+		tPos = reg_.try_get<Position>(testId);
+		eMotion = reg_.try_get<Motion>(elemId);
+		tMotion = reg_.try_get<Motion>(testId);
+		ePhys = reg_.try_get<Physique>(elemId);
+		tPhys = reg_.try_get<Physique>(testId);
 		if (e == nullptr)
 			return true;
 		if (t == nullptr)
@@ -381,6 +422,12 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		}
 		e = get(elemId);
 		t = get(testId);
+		ePos = reg_.try_get<Position>(elemId);
+		tPos = reg_.try_get<Position>(testId);
+		eMotion = reg_.try_get<Motion>(elemId);
+		tMotion = reg_.try_get<Motion>(testId);
+		ePhys = reg_.try_get<Physique>(elemId);
+		tPhys = reg_.try_get<Physique>(testId);
 		if (e == nullptr)
 			return true;
 		if (t == nullptr)
@@ -402,8 +449,8 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	event.a = elemId;
 	event.b = testId;
 	event.at = elemStop;
-	event.beforeA = worldVelocityOf(*e);
-	event.beforeB = worldVelocityOf(*t);
+	event.beforeA = worldVelocityOf(*eMotion);
+	event.beforeB = worldVelocityOf(*tMotion);
 
 	const ElementHook eHook = e->onCollision;
 	const ElementHook tHook = t->onCollision;
@@ -424,17 +471,23 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 
 	e = get(elemId);
 	t = get(testId);
+	ePos = reg_.try_get<Position>(elemId);
+	tPos = reg_.try_get<Position>(testId);
+	eMotion = reg_.try_get<Motion>(elemId);
+	tMotion = reg_.try_get<Motion>(testId);
+	ePhys = reg_.try_get<Physique>(elemId);
+	tPhys = reg_.try_get<Physique>(testId);
 
 	// Whoever NEWLY raised Collided stops at the impact point
 	// (process.c:572-596); a side that was already stopped keeps the
 	// position its first collision gave it.
 	if (t != nullptr && tScratch.collided && !testHad)
-		t->next = testStop;
+		tPos->next = testStop;
 
 	bool impulsed = false;
 	if (e != nullptr && eScratch.collided && !elemHad)
 	{
-		e->next = elemStop;
+		ePos->next = elemStop;
 
 		// Momentum exchange is solid-on-solid only (process.c:598-601). A
 		// weapon hit is resolved by damage, from the collidedWith set above.
@@ -442,8 +495,9 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		{
 			// The trait left the struct, so pure physics is told who is a
 			// ship instead of reading a flag (review-004 X4's friction note).
-			applyImpulse(*e, reg_.all_of<PlayerShip>(elemId), eScratch, *t,
-					reg_.all_of<PlayerShip>(testId), tScratch);
+			applyImpulse(*ePos, *eMotion, *ePhys, *e,
+					reg_.all_of<PlayerShip>(elemId), eScratch, *tPos, *tMotion,
+					*tPhys, *t, reg_.all_of<PlayerShip>(testId), tScratch);
 			impulsed = true;
 
 			// collide.c:104-110: an impulse invalidates the at-max bookkeeping.
@@ -456,8 +510,8 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		}
 	}
 
-	event.afterA = e != nullptr ? worldVelocityOf(*e) : event.beforeA;
-	event.afterB = t != nullptr ? worldVelocityOf(*t) : event.beforeB;
+	event.afterA = e != nullptr ? worldVelocityOf(*eMotion) : event.beforeA;
+	event.afterB = t != nullptr ? worldVelocityOf(*tMotion) : event.beforeB;
 	collisions_.push_back(event);
 
 	if (impulsed)
@@ -522,11 +576,11 @@ Battle::processCollisions(
 void
 Battle::capturePriorPass() noexcept
 {
-	for (auto [id, e, prior, scratch] :
-			reg_.view<Element, PriorSilhouette, CollisionScratch>().each())
+	for (auto [id, pos, prior, scratch] :
+			reg_.view<Position, PriorSilhouette, CollisionScratch>().each())
 	{
 		prior.mask = maskOf(reg_, id);
-		prior.facing = e.facing;
+		prior.facing = pos.facing;
 		scratch.collided = false;
 	}
 }
@@ -585,18 +639,19 @@ Battle::animatePass()
 void
 Battle::integratePass() noexcept
 {
-	for (auto [id, e] : reg_.view<Element>().each())
+	// A beam has no Position (review-007 W4a), so this view never sees one --
+	// the old BeamGeometry exemption (seeding next from current would have
+	// collapsed a beam to a point) is gone with it, not replaced.
+	for (auto [id, pos, mot] : reg_.view<Position, Motion>().each())
 	{
 		if (reg_.all_of<IgnoreVelocity>(id))
 			continue;
 
-		// BeamGeometry is exempt: seeding next from current would collapse
-		// the beam to a point (its two points are the beam, not motion).
-		if (reg_.all_of<Appearing>(id) && !reg_.all_of<BeamGeometry>(id))
-			e.next = e.current;
+		if (reg_.all_of<Appearing>(id))
+			pos.next = pos.current;
 
-		const Vec2i delta = e.velocity.advance(1);
-		e.next = Vec2i{e.next.x + delta.x, e.next.y + delta.y};
+		const Vec2i delta = mot.velocity.advance(1);
+		pos.next = Vec2i{pos.next.x + delta.x, pos.next.y + delta.y};
 	}
 }
 
@@ -745,7 +800,13 @@ Battle::drainSpawnCommands()
 			continue;
 		}
 
-		const EntityId id = spawn(cmd.layer, std::move(cmd.element), cmd.collider);
+		// A beam has no Position, so it takes its own spawn entry point
+		// entirely -- cmd.position/motion/physique are never read for one
+		// (review-007 W4a).
+		const EntityId id = cmd.beam
+				? spawnBeam(cmd.layer, std::move(cmd.element), *cmd.beam)
+				: spawn(cmd.layer, std::move(cmd.element), cmd.position,
+						  cmd.motion, cmd.physique, cmd.collider);
 		if (cmd.weaponSpec != nullptr)
 			attachWeaponSpec(id, cmd.weaponSpec);
 		if (cmd.guided)
@@ -754,8 +815,6 @@ Battle::drainSpawnCommands()
 			attach<Lifetime>(id, *cmd.lifetime);
 		if (cmd.ignoreVelocity)
 			attach<IgnoreVelocity>(id);
-		if (cmd.beamGeometry)
-			attach<BeamGeometry>(id);
 		if (cmd.ignoreSimilar)
 			attach<IgnoreSimilar>(id);
 		if (cmd.rubbleMask != nullptr)
@@ -767,15 +826,15 @@ Battle::drainSpawnCommands()
 // Commit (pipeline slot 12): the wrap and the publish, unchanged from
 // today's postProcess commit (process.c:899-916) except that it now runs as
 // its own whole-spine pass instead of once per entity inline with its hook.
+// A beam has no Position (review-007 W4a), so this view never sees one --
+// the old BeamGeometry exemption is gone with it, not replaced.
 void
 Battle::commitPass() noexcept
 {
-	for (auto [id, e] : reg_.view<Element>().each())
+	for (auto [id, pos] : reg_.view<Position>().each())
 	{
-		if (reg_.all_of<BeamGeometry>(id))
-			continue;
-		e.next = wrap(e.next);
-		e.current = e.next;
+		pos.next = wrap(pos.next);
+		pos.current = pos.next;
 	}
 }
 

@@ -254,8 +254,15 @@ simulateBattle(u32 seed, std::ostream *trace)
 		usize walkIndex = 0;
 		b.eachOrdered([&](EntityId id) {
 			const Element *e = b.get(id);
-			foldI32(frameDigest, e->current.x);
-			foldI32(frameDigest, e->current.y);
+			// Position, not Element (review-007 W4a): same value, same
+			// order, so the fold is bit-for-bit identical to the
+			// pre-split baseline. A beam has no Position at all (W4a's Beam
+			// step) -- its Beam.from is what this digest folded as `current`
+			// before the split, so fold that instead to keep the hash equal.
+			const Position *pos = b.find<Position>(id);
+			const Vec2i at = pos != nullptr ? pos->current : b.find<Beam>(id)->from;
+			foldI32(frameDigest, at.x);
+			foldI32(frameDigest, at.y);
 			// find<Lifetime> ? remaining : 1 -- the literal persistent value
 			// Lifetime replaces, so every digest matches bit-for-bit against
 			// the pre-Lifetime baseline (review-007 W3).
@@ -269,8 +276,8 @@ simulateBattle(u32 seed, std::ostream *trace)
 			if (trace != nullptr)
 			{
 				*trace << b.frame() << ' ' << walkIndex << ' '
-						<< static_cast<int>(e->kind) << ' ' << e->current.x
-						<< ' ' << e->current.y << ' ' << lifeSpanOf(b, id);
+						<< static_cast<int>(e->kind) << ' ' << at.x
+						<< ' ' << at.y << ' ' << lifeSpanOf(b, id);
 				if (ss != nullptr)
 					*trace << ' ' << ss->crew << ' ' << ss->energy;
 				*trace << '\n';

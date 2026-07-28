@@ -41,8 +41,16 @@ inline constexpr i32 kCollisionThrustWait = 3;  // collide.h:29
 // X4), and pure physics takes facts as parameters rather than a registry.
 // aScratch/bScratch: the collided/defyPhysics scratch, read and written here
 // but owned by the collision domain, not by Impulse -- no registry access.
-void applyImpulse(Element &a, bool aIsShip, CollisionScratch &aScratch,
-		Element &b, bool bIsShip, CollisionScratch &bScratch) noexcept;
+// aPos/bPos: read-only, for the impact axis. aMotion/bMotion: the velocity
+// this applies to. aPhys/bPhys: read-only, the mass the denominators and
+// isGravityMass need. The turn/thrust stagger stays on Element until W4b
+// moves it into ShipState (review-007 W4a split Position, Motion and
+// Physique out of Element).
+void applyImpulse(const Position &aPos, Motion &aMotion,
+		const Physique &aPhys, Element &a, bool aIsShip,
+		CollisionScratch &aScratch, const Position &bPos, Motion &bMotion,
+		const Physique &bPhys, Element &b, bool bIsShip,
+		CollisionScratch &bScratch) noexcept;
 
 }  // namespace uqm::sim
 

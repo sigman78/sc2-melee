@@ -52,7 +52,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 	if (range <= 0)
 		return;
 
-	const Vec2i from = ship->next;
+	const Vec2i from = b.find<Position>(id)->next;
 	bool paid = false;
 	bool cannotAfford = false;
 
@@ -75,11 +75,11 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		// A deliberate divergence from the C, which will fire on a planet that
 		// just absorbs it (do_damage exempts gravity masses) -- see design-notes V4.
-		if (isGravityMass(t->mass))
+		if (isGravityMass(b.find<Physique>(other)->mass))
 			return;
 
-		const Vec2i dv = wrapDelta(
-				Vec2i{t->next.x - from.x, t->next.y - from.y});
+		const Vec2i tNext = b.find<Position>(other)->next;
+		const Vec2i dv = wrapDelta(Vec2i{tNext.x - from.x, tNext.y - from.y});
 		const i32 dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
 		const i32 dy = worldToDisplay(dv.y < 0 ? -dv.y : dv.y);
 		if (dx > range || dy > range || dx * dx + dy * dy > range * range)
@@ -100,14 +100,14 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		// The beam is decorative -- only the damage above is real -- deterministic
 		// geometry, not the renderer's (design-notes V3). LASER_LIFE is 1
-		// (weapon.c:52); BeamGeometry carries the ends-not-motion contract.
-		const Vec2i beamTo = t->next;
+		// (weapon.c:52); Beam{from,to} carries the ends-not-motion contract,
+		// and it is the only component holding this entity's geometry at all
+		// (review-007 W4a: a beam has no Position).
+		const Vec2i beamTo = tNext;
 		Element beam;
 		beam.kind = ElementKind::Laser;
 		beam.playerNr = ship->playerNr;
 		beam.owner = id;
-		beam.current = from;
-		beam.next = beamTo;
 
 		// Queued, not spawned: it enters the world at the sync point and
 		// draws its one frame of life the step after this one -- the PD
@@ -116,9 +116,8 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		SpawnCommand cmd;
 		cmd.layer = Layer::Ordnance;
 		cmd.element = std::move(beam);
+		cmd.beam = Beam{from, beamTo};
 		cmd.lifetime = Lifetime{1};
-		cmd.ignoreVelocity = true;
-		cmd.beamGeometry = true;
 		b.queueSpawn(std::move(cmd));
 
 		ship = b.get(id);
