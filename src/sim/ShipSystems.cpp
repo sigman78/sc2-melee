@@ -327,9 +327,10 @@ shouldSkipShipFrame(Battle &b, EntityId id, const Element &e,
 void
 shipMachinesPass(Battle &b) noexcept
 {
-	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
+	b.eachOrdered([&b](EntityId id) {
 		if (b.has<PlayerShip>(id))
 			shipMachinesStep(b, id);
+	});
 }
 
 void
@@ -342,35 +343,32 @@ turnPass(Battle &b) noexcept
 	});
 }
 
-// Stays a spine walk, unlike Turn: a thrusting ship queues an ion-trail
-// spawn command (spawnIonTrail), and that command's position in
-// spawnCommands_ fixes the trail's Seq/layer-FIFO slot at the sync point --
-// the ShipState view's storage order does not match the spine's, and
-// switching this one broke replay_test's --compare within the first
-// checkpoint window on 30 of 32 battles.
+// A thrusting ship queues an ion-trail spawn command (spawnIonTrail), and
+// that command's position in spawnCommands_ fixes the trail's Order (layer,
+// seq) slot at the sync point -- eachOrdered's emission order matches, so
+// this is clean again (the ShipState view's storage order was what broke
+// --compare when this pass first went idiomatic).
 void
 thrustPass(Battle &b) noexcept
 {
-	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
-	{
+	b.eachOrdered([&b](EntityId id) {
 		if (!b.has<PlayerShip>(id))
-			continue;
+			return;
 		auto e = b.get(id);
 		ShipState *sp = b.ship(id);
 		if (e == nullptr || sp == nullptr
 				|| shouldSkipShipFrame(b, id, *e, *sp, true))
-			continue;
+			return;
 		applyThrustInput(b, id, *e, *sp, *sp->spec);
-	}
+	});
 }
 
 void
 fireAndSpecialGatePass(Battle &b) noexcept
 {
-	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
-	{
+	b.eachOrdered([&b](EntityId id) {
 		if (!b.has<PlayerShip>(id))
-			continue;
+			return;
 		auto e = b.get(id);
 		ShipState *sp = b.ship(id);
 		// No Appearing check here, unlike Turn/Thrust: ShipMachines already
@@ -378,18 +376,19 @@ fireAndSpecialGatePass(Battle &b) noexcept
 		// gateSpecial see nothing pressed regardless.
 		if (e == nullptr || sp == nullptr
 				|| shouldSkipShipFrame(b, id, *e, *sp, false))
-			continue;
+			return;
 		fireWeapon(b, id, *e, *sp, *sp->spec);
 		gateSpecial(b, id, *sp, *sp->spec);
-	}
+	});
 }
 
 void
 guidedSteerPass(Battle &b) noexcept
 {
-	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
+	b.eachOrdered([&b](EntityId id) {
 		if (b.has<Guided>(id))
 			guidedShotPreProcess(b, id);
+	});
 }
 
 void
@@ -544,17 +543,15 @@ warpInStep(Battle &b, EntityId id) noexcept
 void
 sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 {
-	for (EntityId other = b.front(); other != kNoEntity;
-			other = b.next(other))
-	{
+	b.eachOrdered([&b, id](EntityId other) {
 		if (other == id)
-			continue;
+			return;
 		auto e = b.get(other);
 		if (e == nullptr || !(e->owner == id))
-			continue;
+			return;
 		e->lifeSpan = 0;
 		e->flags |= ElementFlags::NonSolid | ElementFlags::Disappearing;
-	}
+	});
 }
 
 }  // namespace

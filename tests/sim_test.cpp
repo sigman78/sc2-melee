@@ -100,9 +100,9 @@ testTruncationWidthMatters()
 // Battle storage
 //
 // EntityList<int> is gone -- Battle+Element is the only ordered store now,
-// with entt::registry underneath and an explicit OrderLink spine on top
-// (Entity.hpp). These tests pin the same invariants the old ones did,
-// against the new shape.
+// with entt::registry underneath and Order (Entity.hpp) as the declared sort
+// key eachOrdered reads. These tests pin the same invariants the old ones
+// did, against the new shape.
 
 // A minimal, marked element for the tests below: NonSolid so it takes no
 // part in collision math, no hooks so nothing runs even if a test steps the
@@ -117,14 +117,13 @@ marked(int playerNr)
 	return e;
 }
 
-// Walks the spine collecting each element's label, the way order() used to
-// read EntityList<int> straight through.
+// Walks in declared order collecting each element's label, the way order()
+// used to read EntityList<int> straight through.
 std::vector<int>
 playerNrs(Battle &b)
 {
 	std::vector<int> out;
-	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
-		out.push_back(b.get(id)->playerNr);
+	b.eachOrdered([&](EntityId id) { out.push_back(b.get(id)->playerNr); });
 	return out;
 }
 
@@ -163,8 +162,9 @@ testSlotReuseDoesNotReorder()
 {
 	// The reason an arena alone will not do: once entt hands a slot back,
 	// storage order and traversal order can disagree if traversal depended
-	// on storage. The OrderLink spine is what keeps a new entity landing
-	// where it was asked to go, not where its recycled slot happens to sit.
+	// on storage. Order (layer, seq), assigned at spawn, is what keeps a new
+	// entity landing where it was asked to go, not where its recycled slot
+	// happens to sit.
 	Battle b(1);
 	b.spawn(Layer::Field, marked(1));
 	const EntityId second = b.spawn(Layer::Field, marked(2));
@@ -1303,9 +1303,10 @@ testMissileFliesAndExpires()
 
 	// Find it and watch it move.
 	EntityId shot = kNoEntity;
-	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
+	b.eachOrdered([&](EntityId e) {
 		if (b.get(e)->kind == ElementKind::Weapon)
 			shot = e;
+	});
 	CHECK(shot != kNoEntity, "the missile should be in the list");
 
 	const Vec2i first = b.get(shot)->current;
@@ -1415,9 +1416,10 @@ testOpposingMissilesDestroyEachOther()
 	b.find<Input>(c)->buttons = ShipInput::None;
 
 	usize weapons = 0;
-	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
+	b.eachOrdered([&](EntityId e) {
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
+	});
 	CHECK(weapons == 2, "both ships should have fired, got %zu", weapons);
 
 	// The nukes close at 80+ world units a frame across a ~3300-unit gap:
@@ -1427,9 +1429,10 @@ testOpposingMissilesDestroyEachOther()
 		b.step();
 
 	weapons = 0;
-	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
+	b.eachOrdered([&](EntityId e) {
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
+	});
 	CHECK(weapons == 0,
 			"the missiles should have destroyed each other mid-flight, "
 			"%zu still alive", weapons);
@@ -1635,22 +1638,21 @@ testDestroyedAsteroidIsReplaced()
 	CHECK(b.size() == 1, "one asteroid to start");
 
 	// do_damage's kill (misc.c:220-222).
-	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
-	{
+	b.eachOrdered([&](EntityId e) {
 		b.get(e)->hitPoints = 0;
 		b.get(e)->lifeSpan = 0;
 		b.get(e)->flags |= ElementFlags::NonSolid;
-	}
+	});
 
 	int asteroids = 0;
 	for (int i = 0; i < 12; ++i)
 	{
 		b.step();
 		asteroids = 0;
-		for (EntityId e = b.front(); e != kNoEntity;
-				e = b.next(e))
+		b.eachOrdered([&](EntityId e) {
 			if (b.get(e)->kind == ElementKind::Asteroid)
 				++asteroids;
+		});
 		if (asteroids == 1)
 			break;
 	}
@@ -1798,13 +1800,12 @@ testMissileDamagesAndSpendsItself()
 
 	int weapons = 0;
 	int blasts = 0;
-	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
-	{
+	b.eachOrdered([&](EntityId e) {
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
 		if (b.get(e)->kind == ElementKind::Blast)
 			++blasts;
-	}
+	});
 	CHECK(weapons == 0, "the missile should be spent, got %d", weapons);
 	CHECK(blasts == 1, "and should have left a blast, got %d", blasts);
 }
@@ -2177,9 +2178,10 @@ testPointDefenceBurnsOwnNuke()
 	b.find<Input>(ship)->buttons = ShipInput::Weapon;
 	b.step();
 	usize weapons = 0;
-	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
+	b.eachOrdered([&](EntityId e) {
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
+	});
 	CHECK(weapons == 1, "setup: one nuke in flight, got %zu", weapons);
 
 	const i32 energy = b.ship(ship)->energy;
@@ -2189,9 +2191,10 @@ testPointDefenceBurnsOwnNuke()
 	b.step();  // the burned nuke's death is seen the following frame
 
 	weapons = 0;
-	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
+	b.eachOrdered([&](EntityId e) {
 		if (b.get(e)->kind == ElementKind::Weapon)
 			++weapons;
+	});
 	CHECK(weapons == 0, "the Cruiser's own nuke should be shot down, %zu left",
 			weapons);
 	CHECK(b.ship(ship)->energy == energy - 4,
@@ -2276,9 +2279,10 @@ testPointDefenceBurnsIncomingFire()
 	// The beam is a real element, so the renderer has nothing to invent and
 	// a replay draws exactly what the original did.
 	int beams = 0;
-	for (EntityId e = b.front(); e != kNoEntity; e = b.next(e))
+	b.eachOrdered([&](EntityId e) {
 		if (b.get(e)->kind == ElementKind::Laser)
 			++beams;
+	});
 	CHECK(beams == 1, "and left a beam to draw, got %d", beams);
 }
 
@@ -2338,24 +2342,23 @@ testShipWarpsInBeforeItIsSolid()
 	b.attachShip(shipId, &sim::earthlingCruiser());
 
 	const auto ship = [&b]() -> const sim::Element * {
-		for (sim::EntityId id = b.front(); id != kNoEntity;
-				id = b.next(id))
-		{
+		const sim::Element *found = nullptr;
+		b.eachOrdered([&](sim::EntityId id) {
+			if (found != nullptr)
+				return;
 			auto p = b.get(id);
 			if (p != nullptr && p->kind == sim::ElementKind::Ship)
-				return p;
-		}
-		return nullptr;
+				found = p;
+		});
+		return found;
 	};
 	const auto shadows = [&b]() {
 		int n = 0;
-		for (sim::EntityId id = b.front(); id != kNoEntity;
-				id = b.next(id))
-		{
+		b.eachOrdered([&](sim::EntityId id) {
 			auto p = b.get(id);
 			if (p != nullptr && p->kind == sim::ElementKind::ShipShadow)
 				++n;
-		}
+		});
 		return n;
 	};
 
@@ -2373,20 +2376,18 @@ testShipWarpsInBeforeItIsSolid()
 	const auto newestDistance = [&b, &arrival]() -> i64 {
 		i32 best = -1;
 		i64 dist = -1;
-		for (sim::EntityId id = b.front(); id != kNoEntity;
-				id = b.next(id))
-		{
+		b.eachOrdered([&](sim::EntityId id) {
 			auto p = b.get(id);
 			if (p == nullptr || p->kind != sim::ElementKind::ShipShadow)
-				continue;
+				return;
 			if (p->lifeSpan <= best)
-				continue;
+				return;
 			best = p->lifeSpan;
 			const Vec2i d = sim::wrapDelta(Vec2i{p->current.x - arrival.x,
 					p->current.y - arrival.y});
 			dist = static_cast<i64>(d.x) * d.x
 					+ static_cast<i64>(d.y) * d.y;
-		}
+		});
 		return dist;
 	};
 
@@ -2417,16 +2418,13 @@ testShipWarpsInBeforeItIsSolid()
 			closing, receding);
 
 	const sim::Element *s = nullptr;
-	for (sim::EntityId id = b.front(); id != kNoEntity;
-			id = b.next(id))
-	{
+	b.eachOrdered([&](sim::EntityId id) {
+		if (s != nullptr)
+			return;
 		auto p = b.get(id);
 		if (p != nullptr && p->kind == sim::ElementKind::ShipShadow)
-		{
 			s = p;
-			break;
-		}
-	}
+	});
 	if (s != nullptr)
 	{
 		CHECK(s->mask == &hull,

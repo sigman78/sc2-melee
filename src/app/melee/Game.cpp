@@ -138,14 +138,12 @@ setUp(Game &g, const std::filesystem::path &content)
 
 	// The initial furniture -- both ships, the asteroids, the planet -- gets
 	// its Visual now; everything spawned later is caught in iterate().
-	for (sim::EntityId id = g.battle.front(); id != sim::kNoEntity;
-			id = g.battle.next(id))
-	{
+	g.battle.eachOrdered([&g](sim::EntityId id) {
 		auto e = g.battle.get(id);
 		if (e == nullptr)
-			continue;
+			return;
 		g.battle.attach<Visual>(id, visualFor(g, e->kind, e->playerNr));
-	}
+	});
 }
 
 void

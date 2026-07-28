@@ -11,7 +11,6 @@
 
 #include <entt/entity/registry.hpp>
 
-#include <array>
 #include <optional>
 #include <span>
 #include <utility>
@@ -98,13 +97,9 @@ public:
 
 	[[nodiscard]] Rng &rng() noexcept { return rng_; }
 
-	// The ordered walk, ex-EntityList: the registry stores, the OrderLink
-	// spine orders (Entity.hpp). front/next is the walk every ordered pass
-	// makes; alive() is the generation check a stale handle fails.
-	[[nodiscard]] EntityId front() const noexcept { return head_; }
-	[[nodiscard]] EntityId back() const noexcept { return tail_; }
-	[[nodiscard]] EntityId next(EntityId id) const noexcept;
-	[[nodiscard]] EntityId prev(EntityId id) const noexcept;
+	// alive() is the generation check a stale handle fails; declared order
+	// lives in Order (Entity.hpp) and is read through eachOrdered below, not
+	// walked link by link (review-006 Z6 retired the OrderLink spine).
 	[[nodiscard]] bool alive(EntityId id) const noexcept
 	{
 		return reg_.valid(id);
@@ -236,6 +231,28 @@ public:
 			fn(id, e, t);
 	}
 
+	// The declared-order walk (review-006 Z6): a local scratch of every live
+	// id, sorted ascending by (Order.layer, Order.seq) -- rebuilt fresh per
+	// call (a battle is ~40 entities; no caching). collidePass builds the
+	// same scratch through the private helper below instead of duplicating
+	// the sort.
+	template <class Fn>
+	void eachOrdered(Fn &&fn)
+	{
+		std::vector<EntityId> ids;
+		buildOrderedIds(ids);
+		for (EntityId id : ids)
+			fn(id);
+	}
+	template <class Fn>
+	void eachOrdered(Fn &&fn) const
+	{
+		std::vector<EntityId> ids;
+		buildOrderedIds(ids);
+		for (EntityId id : ids)
+			fn(id);
+	}
+
 private:
 	// The world itself, for component types the typed surface above does not
 	// cover. Private: everything outside Battle goes through attach/find/
@@ -277,16 +294,15 @@ private:
 	void killOverlapSpawn(EntityId id);
 	void recordSpawn(EntityId id, const Element &e);
 
-	// The spine ops, ex-EntityList::linkAfter/remove, now layer-aware.
-	void linkAtLayerTail(Layer layer, EntityId id) noexcept;
+	// ex-EntityList::remove (review-006 Z6): destroy plus the count, no
+	// spine to unlink.
 	void removeElement(EntityId id) noexcept;
 
+	// Shared by eachOrdered and collidePass: every live element's id,
+	// ascending by (Order.layer, Order.seq).
+	void buildOrderedIds(std::vector<EntityId> &out) const noexcept;
+
 	entt::registry reg_;
-	EntityId head_ = kNoEntity;
-	EntityId tail_ = kNoEntity;
-	// Tail of each layer's segment in the one chain; kNoEntity = empty.
-	std::array<EntityId, kLayerCount> layerTail_{
-			kNoEntity, kNoEntity, kNoEntity};
 	usize count_ = 0;
 	Rng rng_;
 	u64 frame_ = 0;
@@ -297,11 +313,10 @@ private:
 	std::vector<SpawnEvent> spawns_;
 
 	// Collide's own worklist (Z5): every live element, snapshotted and
-	// sorted ascending by (OrderLink.layer, Seq.n) at the top of collidePass
-	// -- exactly the spine's order (layers are contiguous segments in enum
-	// order, FIFO by Seq within a layer), just addressable by index instead
-	// of by link. Reused across steps like the vectors above; cleared and
-	// rebuilt every frame since Collide runs after this frame's Integrate.
+	// sorted ascending by (Order.layer, Order.seq) at the top of collidePass,
+	// addressable by index instead of by link. Reused across steps like the
+	// vectors above; cleared and rebuilt every frame since Collide runs
+	// after this frame's Integrate.
 	std::vector<EntityId> collideOrder_;
 
 	// The command buffer (review-006 §2): filled in pipeline order by

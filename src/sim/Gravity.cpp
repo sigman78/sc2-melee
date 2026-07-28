@@ -28,21 +28,20 @@ calculateGravity(Battle &b, EntityId id)
 
 	const i32 pull = worldToVelocity(1);
 
-	for (EntityId other = b.front(); other != kNoEntity;
-			other = b.next(other))
-	{
-		if (other == id)
-			continue;
+	bool insideAWell = false;
+	b.eachOrdered([&](EntityId other) {
+		if (insideAWell || other == id)
+			return;
 
 		auto t = b.get(other);
 		if (t == nullptr || !t->collidable())
-			continue;
+			return;
 
 		// Only pairs that disagree about being a source are interesting: two
 		// planets ignore each other, and so do two ordinary elements.
 		const bool testHasGravity = isGravitySource(t->mass);
 		if (testHasGravity == selfHasGravity)
-			continue;
+			return;
 
 		const Vec2i to = t->current;
 		const Vec2i d = wrapDelta(Vec2i{from.x - to.x, from.y - to.y});
@@ -52,15 +51,16 @@ calculateGravity(Battle &b, EntityId id)
 		const i32 adx = worldToDisplay(d.x < 0 ? -d.x : d.x);
 		const i32 ady = worldToDisplay(d.y < 0 ? -d.y : d.y);
 		if (adx > kGravityRadius || ady > kGravityRadius)
-			continue;
+			return;
 		if (adx * adx + ady * ady > kGravityRadius * kGravityRadius)
-			continue;
+			return;
 
 		if (testHasGravity)
 		{
 			// We are the light one, and we are inside their well. The C
 			// breaks out here without touching anything.
-			return true;
+			insideAWell = true;
+			return;
 		}
 
 		// `d` points from the test element toward us, so this accelerates it
@@ -80,21 +80,20 @@ calculateGravity(Battle &b, EntityId id)
 				ss->inGravityWell = true;
 			}
 		}
-	}
+	});
 
-	return false;
+	return insideAWell;
 }
 
 void
 gravityPass(Battle &b)
 {
-	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
-	{
+	b.eachOrdered([&b](EntityId id) {
 		const Element *e = b.get(id);
 		if (e == nullptr || !e->collidable() || !isGravitySource(e->mass))
-			continue;
+			return;
 		(void)calculateGravity(b, id);
-	}
+	});
 }
 
 }  // namespace uqm::sim

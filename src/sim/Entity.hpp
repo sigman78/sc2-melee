@@ -41,28 +41,17 @@ enum class Layer : u8
 	Ordnance = 2,
 };
 
-inline constexpr usize kLayerCount = 3;
-
-// The C's disp_q, as data: the registry stores, this orders. Traversal
-// order is gameplay (sim-architecture.md) -- so the order is an
-// explicitly-kept doubly-linked spine, not a property of any pool; the
-// spine is segmented by Layer.
-//
-// in_place_delete: links are read during the reap walk; a swap-and-pop
-// move of someone else's links mid-walk would tear the chain.
-struct OrderLink
+// The C's disp_q, as data (review-006 Z6): the registry stores, this
+// orders -- traversal order is gameplay (sim-architecture.md), so it is a
+// declared, sortable key on every entity rather than a walked structure.
+// Ascending (layer, seq) is the whole comparator: layers are contiguous
+// segments in enum order, FIFO by seq within a layer (Battle::eachOrdered
+// builds the sorted walk this describes; the OrderLink spine that used to
+// walk it link by link is gone).
+struct Order
 {
-	static constexpr auto in_place_delete = true;
-
-	EntityId prev = kNoEntity;
-	EntityId next = kNoEntity;
 	Layer layer = Layer::Field;
-};
-
-// Spawn order; nothing consumes it yet.
-struct Seq
-{
-	u64 n = 0;
+	u64 seq = 0;
 };
 
 }  // namespace uqm::sim

@@ -10,7 +10,6 @@
 #include "sim/World.hpp"
 
 #include <algorithm>
-#include <cassert>
 #include <utility>
 
 namespace uqm::sim {
@@ -85,58 +84,9 @@ Battle::Battle(u32 seed) : rng_(seed)
 	// One chunk was the whole battle in the old arena (EntityList's
 	// kChunkSize); the reserve keeps the steady-state step allocation-free.
 	reg_.storage<Element>().reserve(64);
-	reg_.storage<OrderLink>().reserve(64);
+	reg_.storage<Order>().reserve(64);
 	reg_.storage<PriorSilhouette>().reserve(64);
 	collideOrder_.reserve(64);
-}
-
-EntityId
-Battle::next(EntityId id) const noexcept
-{
-	assert(alive(id) && "next() of a dead entity");
-	return reg_.get<OrderLink>(id).next;
-}
-
-EntityId
-Battle::prev(EntityId id) const noexcept
-{
-	assert(alive(id) && "prev() of a dead entity");
-	return reg_.get<OrderLink>(id).prev;
-}
-
-void
-Battle::linkAtLayerTail(Layer layer, EntityId id) noexcept
-{
-	// The anchor is this layer's tail, or the nearest earlier layer's --
-	// an empty layer occupies no space in the chain, only a position.
-	EntityId after = kNoEntity;
-	for (int l = static_cast<int>(layer); l >= 0 && after == kNoEntity; --l)
-		after = layerTail_[static_cast<usize>(l)];
-
-	OrderLink &s = reg_.get<OrderLink>(id);
-	s.layer = layer;
-	if (after == kNoEntity)
-	{
-		s.prev = kNoEntity;
-		s.next = head_;
-		if (head_ != kNoEntity)
-			reg_.get<OrderLink>(head_).prev = id;
-		head_ = id;
-		if (tail_ == kNoEntity)
-			tail_ = id;
-	}
-	else
-	{
-		OrderLink &prevLink = reg_.get<OrderLink>(after);
-		s.prev = after;
-		s.next = prevLink.next;
-		if (prevLink.next != kNoEntity)
-			reg_.get<OrderLink>(prevLink.next).prev = id;
-		else
-			tail_ = id;
-		prevLink.next = id;
-	}
-	layerTail_[static_cast<usize>(layer)] = id;
 }
 
 void
@@ -145,30 +95,25 @@ Battle::removeElement(EntityId id) noexcept
 	if (!alive(id))
 		return;
 
-	const OrderLink s = reg_.get<OrderLink>(id);
-	if (s.prev != kNoEntity)
-		reg_.get<OrderLink>(s.prev).next = s.next;
-	else
-		head_ = s.next;
-	if (s.next != kNoEntity)
-		reg_.get<OrderLink>(s.next).prev = s.prev;
-	else
-		tail_ = s.prev;
-
-	// A layer's tail retreats to the predecessor only if that predecessor
-	// is in the same layer; otherwise the layer just became empty.
-	if (layerTail_[static_cast<usize>(s.layer)] == id)
-	{
-		const bool prevSameLayer = s.prev != kNoEntity
-				&& reg_.get<OrderLink>(s.prev).layer == s.layer;
-		layerTail_[static_cast<usize>(s.layer)] =
-				prevSameLayer ? s.prev : kNoEntity;
-	}
-
 	// Bumps the entity's version, which is what turns a surviving handle
 	// into a detectable mistake instead of a read of the next tenant.
 	reg_.destroy(id);
 	--count_;
+}
+
+void
+Battle::buildOrderedIds(std::vector<EntityId> &out) const noexcept
+{
+	out.clear();
+	for (EntityId id : reg_.view<const Element>())
+		out.push_back(id);
+	std::sort(out.begin(), out.end(), [this](EntityId a, EntityId b) {
+		const Order &oa = reg_.get<const Order>(a);
+		const Order &ob = reg_.get<const Order>(b);
+		if (oa.layer != ob.layer)
+			return oa.layer < ob.layer;
+		return oa.seq < ob.seq;
+	});
 }
 
 void
@@ -232,10 +177,8 @@ Battle::spawn(Layer layer, Element e)
 	// overlap-repair protocol assign that null mask onto a live element.
 	const PriorSilhouette prior{e.mask, e.facing};
 	reg_.emplace<Element>(id, std::move(e));
-	reg_.emplace<OrderLink>(id);
 	reg_.emplace<PriorSilhouette>(id, prior);
-	reg_.emplace<Seq>(id, Seq{nextSeq_++});
-	linkAtLayerTail(layer, id);
+	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
 	++count_;
 	return id;
 }
@@ -481,11 +424,10 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 // ProcessCollisions (process.c:361-627): walks candidates from `fromIdx` in
 // collideOrder_. Returns whether `elem` ended the walk stopped. Z4 drops the
 // straggler preprocessing the C interleaved here (process.c:371-373):
-// Integrate (pipeline slot 8) already ran over the whole spine before
-// Collide ever starts, so there is nothing left unintegrated for this walk
-// to catch up. Z5 drops the spine link itself: collideOrder_'s indices
-// stand in for front()/next() (see collidePass) -- nothing is destroyed
-// mid-Collide, so an index, once taken, never moves out from under this walk.
+// Integrate (pipeline slot 8) already ran over every element before Collide
+// ever starts, so there is nothing left unintegrated for this walk to catch
+// up. Nothing is destroyed mid-Collide, so an index into collideOrder_,
+// once taken, never moves out from under this walk (see collidePass).
 bool
 Battle::processCollisions(
 		EntityId elemId, usize elemIdx, usize fromIdx, TimeValue maxTime)
@@ -535,9 +477,7 @@ Battle::capturePriorPass() noexcept
 void
 Battle::ageAndReapMarkPass()
 {
-	for (EntityId id = front(); id != kNoEntity;)
-	{
-		const EntityId nextId = next(id);
+	eachOrdered([this](EntityId id) {
 		auto e = get(id);
 		if (e != nullptr && e->lifeSpan == 0)
 		{
@@ -545,8 +485,7 @@ Battle::ageAndReapMarkPass()
 			if (e->onDeath != nullptr)
 				e->onDeath(*this, id);
 		}
-		id = nextId;
-	}
+	});
 }
 
 // Animate (pipeline slot 7): what is left of the per-element preProcess hook
@@ -554,19 +493,13 @@ Battle::ageAndReapMarkPass()
 // shots (GuidedSteer) have their own passes -- the flame's frame-advance,
 // the asteroid's tumble. Appearing still suppresses the hook for one frame,
 // exactly as it always has (a weapon's hook does not run until its second
-// frame alive).
-// Stays a spine walk: sim_test.cpp's testStepVisitsInListOrder pins Animate's
-// hook-visiting order to spine/layer order (an earlier-layer element must
-// animate first) -- a view<Element>().each() walk uses the pool's storage
-// order instead and fails that check even though replay_test's 32 battles
-// stayed bit-exact (none of them has two Animate-hooked elements whose
-// relative order is otherwise observable).
+// frame alive). eachOrdered's emission order equals the retired spine's, so
+// sim_test.cpp's testStepVisitsInListOrder (an earlier-layer element must
+// animate first) is clean under it too.
 void
 Battle::animatePass()
 {
-	for (EntityId id = front(); id != kNoEntity;)
-	{
-		const EntityId nextId = next(id);
+	eachOrdered([this](EntityId id) {
 		auto e = get(id);
 		if (e != nullptr && !reg_.all_of<PlayerShip>(id)
 				&& !reg_.all_of<Guided>(id) && e->preProcess != nullptr
@@ -574,8 +507,7 @@ Battle::animatePass()
 		{
 			e->preProcess(*this, id);
 		}
-		id = nextId;
-	}
+	});
 }
 
 // Integrate (pipeline slot 8): SetUpElement's seeding (process.c:117-126)
@@ -610,26 +542,13 @@ Battle::integratePass() noexcept
 // Damage.cpp), applied at the sync point below.
 //
 // Z5: collideOrder_ is a snapshot of every live element, sorted ascending
-// by (OrderLink.layer, Seq.n) -- exactly the spine's own order, since layers
-// are contiguous segments walked in enum order and a layer's members are
-// FIFO by Seq. Nothing is destroyed mid-Collide (the reap is a later sync
-// point), so an index into this snapshot is as stable as a spine link for
-// the rest of the pass, and processCollisions/resolveAgainst walk it by
-// index instead of by front()/next().
+// by (Order.layer, Order.seq). Nothing is destroyed mid-Collide (the reap is
+// a later sync point), so an index into this snapshot stays valid for the
+// rest of the pass, and processCollisions/resolveAgainst walk it by index.
 void
 Battle::collidePass()
 {
-	collideOrder_.clear();
-	for (EntityId id : reg_.view<Element>())
-		collideOrder_.push_back(id);
-	std::sort(collideOrder_.begin(), collideOrder_.end(),
-			[this](EntityId a, EntityId b) {
-				const OrderLink &la = reg_.get<OrderLink>(a);
-				const OrderLink &lb = reg_.get<OrderLink>(b);
-				if (la.layer != lb.layer)
-					return la.layer < lb.layer;
-				return reg_.get<Seq>(a).n < reg_.get<Seq>(b).n;
-			});
+	buildOrderedIds(collideOrder_);
 
 	for (usize i = 0; i < collideOrder_.size(); ++i)
 	{
@@ -721,18 +640,17 @@ Battle::reapPass() noexcept
 void
 Battle::flagsEndOfFramePass() noexcept
 {
-	for (EntityId id = front(); id != kNoEntity; id = next(id))
-	{
+	eachOrdered([this](EntityId id) {
 		auto e = get(id);
 		if (e == nullptr)
-			continue;
+			return;
 		// A frame without a collision ends DefyPhysics (process.c:824-827):
 		// it has to expire, or the first stationary contact disables the
 		// collision stagger for good.
 		if (!any(e->flags & ElementFlags::Collided))
 			e->flags &= ~ElementFlags::DefyPhysics;
 		e->flags &= ~ElementFlags::Appearing;
-	}
+	});
 }
 
 // Sync point, 11d: create every entity the frame's pipeline asked for, in

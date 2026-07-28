@@ -54,21 +54,20 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 	const Vec2i from = ship->next;
 	bool paid = false;
+	bool cannotAfford = false;
 
 	// Every shot in range, not just the nearest: the C walks the whole list
 	// and fires at each, paying once for the volley (human.c:225-236) -- a
 	// Cruiser surrounded by fire clears all of it, or none if it can't afford it.
-	for (EntityId other = b.front(); other != kNoEntity;
-			other = b.next(other))
-	{
-		if (other == id)
-			continue;
+	b.eachOrdered([&](EntityId other) {
+		if (cannotAfford || ship == nullptr || other == id)
+			return;
 
 		auto t = b.get(other);
 		if (t == nullptr || !t->collidable())
-			continue;
+			return;
 		if (isCloaked(b, other))
-			continue;  // human.c:203-204
+			return;  // human.c:203-204
 
 		// No ownership test -- the C has none (human.c:203-204): the Cruiser pays
 		// for and shoots down its OWN in-flight nukes in range, a real tactical
@@ -77,19 +76,22 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		// A deliberate divergence from the C, which will fire on a planet that
 		// just absorbs it (do_damage exempts gravity masses) -- see design-notes V4.
 		if (isGravityMass(t->mass))
-			continue;
+			return;
 
 		const Vec2i dv = wrapDelta(
 				Vec2i{t->next.x - from.x, t->next.y - from.y});
 		const i32 dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
 		const i32 dy = worldToDisplay(dv.y < 0 ? -dv.y : dv.y);
 		if (dx > range || dy > range || dx * dx + dy * dy > range * range)
-			continue;
+			return;
 
 		if (!paid)
 		{
 			if (!deltaEnergy(*sp, -spec.special.energyCost))
-				return;  // cannot afford it, so nothing burns
+			{
+				cannotAfford = true;  // cannot afford it, so nothing burns
+				return;
+			}
 			sp->specialCounter = spec.special.wait;
 			paid = true;
 		}
@@ -121,9 +123,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		b.queueSpawn(std::move(cmd));
 
 		ship = b.get(id);
-		if (ship == nullptr)
-			return;
-	}
+	});
 }
 
 const ShipSpec &

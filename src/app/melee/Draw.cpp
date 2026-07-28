@@ -311,12 +311,10 @@ draw(Game &g)
 	// Every position goes through the camera's wrapDelta: the arena is a
 	// torus eight screens across, so an element past the seam reads as a
 	// few pixels away, not eight screens -- get it wrong and it jumps.
-	for (sim::EntityId id = g.battle.front(); id != sim::kNoEntity;
-			id = g.battle.next(id))
-	{
+	g.battle.eachOrdered([&g](sim::EntityId id) {
 		auto e = g.battle.get(id);
 		if (e == nullptr)
-			continue;
+			return;
 
 		// Should not happen: every live element is attached in setUpBattle
 		// or from a SpawnEvent. Safe fallback if one slipped through.
@@ -336,11 +334,11 @@ draw(Game &g)
 			const usize step = static_cast<usize>(
 					sim::kIonTrailLife - e->lifeSpan);
 			if (step >= kIonRamp.size())
-				continue;
+				return;
 			const Colour c = kIonRamp[step];
 			const Vec2i at = g.camera.toScreen(e->current);
 			g.window.fillRect(at, Extent2u{1, 1}, c.r, c.g, c.b);
-			continue;
+			return;
 		}
 
 		// A spark of a dying ship: the boom animation, stepped by its own age
@@ -352,7 +350,7 @@ draw(Game &g)
 			if (set == nullptr || set->frames.empty())
 			{
 				g.window.fillRect(at, Extent2u{2, 2}, 0xFF, 0xC0, 0x40);
-				continue;
+				return;
 			}
 			const usize frames = set->frames.size();
 			const i32 age = sim::kDebrisLife - e->lifeSpan;
@@ -375,7 +373,7 @@ draw(Game &g)
 									/ std::max(1, static_cast<i32>(sz.h))},
 					Extent2u{static_cast<u32>(dw),
 						static_cast<u32>(dh)});
-			continue;
+			return;
 		}
 
 		// A beam is a line between two points, not a sprite at one. Drawn
@@ -384,7 +382,7 @@ draw(Game &g)
 		{
 			g.window.drawLine(g.camera.toScreen(e->current),
 					g.camera.toScreen(e->next), 0xFF, 0xFF, 0xFF);
-			continue;
+			return;
 		}
 
 		const Vec2i at = g.camera.toScreen(e->current);
@@ -401,7 +399,7 @@ draw(Game &g)
 
 		if (at.x + w < 0 || at.y + h < 0 || at.x - w > sim::kSpaceWidth
 				|| at.y - h > sim::kSpaceHeight)
-			continue;
+			return;
 
 		const Extent2u dest{static_cast<u32>(w),
 				static_cast<u32>(h)};
@@ -415,14 +413,14 @@ draw(Game &g)
 			const i32 crew = s->crew;
 
 			if (any(e->flags & sim::ElementFlags::NonSolid) && crew > 0)
-				continue;  // still warping in
+				return;  // still warping in
 
 			// A dying ship keeps its own hull for the first fifteen frames,
 			// then stops drawing (tactrans.c:569-571); the explosion itself
 			// is the swarm of sparks explosionPreProcess spawns as Debris.
 			if (crew == 0
 					&& sim::kExplosionLife - e->lifeSpan >= sim::kHullVanishAge)
-				continue;
+				return;
 		}
 
 		if (const game::SpriteSet *set = v->sprites; set != nullptr)
@@ -457,11 +455,11 @@ draw(Game &g)
 				const usize step = static_cast<usize>(
 						sim::kIonTrailLife - e->lifeSpan);
 				if (step >= kIonRamp.size() || i >= set->silhouettes.size())
-					continue;
+					return;
 				const Colour c = kIonRamp[step];
 				g.window.drawTinted(set->silhouettes[i],
 						Vec2i{at.x - ox, at.y - oy}, dest, c.r, c.g, c.b);
-				continue;
+				return;
 			}
 
 			const sim::Cloak *cloakState = g.battle.find<sim::Cloak>(id);
@@ -472,21 +470,21 @@ draw(Game &g)
 				// colours; kCloakFullLevel is BLACK, which the C fills but
 				// which here would show as a hole against the dark clear.
 				if (cloak >= sim::kCloakFullLevel)
-					continue;
+					return;
 				const Colour c = kCloakRamp[static_cast<usize>(cloak)];
 				g.window.drawTinted(set->silhouettes[i],
 						Vec2i{at.x - ox, at.y - oy}, dest, c.r, c.g, c.b);
-				continue;
+				return;
 			}
 
 			g.window.draw(set->frames[i], Vec2i{at.x - ox, at.y - oy}, dest);
-			continue;
+			return;
 		}
 
 		const Colour c = v->fallback;
 		g.window.fillRect(Vec2i{at.x - w / 2, at.y - h / 2}, dest, c.r, c.g,
 				c.b);
-	}
+	});
 
 	drawHud(g);
 
@@ -540,12 +538,10 @@ void
 drawOverlay(Game &g)
 {
 	// Mask bounds, so it is visible when a silhouette is not what you expect.
-	for (sim::EntityId id = g.battle.front(); id != sim::kNoEntity;
-			id = g.battle.next(id))
-	{
+	g.battle.eachOrdered([&g](sim::EntityId id) {
 		const auto e = g.battle.get(id);
 		if (e == nullptr || e->mask == nullptr)
-			continue;
+			return;
 
 		const Vec2i at = g.camera.toScreen(e->current);
 		const Extent2u m = e->mask->size();
@@ -575,7 +571,7 @@ drawOverlay(Game &g)
 				0xFF, 0x40);
 		g.window.drawLine(Vec2i{at.x, at.y - 2}, Vec2i{at.x, at.y + 2}, 0x40,
 				0xFF, 0x40);
-	}
+	});
 
 	// Contact points and response vectors. Velocities are scaled up because a
 	// frame of travel is a handful of world units and an unscaled arrow would

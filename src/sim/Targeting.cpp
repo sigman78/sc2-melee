@@ -29,23 +29,21 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 	EntityId bestTarget;
 	bool found = false;
 
-	for (EntityId id = b.front(); id != kNoEntity;
-			id = b.next(id))
-	{
+	b.eachOrdered([&](EntityId id) {
 		const auto t = b.get(id);
 		if (t == nullptr || !b.has<PlayerShip>(id))
-			continue;
+			return;
 		if (t->playerNr == self->playerNr)
-			continue;
+			return;
 		// Dead ships are not targets (weapon.c:352-353).
 		const ShipState *ts = b.ship(id);
 		if (t->lifeSpan == 0 || ts == nullptr || ts->crew == 0)
-			continue;
+			return;
 		// Nor cloaked ones (weapon.c:344-348). This is the whole tactical
 		// point of the Ilwrath cloak: not that it is hard to see, but that a
 		// guided weapon has nothing to steer toward.
 		if (isCloaked(b, id))
-			continue;
+			return;
 
 		const Vec2i to = t->current;
 		const Vec2i d = wrapDelta(Vec2i{to.x - from.x, to.y - from.y});
@@ -64,7 +62,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 			bestTarget = id;
 			found = true;
 		}
-	}
+	});
 
 	// The C's return is best_delta_facing: -1 when nothing was targetable,
 	// 0 when dead ahead (weapon.c:410-412). The nuke never looks, but the

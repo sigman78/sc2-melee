@@ -270,9 +270,7 @@ simulateBattle(u32 seed, std::ostream *trace)
 
 		u64 frameDigest = kFnvOffset;
 		usize walkIndex = 0;
-		for (EntityId id = b.front(); id != kNoEntity;
-				id = b.next(id), ++walkIndex)
-		{
+		b.eachOrdered([&](EntityId id) {
 			const Element *e = b.get(id);
 			foldI32(frameDigest, e->current.x);
 			foldI32(frameDigest, e->current.y);
@@ -292,7 +290,8 @@ simulateBattle(u32 seed, std::ostream *trace)
 					*trace << ' ' << ss->crew << ' ' << ss->energy;
 				*trace << '\n';
 			}
-		}
+			++walkIndex;
+		});
 		foldU64(battleHash, frameDigest);
 
 		if (b.frame() % kCheckpointInterval == 0)
