@@ -120,18 +120,20 @@ gameplay-visible (review-004) and the replay digest does not fold them —
 but recorded so nobody later makes ids meaningful without noticing the
 app churns them.
 
-## 4. The stages
+## 4. The stages (v2, after the plan critique in §6)
 
 | Stage | What | Proof |
 | --- | --- | --- |
-| W1 | `Lifetime` + `Doomed`: the aging/death/reap protocol on components; lifeSpan and FiniteLife die | bit-green |
-| W2 | `Collider` + private collision scratch + Appearing/IgnoreSimilar tags; ElementFlags deleted | bit-green |
-| W3 | The body split: Position/Motion/Vitality/Warhead/Allegiance/AnimFrame; Beam{from,to}; turnWait/thrustWait into ShipState; Element deleted; the fluent spawn builder lands here | bit-green |
-| W4 | Hooks dissolve: collision-response system, DeathSpawn/SweepsOwnedOnDeath, flame animation component; ElementHook and collidedWith deleted | bit-green; the commit names every hook dissolved and what carries its behavior |
-| W5 | ElementKind deleted: Planet + effect tags land (gravityPass stops scanning by mass); SpawnEvent derives flavor from composition; `Cloaked` tag with its invariant pin, isCloaked deleted | bit-green |
-| W6 | The semantic render pipeline (§2) on the finished tags; CelPolicy retires, Visual shrinks to data | baseline untouched by construction; suite 8/8; driven screenshots incl. F1 overlay; deliberate stacking changes named in the commit |
-| W7 | The app-state migration (§3): Starfield entity, Mark entities + age reap, AnnouncedDead, ctx surface, Battle::destroy for app-owned entities | same gates + screenshots; Game struct visibly shrinks |
-| W8 | Specs as payloads; ShipDef-level un-composition; the verdict; sim-architecture.md amended | bit-green; the record |
+| W0 | The construction facade: domain spawn helpers (makeShip/makeAsteroid/makeShot/…) adopted by app, Field, the fire block and the tests — churn armor for every stage after; entt precompiled headers land, compile time measured before/after | bit-green; the facade changes no values |
+| W1 | Easy flags out: Appearing and IgnoreSimilar to tags; Collided and DefyPhysics to Battle-private collision scratch | bit-green |
+| W2 | `Collider{mask}`: solidity is presence, NonSolid dies, collidable() dies | bit-green |
+| W3 | `Lifetime{remaining}` + `Doomed`: the aging/death/reap protocol on components; lifeSpan and FiniteLife die; **ElementFlags deleted** (last bits gone). The high-care stage: the died-last-frame protocol and Z4's decrement position are the subtlest pins in the sim | bit-green |
+| W4 | The body split, sub-gated one component at a time like Z5: Position → Motion → Beam{from,to} → Vitality → Warhead → Allegiance → AnimFrame → clocks into ShipState; Spawn.hpp's descriptor structs reshaped (they are a mini-Element); **Element deleted** at the end | bit-green per sub-step |
+| W5 | Hooks dissolve: the collision-response system, DeathSpawn/SweepsOwnedOnDeath, the flame animation component; ElementHook and collidedWith deleted | bit-green; adjudicated checkpoint if it grows teeth; the commit names every hook and what carries its behavior |
+| W6 | Planet + effect tags (gravityPass stops scanning by mass); SpawnEvent derives flavor from composition; `Cloaked` tag with its invariant pin, isCloaked deleted. Kind still exists, now unread by sim and sound | bit-green |
+| W7 | The semantic render pipeline (§2) on the finished tags; CelPolicy retires, Visual shrinks to data; **ElementKind deleted here** — its last consumer (visualFor's dispatch) dissolves into the passes | baseline untouched by construction; suite 8/8; driven screenshots incl. F1 overlay; stacking changes named in the commit |
+| W8 | The app-state migration (§3): Starfield entity, Mark entities + age reap, AnnouncedDead, ctx surface, Battle::destroy for app-owned entities | same gates + screenshots; Game struct visibly shrinks |
+| W9 | Specs as payloads; ShipDef-level un-composition; the general fluent builder (final vocabulary exists now); the verdict with measurements (LOC, compile time against W0's PCH baseline); sim-architecture.md amended | bit-green; the record |
 
 ## 5. Risks named
 
@@ -140,5 +142,30 @@ app churns them.
   change is a bug in the split, not a legal divergence.
 - sim_test touches Element everywhere; the sweeps are large but
   mechanical. Expectations never change; only field access does.
-- W4 is the judgment stage (behavior → data); adjudicated checkpoint
+- W5 is the judgment stage (behavior → data); adjudicated checkpoint
   like Z4's if it grows teeth.
+
+## 6. The plan critique (why v2 differs from v1)
+
+- **Ordering bug found:** v1 deleted ElementKind one stage before the
+  render passes replaced its last consumer — visualFor still dispatches
+  on kind until the semantic passes exist. Deletion moved into the
+  render stage as its closing act.
+- **Reversal:** the fluent builder was scheduled last ("design once the
+  shape is final"); wrong optimization. A domain-level facade FIRST
+  absorbs the construction churn of every dissolution stage — five
+  sweeps of a hundred sites become edits inside a handful of helpers.
+  The component-level fluent builder still lands last; facade is churn
+  armor, builder is polish, and they are different things.
+- **Risk ordering:** v1 opened with Lifetime — the subtlest protocol in
+  the sim (died-last-frame, Z4's decrement position). v2 runs easy to
+  hard: trivial tags, then Collider, then Lifetime with due care.
+- **Omissions repaired:** Spawn.hpp's descriptor structs (a
+  mini-Element) added to the body split; the review-004 compile-time
+  mitigation (entt PCH) added at W0 with before/after measurement; the
+  verdict got its measurement list.
+- **Challenged and kept:** marks as entities (taxonomy-ish, justified
+  by pass + TTL uniformity); Appearing as a tag (churn on newborns
+  only; nowhere better once the bitfield dies); body-split-before-hooks
+  (dissolving hooks first would avoid double-sweeping them, but the
+  response system's clean expression needs Warhead/Vitality to exist).
