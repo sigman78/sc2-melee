@@ -55,9 +55,9 @@ deriveSpeedState(const Velocity &v, const ThrustProfile &profile) noexcept
 
 void
 applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
-		Element &a, bool aIsShip, CollisionScratch &aScratch,
-		const Position &bPos, Motion &bMotion, const Physique &bPhys,
-		Element &b, bool bIsShip, CollisionScratch &bScratch) noexcept
+		ShipState *aShip, CollisionScratch &aScratch, const Position &bPos,
+		Motion &bMotion, const Physique &bPhys, ShipState *bShip,
+		CollisionScratch &bScratch) noexcept
 {
 	// Impact axis: the line between the two at the moment they met.
 	const Vec2i rel{aPos.next.x - bPos.next.x, aPos.next.y - bPos.next.y};
@@ -107,22 +107,22 @@ applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
 	const i32 massB = bPhys.mass;
 	const i64 scalar = i64{sine(directness, speed << 1)} * (massA * massB);
 
-	const auto push = [&](Motion &selfMotion, Element &self, bool selfIsShip,
+	const auto push = [&](Motion &selfMotion, ShipState *self,
 							  CollisionScratch &selfScratch, int impactAngle,
 							  i32 selfMass, i32 otherMass) {
 		if (isGravityMass(selfMass + 1))
 			return;  // a planet is not pushed
 
-		if (selfIsShip)
+		if (self != nullptr)
 		{
 			// The turn/thrust stagger, gated on DEFY_PHYSICS
 			// (collide.c:111-116).
 			if (!selfScratch.defyPhysics)
 			{
-				if (self.turnWait < kCollisionTurnWait)
-					self.turnWait += kCollisionTurnWait;
-				if (self.thrustWait < kCollisionThrustWait)
-					self.thrustWait += kCollisionThrustWait;
+				if (self->turnWait < kCollisionTurnWait)
+					self->turnWait += kCollisionTurnWait;
+				if (self->thrustWait < kCollisionThrustWait)
+					self->thrustWait += kCollisionThrustWait;
 			}
 		}
 
@@ -148,8 +148,8 @@ applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
 		}
 	};
 
-	push(aMotion, a, aIsShip, aScratch, impactA, massA, massB);
-	push(bMotion, b, bIsShip, bScratch, impactB, massB, massA);
+	push(aMotion, aShip, aScratch, impactA, massA, massB);
+	push(bMotion, bShip, bScratch, impactB, massB, massA);
 }
 
 }  // namespace uqm::sim

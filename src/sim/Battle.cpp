@@ -33,18 +33,21 @@ struct PriorSilhouette
 // CollisionPossible (collide.h:34-39): skips a pair when both are already
 // stopped, when both carry IGNORE_SIMILAR and share an owner (both, not
 // either; owner, not player or kind), or when neither side has mass.
+// Solidity itself (testCollidable) is the caller's gate now, checked before
+// any of Motion/Physique/CollisionScratch is even fetched (review-007
+// W4b) -- by the time this runs, the test side is known collidable. Owner
+// is the only Element/Allegiance field this ever needed, so it takes the
+// raw ids rather than either struct.
 [[nodiscard]] bool
-collisionPossible(const Element &test, const Physique &testPhys,
-		const Element &elem, const Physique &elemPhys, bool testCollidable,
-		bool testCollided, bool elemCollided, bool testIgnoreSimilar,
+collisionPossible(EntityId testOwner, const Physique &testPhys,
+		EntityId elemOwner, const Physique &elemPhys, bool testCollided,
+		bool elemCollided, bool testIgnoreSimilar,
 		bool elemIgnoreSimilar) noexcept
 {
-	if (!testCollidable)
-		return false;
 	if (testCollided && elemCollided)
 		return false;
-	if (testIgnoreSimilar && elemIgnoreSimilar && test.owner != kNoEntity
-			&& test.owner == elem.owner)
+	if (testIgnoreSimilar && elemIgnoreSimilar && testOwner != kNoEntity
+			&& testOwner == elemOwner)
 		return false;
 	if (testPhys.mass == 0 && elemPhys.mass == 0)
 		return false;
@@ -154,9 +157,9 @@ Battle::buildOrderedIds(std::vector<EntityId> &out) const noexcept
 }
 
 void
-Battle::recordSpawn(EntityId id, const Element &e)
+Battle::recordSpawn(EntityId id, const Element &e, const Allegiance &allegiance)
 {
-	spawns_.push_back(SpawnEvent{id, e.kind, e.playerNr});
+	spawns_.push_back(SpawnEvent{id, e.kind, allegiance.playerNr});
 }
 
 void
@@ -202,10 +205,11 @@ Battle::attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec)
 
 EntityId
 Battle::spawn(Layer layer, Element e, Position pos, Motion motion,
-		Physique physique, Borrowed<const CollisionMask> collider)
+		Physique physique, Borrowed<const CollisionMask> collider,
+		Allegiance allegiance)
 {
 	const EntityId id = reg_.create();
-	recordSpawn(id, e);
+	recordSpawn(id, e, allegiance);
 
 	// Seeded from the mask the element is spawning with, not left null: a
 	// mid-pipeline spawn (a death hook's replacement asteroid) reaches
@@ -220,6 +224,7 @@ Battle::spawn(Layer layer, Element e, Position pos, Motion motion,
 	reg_.emplace<Position>(id, pos);
 	reg_.emplace<Motion>(id, motion);
 	reg_.emplace<Physique>(id, physique);
+	reg_.emplace<Allegiance>(id, allegiance);
 	reg_.emplace<PriorSilhouette>(id, prior);
 	reg_.emplace<CollisionScratch>(id);
 	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
@@ -231,22 +236,25 @@ Battle::spawn(Layer layer, Element e, Position pos, Motion motion,
 }
 
 EntityId
-Battle::spawnBeam(Layer layer, Element e, Beam beam)
+Battle::spawnBeam(Layer layer, Element e, Beam beam, Allegiance allegiance)
 {
 	const EntityId id = reg_.create();
-	recordSpawn(id, e);
+	recordSpawn(id, e, allegiance);
 
-	// No facing to seed PriorSilhouette from, and no Collider ever attaches
-	// to a beam -- the null mask is permanent, not a stand-in for one filled
-	// in later.
+	// The minimal-composition rule's worked example (review-007 W4b): a
+	// beam is never solid (no Collider ever attaches to one) and never
+	// moves, so Motion/Physique/PriorSilhouette/CollisionScratch would be
+	// dead weight -- resolveAgainst gates on collidable(testId) before
+	// touching any of them, so a beam never needs the scaffold to exist.
+	// Appearing drops too: nothing that reads it can ever reach a beam
+	// (every reader is gated behind Position, PlayerShip/WarpingIn, or
+	// collidable(), none of which a beam has). Order and Allegiance stay --
+	// a beam is still walked and drawn like anything else, and Allegiance
+	// is the one uniform attach.
 	reg_.emplace<Element>(id, std::move(e));
 	reg_.emplace<Beam>(id, beam);
-	reg_.emplace<Motion>(id, Motion{});
-	reg_.emplace<Physique>(id, Physique{});
-	reg_.emplace<PriorSilhouette>(id, PriorSilhouette{nullptr, Facing{}});
-	reg_.emplace<CollisionScratch>(id);
+	reg_.emplace<Allegiance>(id, allegiance);
 	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
-	reg_.emplace<Appearing>(id);
 	++count_;
 	return id;
 }
@@ -262,7 +270,8 @@ Battle::killOverlapSpawn(EntityId id)
 		return;
 
 	const ShipState *s = ship(id);
-	doDamage(*this, id, s != nullptr ? s->crew : e->hitPoints);
+	const Vitality *v = find<Vitality>(id);
+	doDamage(*this, id, s != nullptr ? s->crew : v != nullptr ? v->hitPoints : 0);
 	e = get(id);
 	if (e == nullptr)
 		return;
@@ -286,6 +295,17 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	if (t == nullptr)
 		return false;
 
+	// Solidity first, before any of Motion/Physique/CollisionScratch is
+	// fetched (review-007 W4b's minimal-composition rule): elemId is
+	// already known collidable (the caller's invariant -- collidePass only
+	// starts a walk from a collidable id), but testId is not, and a
+	// candidate with no Collider -- a beam, once the diet dropped its
+	// physics scaffold (Battle::spawnBeam) -- carries none of the rest
+	// either. Gating here is what keeps the blanket fetches below from
+	// reading through that hole.
+	if (!collidable(testId))
+		return false;
+
 	// Held for the rest of this call: nothing spawns or is destroyed mid-Collide
 	// (see processCollisions), so neither pool moves under these references.
 	CollisionScratch &eScratch = reg_.get<CollisionScratch>(elemId);
@@ -297,9 +317,9 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	Physique *ePhys = reg_.try_get<Physique>(elemId);
 	Physique *tPhys = reg_.try_get<Physique>(testId);
 
-	if (!collisionPossible(*t, *tPhys, *e, *ePhys, collidable(testId),
-			tScratch.collided, eScratch.collided,
-			reg_.all_of<IgnoreSimilar>(testId),
+	if (!collisionPossible(reg_.get<Allegiance>(testId).owner, *tPhys,
+			reg_.get<Allegiance>(elemId).owner, *ePhys, tScratch.collided,
+			eScratch.collided, reg_.all_of<IgnoreSimilar>(testId),
 			reg_.all_of<IgnoreSimilar>(elemId)))
 		return false;
 
@@ -492,11 +512,11 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		// weapon hit is resolved by damage, from the collidedWith set above.
 		if (t != nullptr && bothSolidNow)
 		{
-			// The trait left the struct, so pure physics is told who is a
-			// ship instead of reading a flag (review-004 X4's friction note).
-			applyImpulse(*ePos, *eMotion, *ePhys, *e,
-					reg_.all_of<PlayerShip>(elemId), eScratch, *tPos, *tMotion,
-					*tPhys, *t, reg_.all_of<PlayerShip>(testId), tScratch);
+			// Pure physics is told who is a ship by a ShipState pointer, null
+			// for anything else (review-007 W4b: the turn/thrust stagger is
+			// ShipState's own field now, not a flag Impulse reads off Element).
+			applyImpulse(*ePos, *eMotion, *ePhys, ship(elemId), eScratch,
+					*tPos, *tMotion, *tPhys, ship(testId), tScratch);
 			impulsed = true;
 
 			// collide.c:104-110: an impulse invalidates the at-max bookkeeping.
@@ -722,15 +742,15 @@ Battle::applyDamageIncoming() noexcept
 //
 // view<Lifetime>, not view<Element>: only a Lifetime holder ages. The
 // planet has none (Indestructible instead), so it is invisible to this
-// view entirely -- no per-entity exemption needed.
+// view entirely -- no per-entity exemption needed. Doomed is excluded in
+// the query itself (SiGMan's review), not an in-body has<> guard: presence/
+// absence belongs in the view, value tests (there are none left here) stay
+// in the body.
 void
 Battle::ageDecrementPass() noexcept
 {
-	for (auto [id, life] : reg_.view<Lifetime>().each())
-	{
-		if (!reg_.all_of<Doomed>(id))
-			--life.remaining;
-	}
+	reg_.view<Lifetime>(entt::exclude<Doomed>)
+			.each([](Lifetime &life) { --life.remaining; });
 }
 
 // Sync point, 11c: destroy every element already Doomed -- marked in slot 2
@@ -763,17 +783,18 @@ Battle::reapPass() noexcept
 // Appearing through its own first live frame, which under Z4 is next
 // frame's pipeline, not a same-frame catch-up; clearing it now would be one
 // frame early.
+//
+// A plain view over CollisionScratch, not eachOrdered: each entity's own
+// scratch is independent of every other's, and CollisionScratch's presence
+// IS the filter -- a beam has none (review-007 W4b's diet), so a view
+// excludes it structurally instead of a per-entity null check catching it.
 void
 Battle::flagsEndOfFramePass() noexcept
 {
-	eachOrdered([this](EntityId id) {
-		auto e = get(id);
-		if (e == nullptr)
-			return;
-		// A frame without a collision ends DefyPhysics (process.c:824-827):
-		// it has to expire, or the first stationary contact disables the
-		// collision stagger for good.
-		CollisionScratch &scratch = reg_.get<CollisionScratch>(id);
+	// A frame without a collision ends DefyPhysics (process.c:824-827): it
+	// has to expire, or the first stationary contact disables the collision
+	// stagger for good.
+	reg_.view<CollisionScratch>().each([](CollisionScratch &scratch) {
 		if (!scratch.collided)
 			scratch.defyPhysics = false;
 	});
@@ -803,15 +824,23 @@ Battle::drainSpawnCommands()
 		// entirely -- cmd.position/motion/physique are never read for one
 		// (review-007 W4a).
 		const EntityId id = cmd.beam
-				? spawnBeam(cmd.layer, std::move(cmd.element), *cmd.beam)
+				? spawnBeam(cmd.layer, std::move(cmd.element), *cmd.beam,
+						  cmd.allegiance)
 				: spawn(cmd.layer, std::move(cmd.element), cmd.position,
-						  cmd.motion, cmd.physique, cmd.collider);
+						  cmd.motion, cmd.physique, cmd.collider,
+						  cmd.allegiance);
 		if (cmd.weaponSpec != nullptr)
 			attachWeaponSpec(id, cmd.weaponSpec);
 		if (cmd.guided)
 			attach<Guided>(id, *cmd.guided);
 		if (cmd.lifetime)
 			attach<Lifetime>(id, *cmd.lifetime);
+		if (cmd.vitality)
+			attach<Vitality>(id, *cmd.vitality);
+		if (cmd.warhead)
+			attach<Warhead>(id, *cmd.warhead);
+		if (cmd.animFrame)
+			attach<AnimFrame>(id, *cmd.animFrame);
 		if (cmd.ignoreVelocity)
 			attach<IgnoreVelocity>(id);
 		if (cmd.ignoreSimilar)

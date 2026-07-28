@@ -79,12 +79,20 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 	if (isGravityMass(b.find<Physique>(id)->mass))
 		return;
 
-	if (damage < e->hitPoints)
+	// Every non-ship collidable thing that can reach here carries a
+	// Vitality (weapons, the asteroid field, the planet -- review-007
+	// W4b's attach set); a bare id with neither PlayerShip nor Vitality
+	// simply has nothing left to hurt.
+	Vitality *v = b.find<Vitality>(id);
+	if (v == nullptr)
+		return;
+
+	if (damage < v->hitPoints)
 	{
-		e->hitPoints -= damage;
+		v->hitPoints -= damage;
 		return;
 	}
-	e->hitPoints = 0;
+	v->hitPoints = 0;
 	// Death detected next frame (ageAndReapMarkPass), not this one -- no
 	// Doomed here, matching lifeSpan = 0 without Disappearing (misc.c:210,221
 	// has no FINITE_LIFE guard: this kills a non-aging asteroid the same way).
@@ -123,7 +131,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	if (damage > 0 && !b.has<Indestructible>(targetId)
 			&& (isFiniteLife(b, targetId) || lifeSpanOf(b, targetId) == 1))
 	{
-		doDamage(b, targetId, damage, w->owner);
+		doDamage(b, targetId, damage, b.find<Allegiance>(id)->owner);
 		w = b.get(id);
 		target = b.get(targetId);
 		if (w == nullptr)
@@ -132,7 +140,8 @@ weaponCollision(Battle &b, EntityId id) noexcept
 		if (target != nullptr)
 		{
 			const ShipState *ts = b.ship(targetId);
-			left = ts != nullptr ? ts->crew : target->hitPoints;
+			const Vitality *tv = b.find<Vitality>(targetId);
+			left = ts != nullptr ? ts->crew : tv != nullptr ? tv->hitPoints : 0;
 		}
 		if (left > 0)
 			wScratch.collided = true;
@@ -141,17 +150,20 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	// Dies here against a solid target, always; against a finite one, only if
 	// it hasn't already stopped and isn't tough enough to pierce -- hit points
 	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame don't).
+	// The weapon's own hit points are its Vitality now, same as any other
+	// non-ship collidable.
+	Vitality *wVital = b.find<Vitality>(id);
 	if (target != nullptr
 			&& isFiniteLife(b, targetId)
 			&& (targetScratch.collided
-					|| w->hitPoints > b.find<Physique>(targetId)->mass))
+					|| wVital->hitPoints > b.find<Physique>(targetId)->mass))
 		return;
 
 	const Vec2i at = b.find<Position>(id)->next;
 	const int angle = b.find<Motion>(id)->velocity.travelAngle();
-	const i32 blastOffset = w->blastOffset;
+	const i32 blastOffset = b.find<Warhead>(id)->blastOffset;
 
-	w->hitPoints = 0;
+	wVital->hitPoints = 0;
 	// NONSOLID | DISAPPEARING (weapon.c:175-181), Collided in scratch:
 	// stopped, spent, reaped this frame. The flame's wrapper clears Doomed
 	// again so the fireball lingers one frame (flameCollision,
@@ -162,10 +174,12 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	b.detach<Collider>(id);
 
 	// The blast, offset along the direction of travel so it sits on the
-	// surface it hit rather than inside it (weapon.c:198-208).
+	// surface it hit rather than inside it (weapon.c:198-208). Inherits the
+	// weapon's playerNr, no owner of its own (never set on the old Element
+	// either).
+	const i32 shooterPlayerNr = b.find<Allegiance>(id)->playerNr;
 	Element blast;
 	blast.kind = ElementKind::Blast;
-	blast.playerNr = w->playerNr;
 	Position blastPos;
 	blastPos.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(blastOffset)),
 			at.y + sine(angle, displayToWorld(blastOffset))});
@@ -179,6 +193,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	cmd.element = std::move(blast);
 	cmd.position = blastPos;
 	cmd.lifetime = Lifetime{kBlastLife};
+	cmd.allegiance = Allegiance{shooterPlayerNr, kNoEntity};
 	b.queueSpawn(std::move(cmd));
 }
 
@@ -208,9 +223,12 @@ solidCollision(Battle &b, EntityId id) noexcept
 
 	// ship.c:364-367: damage = hit_points >> 2, floored at one. For a
 	// PLAYER_SHIP, hit_points IS crew_level (one union field, element.h:126-133)
-	// -- every C hit_points read on a player ship is a crew read.
+	// -- every C hit_points read on a player ship is a crew read; anything
+	// else that solidCollision ever runs for (asteroid, planet) has a
+	// Vitality instead.
 	const ShipState *ss = b.ship(id);
-	const i32 own = ss != nullptr ? ss->crew : e->hitPoints;
+	const Vitality *v = b.find<Vitality>(id);
+	const i32 own = ss != nullptr ? ss->crew : v != nullptr ? v->hitPoints : 0;
 	i32 damage = own >> 2;
 	if (damage == 0)
 		damage = 1;

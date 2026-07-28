@@ -4,6 +4,7 @@
 #define UQM2_SIM_BATTLE_HPP
 
 #include "engine/core/Types.hpp"
+#include "sim/Damage.hpp"
 #include "sim/Element.hpp"
 #include "sim/Entity.hpp"
 #include "sim/Random.hpp"
@@ -70,6 +71,10 @@ struct SpawnCommand
 	Motion motion;
 	Physique physique;
 
+	// Passed through to spawn()/spawnBeam() unchanged, same reason it is
+	// uniform there: every queued spawn gets one, no exceptions.
+	Allegiance allegiance;
+
 	// Set only for a beam: routes the drain through Battle::spawnBeam
 	// instead of Battle::spawn, so `position` above is never even read for
 	// one -- a beam has no Position at all (review-007 W4a).
@@ -89,6 +94,19 @@ struct SpawnCommand
 	// Element lost `lifeSpan` (review-007 W3), so a queued FiniteLife shot,
 	// trail, blast or spark carries its countdown here instead.
 	std::optional<Lifetime> lifetime;
+
+	// Set only for a weapon shot (the fire block): Vitality attaches once
+	// the spawn lands. Element lost `hitPoints` the same way it lost
+	// `lifeSpan` (review-007 W4b) -- attached where read, not uniformly.
+	std::optional<Vitality> vitality;
+
+	// Set only for a weapon shot: Warhead attaches once the spawn lands.
+	// Element lost `damage`/`blastOffset` the same way (review-007 W4b).
+	std::optional<Warhead> warhead;
+
+	// Set only for a weapon shot: AnimFrame attaches once the spawn lands.
+	// Element lost `colorCycle` the same way (review-007 W4b).
+	std::optional<AnimFrame> animFrame;
 
 	// Non-null attaches a Collider once the spawn lands (the fire block's
 	// shot; see Battle::spawn, which every direct spawn site goes through
@@ -163,17 +181,24 @@ public:
 	// `pos`, `motion` and `physique` default to Position{}/Motion{}/
 	// Physique{} -- current/next/facing, velocity and mass all zero, same as
 	// Element's own fields defaulted before the split (review-007 W4a).
+	// `allegiance` attaches uniformly, every spawn, no exceptions (review-007
+	// W4b: the one deliberately-uniform component of this stage) -- its own
+	// default matches Element::playerNr/owner's old defaults exactly, so a
+	// caller that doesn't care passes nothing.
 	EntityId spawn(Layer layer, Element e, Position pos = Position{},
 			Motion motion = Motion{}, Physique physique = Physique{},
-			Borrowed<const CollisionMask> collider = nullptr);
+			Borrowed<const CollisionMask> collider = nullptr,
+			Allegiance allegiance = Allegiance{});
 
-	// A beam's own spawn (review-007 W4a): no Position, no Collider, no
-	// caller-supplied Motion/Physique -- a beam never moves and never
-	// collides, so those stay at their harmless defaults; `beam` is what a
-	// mover's `pos` is elsewhere. Still gets Order, Appearing and the
-	// CollisionScratch/PriorSilhouette scaffold the collision walk's blanket
-	// per-entity reads assume every Element has.
-	EntityId spawnBeam(Layer layer, Element e, Beam beam);
+	// A beam's own spawn (review-007 W4a, diet W4b): no Position, no
+	// Collider, no Motion/Physique/PriorSilhouette/CollisionScratch, no
+	// Appearing -- a beam never moves and never collides, so it carries
+	// none of the scaffold those imply (the collide pass gates on
+	// collidable(testId) before it would ever read through the hole);
+	// `beam` is what a mover's `pos` is elsewhere. Still gets Order (walked
+	// and drawn like anything else) and Allegiance, same as spawn() above.
+	EntityId spawnBeam(Layer layer, Element e, Beam beam,
+			Allegiance allegiance = Allegiance{});
 
 	// Registers a spawn for the sync point instead of creating it now --
 	// what a pipeline pass calls in place of spawn() (see SpawnCommand).
@@ -254,38 +279,37 @@ public:
 		reg_.remove<T>(id);
 	}
 
-	// An order-free walk over every element, for the scans that don't need
-	// the spine (Field.cpp's gravity/placement checks) -- entt::registry
-	// still never escapes Battle.
-	template <class Fn>
-	void eachElement(Fn &&fn)
+	// The typed join (review-007 W4b's join rule): a pass's component set is
+	// its call signature now, not documentation above a blanket get<> or a
+	// find<T> per iteration -- reg_.view<Ts...>().each(fn) yielding
+	// (EntityId, Ts&...), order-free (for the scans that don't need the
+	// spine -- Field.cpp's gravity/placement checks). entt::registry still
+	// never escapes Battle. Ts always explicit at the call site (each<Ts...>
+	// isn't deducible from Fn alone); a tag among Ts still filters presence
+	// without the callback needing a reference for it -- entt elides an
+	// empty type from the yielded tuple on its own.
+	template <class... Ts, class Fn>
+	void each(Fn &&fn)
 	{
-		for (auto [id, e] : reg_.view<Element>().each())
-			fn(id, e);
+		reg_.view<Ts...>().each(std::forward<Fn>(fn));
 	}
-	template <class Fn>
-	void eachElement(Fn &&fn) const
+	template <class... Ts, class Fn>
+	void each(Fn &&fn) const
 	{
-		for (auto [id, e] : reg_.view<const Element>().each())
-			fn(id, e);
+		reg_.view<const Ts...>().each(std::forward<Fn>(fn));
 	}
-
-	// A ship-only walk, order-free like eachElement.
-	template <class Fn>
-	void eachShip(Fn &&fn)
+	// The exclude form: presence/absence is a query, not an in-body
+	// has<X>/!has<X> guard (SiGMan's review) -- an entity carrying any of
+	// Xs never reaches the callback at all.
+	template <class... Ts, class... Xs, class Fn>
+	void each(entt::exclude_t<Xs...> excl, Fn &&fn)
 	{
-		for (auto [id, s] : reg_.view<ShipState>().each())
-			fn(id, s);
+		reg_.view<Ts...>(excl).each(std::forward<Fn>(fn));
 	}
-
-	// eachElement, joined with a second component T -- for a pass that
-	// genuinely needs both on the same entity (Turn/Thrust want Element and
-	// ShipState together) instead of a separate find<T> per iteration.
-	template <class T, class Fn>
-	void eachElementWith(Fn &&fn)
+	template <class... Ts, class... Xs, class Fn>
+	void each(entt::exclude_t<Xs...> excl, Fn &&fn) const
 	{
-		for (auto [id, e, t] : reg_.view<Element, T>().each())
-			fn(id, e, t);
+		reg_.view<const Ts...>(excl).each(std::forward<Fn>(fn));
 	}
 
 	// The declared-order walk (review-006 Z6): a local scratch of every live
@@ -293,21 +317,53 @@ public:
 	// call (a battle is ~40 entities; no caching). collidePass builds the
 	// same scratch through the private helper below instead of duplicating
 	// the sort.
-	template <class Fn>
+	//
+	// One template, not two overloads: a bare eachOrdered(fn) call (no
+	// explicit Ts) and an eachOrdered<Ts...>(fn) call both bind here, since
+	// an unused trailing pack deduces to empty on its own -- two separate
+	// templates for the same one-argument shape left the empty-Ts case
+	// genuinely ambiguous between them (found by the compiler, not by
+	// inspection). The zero-Ts form is the walk that genuinely wants bare
+	// ids; eachOrdered<Ts...> is the join -- fetch every Ts and skip the
+	// entity if any is missing (reg_.all_of first) rather than passing a
+	// null through. Ts always explicit when non-empty (it isn't deducible
+	// from Fn alone).
+	template <class... Ts, class Fn>
 	void eachOrdered(Fn &&fn)
 	{
 		std::vector<EntityId> ids;
 		buildOrderedIds(ids);
 		for (EntityId id : ids)
-			fn(id);
+		{
+			if constexpr (sizeof...(Ts) == 0)
+				fn(id);
+			else if (reg_.all_of<Ts...>(id))
+				fn(id, reg_.get<Ts>(id)...);
+		}
 	}
-	template <class Fn>
+	template <class... Ts, class Fn>
 	void eachOrdered(Fn &&fn) const
 	{
 		std::vector<EntityId> ids;
 		buildOrderedIds(ids);
 		for (EntityId id : ids)
-			fn(id);
+		{
+			if constexpr (sizeof...(Ts) == 0)
+				fn(id);
+			else if (reg_.all_of<Ts...>(id))
+				fn(id, reg_.get<Ts>(id)...);
+		}
+	}
+	// The exclude form, matching each<Ts...>'s: an entity carrying any of
+	// Xs is skipped before Ts is even checked.
+	template <class... Ts, class... Xs, class Fn>
+	void eachOrdered(entt::exclude_t<Xs...>, Fn &&fn)
+	{
+		std::vector<EntityId> ids;
+		buildOrderedIds(ids);
+		for (EntityId id : ids)
+			if (reg_.all_of<Ts...>(id) && !reg_.any_of<Xs...>(id))
+				fn(id, reg_.get<Ts>(id)...);
 	}
 
 private:
@@ -349,7 +405,7 @@ private:
 	bool resolveAgainst(EntityId elem, usize elemIdx, EntityId test,
 			usize testIdx, TimeValue maxTime);
 	void killOverlapSpawn(EntityId id);
-	void recordSpawn(EntityId id, const Element &e);
+	void recordSpawn(EntityId id, const Element &e, const Allegiance &allegiance);
 
 	// ex-EntityList::remove (review-006 Z6): destroy plus the count, no
 	// spine to unlink.

@@ -90,14 +90,14 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 	const Body a{selfCollider->mask, selfAt, selfAt};
 
 	// Order-independent: a plain OR over every other element, so the walk
-	// need not be the spine -- eachElement is enough, and keeps
-	// entt::registry out of this file.
+	// need not be the spine -- each<> is enough, and keeps entt::registry
+	// out of this file. Collider is a required join now, not a find-then-
+	// null-check: the presence filter moved into the query (review-007
+	// W4b's join rule).
 	bool conflict = false;
-	b.eachElement([&](EntityId other, Element &) {
+	b.each<Collider, Position>([&](EntityId other, Collider &tCollider,
+											Position &pos) {
 		if (conflict || other == id)
-			return;
-		const Collider *tCollider = b.find<Collider>(other);
-		if (tCollider == nullptr)
 			return;
 
 		// A player ship counts even when it is not collidable -- gravity.c:175
@@ -106,8 +106,7 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 		if (!b.collidable(other) && !b.has<PlayerShip>(other))
 			return;
 
-		const Vec2i at = b.find<Position>(other)->current;
-		const Body other_{tCollider->mask, at, at};
+		const Body other_{tCollider.mask, pos.current, pos.current};
 		if (sweptIntersect(a, other_))
 			conflict = true;
 	});
@@ -129,12 +128,16 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 			return true;
 		const Vec2i selfAt = b.find<Position>(id)->current;
 		bool tooClose = false;
-		b.eachElement([&](EntityId other, Element &) {
+		// PlayerShip is a required join too, but left as a manual has<>: a
+		// tag-only join over an empty type mixed with Position works
+		// (entt elides it from the callback), yet spelling out the
+		// requirement as a plain check here reads at least as clearly and
+		// keeps this the same shape as the Collider join above.
+		b.each<Position>([&](EntityId other, Position &pos) {
 			if (tooClose || other == id || !b.has<PlayerShip>(other))
 				return;
-			const Vec2i tAt = b.find<Position>(other)->current;
 			const Vec2i d = wrapDelta(
-					Vec2i{tAt.x - selfAt.x, tAt.y - selfAt.y});
+					Vec2i{pos.current.x - selfAt.x, pos.current.y - selfAt.y});
 			if (d.x * d.x + d.y * d.y < want * want)
 				tooClose = true;
 		});
@@ -164,10 +167,10 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 {
 	Element p;
 	p.kind = ElementKind::Planet;
-	p.playerNr = -1;             // NEUTRAL_PLAYER_NUM
-	p.hitPoints = 200;
 	p.onCollision = solidCollision;
-	// Motion defaults to zero; the planet never moves.
+	// Motion defaults to zero; the planet never moves. Allegiance defaults
+	// to NEUTRAL_PLAYER_NUM/no owner too, so spawn() below gets no explicit
+	// one.
 
 	// Mass is assigned only *after* placement (misc.c:71): while the loop runs
 	// the planet isn't yet a gravity source, so calculateGravity asks only
@@ -178,6 +181,7 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	// misc.c:55's lifeSpan = NORMAL_LIFE+1 encoded indestructibility as a
 	// magic countdown value; the tag says it directly (Entity.hpp).
 	b.attach<Indestructible>(id);
+	b.attach<Vitality>(id, Vitality{200});
 
 	do
 	{
@@ -187,7 +191,7 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 		pos->next = pos->current;
 	} while (calculateGravity(b, id) || timeSpaceMatterConflict(b, id));
 
-	b.find<Physique>(id)->mass = b.get(id)->hitPoints;
+	b.find<Physique>(id)->mass = b.find<Vitality>(id)->hitPoints;
 	return id;
 }
 
@@ -196,8 +200,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 {
 	Element a;
 	a.kind = ElementKind::Asteroid;
-	a.playerNr = -1;
-	a.hitPoints = 1;
+	// Allegiance defaults to NEUTRAL_PLAYER_NUM/no owner, same as the planet.
 	const Physique phys{3};      // NORMAL_LIFE, persistent: no Lifetime at all
 	a.preProcess = asteroidPreProcess;
 	a.onCollision = solidCollision;
@@ -240,6 +243,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	const EntityId id =
 			b.spawn(Layer::Field, std::move(a), pos, motion, phys, mask);
 	b.attach<Spin>(id, spin);
+	b.attach<Vitality>(id, Vitality{1});
 
 	// A standing copy of the birth mask, independent of the Collider: a kill
 	// (doDamage) detaches the Collider on the spot so the asteroid stops
@@ -258,11 +262,10 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 
 	const StashedMask *deadMask = b.find<StashedMask>(id);
 	const Position *deadPos = b.find<Position>(id);
+	const Allegiance *deadAllegiance = b.find<Allegiance>(id);
 
 	Element r;
 	r.kind = ElementKind::Blast;
-	r.playerNr = dead->playerNr;
-	r.turnWait = 0;
 	r.onDeath = rubbleDeath;
 	Position rPos;
 	rPos.current = deadPos->current;
@@ -279,6 +282,7 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	cmd.element = std::move(r);
 	cmd.position = rPos;
 	cmd.lifetime = Lifetime{5};
+	cmd.allegiance = Allegiance{deadAllegiance->playerNr, kNoEntity};
 	cmd.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr;
 	b.queueSpawn(std::move(cmd));
 }

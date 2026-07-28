@@ -48,19 +48,19 @@ spawnAvengerPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 void
 flamePreProcess(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
+	AnimFrame *frame = b.find<AnimFrame>(id);
+	if (frame == nullptr)
 		return;
 
 	// flame_preprocess (ilwrath.c:126-139): the frame advances every frame it
 	// lives, and the collision silhouette follows -- why the flame GROWS as it
 	// flies (mask update = the C's CHANGING re-init, process.c:159-160).
-	++e->colorCycle;
+	++frame->n;
 	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
 	if (ws != nullptr && !ws->masks.empty())
 	{
 		if (Collider *c = b.find<Collider>(id))
-			c->mask = &ws->masks[static_cast<usize>(e->colorCycle)
+			c->mask = &ws->masks[static_cast<usize>(frame->n)
 					% ws->masks.size()];
 	}
 }
@@ -121,10 +121,11 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 
 	// And the ship may not immediately turn away from its own snap
 	// (ilwrath.c:335-336).
-	if (e->turnWait == 0)
-		e->turnWait = 1;
+	ShipState *s = b.ship(id);
+	if (s->turnWait == 0)
+		s->turnWait = 1;
 
-	applyFacingMask(b, id, pos->facing, *b.ship(id)->spec);
+	applyFacingMask(b, id, pos->facing, *s->spec);
 }
 
 }  // namespace

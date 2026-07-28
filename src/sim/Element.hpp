@@ -11,6 +11,8 @@
 #include "sim/Trig.hpp"
 #include "sim/Velocity.hpp"
 
+#define comp
+
 namespace uqm::sim {
 
 class Battle;
@@ -21,14 +23,14 @@ class Battle;
 // same way (review-007 W3): Lifetime and Doomed (Entity.hpp).
 
 // A player's ship, as opposed to a projectile or a rock.
-struct PlayerShip
+comp struct PlayerShip
 {
 };
 
 // Skips velocity integration. IGNORE_VELOCITY in the C, and distinct from
 // DefyPhysics -- process.c:163 tests this one and nothing else when
 // deciding whether an element moves.
-struct IgnoreVelocity
+comp struct IgnoreVelocity
 {
 };
 
@@ -57,9 +59,51 @@ isGravitySource(i32 massPoints) noexcept
 // one -- collisionPossible's both-massless skip, Impulse's denominators and
 // isGravityMass/isGravitySource all read it without needing anything else
 // off Element.
-struct Physique
+comp struct Physique
 {
 	i32 mass = 0;
+};
+
+// Element{hitPoints}, split out (review-007 W4b): attached only where read
+// (the minimal-composition rule) -- weapons (piercing threshold, and the
+// hit-point-to-zero death Damage.cpp deals in), the asteroid field, and the
+// planet. A ship's toughness is its crew (ShipState), never this: a
+// crewed hull never gets a Vitality, and every doDamage/killOverlapSpawn
+// site that touches it already branches on ship-vs-not first.
+comp struct Vitality
+{
+	i32 hitPoints = 0;
+};
+
+// Element{playerNr, owner}, split out (review-007 W4b) -- the one
+// deliberately uniform attach in this stage: every spawn gets one
+// (Battle::spawn/spawnBeam), never omitted. Too many readers to minimise
+// (events, targeting, the sweep, IgnoreSimilar pairing, the app's colour
+// and sound dispatch), and the defaults -- nobody's playerNr, nobody's
+// owner -- are meaningful values in their own right, not placeholders for
+// an absent component.
+comp struct Allegiance
+{
+	// -1 for things nobody owns, like asteroids.
+	i32 playerNr = -1;
+
+	// The ship this came from: pParent in the C (element.h:192); a ship owns
+	// itself. IGNORE_SIMILAR skips a pair sharing an owner (stops a flame
+	// burning its own ship) -- owner, not player, so allied ships still collide.
+	EntityId owner = kNoEntity;
+};
+
+// Element{colorCycle}, split out (review-007 W4b): attached only where
+// read, which is weapons alone -- Draw.cpp's ByFrame policy is the cel a
+// shot draws (a directional missile's facing, or the flame's growth
+// frame), and the Ilwrath flame reads/advances the same value for its own
+// mask lookup. Debris/IonTrail/ShipShadow animate by Lifetime::remaining
+// instead (RampPoint/RampSilhouette/DebrisFrames key off age, not this),
+// and a dying ship draws by facing (ByFacing) -- both wrote a colorCycle of
+// 0 on the old Element that nothing ever read back.
+comp struct AnimFrame
+{
+	i32 n = 0;
 };
 
 // What kind of thing this is: a real tag, not a frame-pointer comparison
@@ -109,28 +153,6 @@ struct Element
 
 	ElementKind kind = ElementKind::Unknown;
 
-	// -1 for things nobody owns, like asteroids.
-	i32 playerNr = -1;
-
-	i32 hitPoints = 0;
-	i32 damage = 0;
-
-	// How far along its travel direction a weapon's blast sits, in display
-	// pixels, so the explosion lands on the surface it hit rather than inside
-	// it (weapon.c:202-208).
-	i32 blastOffset = 0;
-
-	// Where an element is in its colour/frame sequence (ion trail fade,
-	// explosion frames). The C's colorCycleIndex, kept per-element for the
-	// same reason: the alternative is a parallel table keyed by entity.
-	i32 colorCycle = 0;
-
-	// Frames until the ship may turn or thrust again. A collision adds to
-	// both, which is the stagger you feel after hitting something
-	// (collide.c:113-116).
-	i32 turnWait = 0;
-	i32 thrustWait = 0;
-
 	// The silhouette/facing this element entered the frame with is NOT here:
 	// it is the overlap-repair protocol's own scratch (process.c:453-506),
 	// so it lives as a component private to Battle.cpp (review-004 X5) --
@@ -145,13 +167,10 @@ struct Element
 
 	// What this element hit, valid only inside a collision hook.
 	EntityId collidedWith = kNoEntity;
-
-	// The ship this came from: pParent in the C (element.h:192); a ship owns
-	// itself. IGNORE_SIMILAR skips a pair sharing an owner (stops a flame
-	// burning its own ship) -- owner, not player, so allied ships still collide.
-	EntityId owner = kNoEntity;
 };
 
 }  // namespace uqm::sim
+
+#undef comp
 
 #endif  // UQM2_SIM_ELEMENT_HPP

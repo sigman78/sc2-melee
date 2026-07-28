@@ -9,6 +9,14 @@
 
 #include <entt/entity/entity.hpp>
 
+// annotation: marks ECS components -- an entt::registry-attached type, and
+// nothing else (not Element's own rump, not a spec, not CollisionMask).
+// Empty on purpose: entt uses `comp` as a variable name internally in its
+// own headers, so the define stays after every include this file needs and
+// is undone at file end, or it would erase that identifier wherever this
+// file's includes still had it to expand.
+#define comp
+
 namespace uqm::sim {
 
 // The entity handle: entt's versioned integer id -- the old
@@ -26,7 +34,7 @@ inline constexpr EntityId kNoEntity = entt::null;
 // this without the rest of Element's body. `current` is this frame's
 // published position; `next` is where the step is taking it -- published
 // at Commit (Battle.cpp). A beam has no Position at all -- see Beam below.
-struct Position
+comp struct Position
 {
 	Vec2i current;
 	Vec2i next;
@@ -38,10 +46,12 @@ struct Position
 // BeamGeometry-tagged Elements used to (review-007 W4a). A beam carries no
 // Position at all -- Integrate and Commit's views over <Position, ...>
 // never see one, so no exemption is needed. It still gets Order (walked and
-// drawn like anything else) and the universal Motion/Physique/
-// CollisionScratch scaffold (Battle::spawnBeam), since the collision walk's
-// blanket reg_.get<T>(testId) calls must never meet a hole where a beam is.
-struct Beam
+// drawn like anything else), but nothing else: never solid, never moving,
+// so Motion/Physique/CollisionScratch/Appearing are all dead weight
+// (review-007 W4b's minimal-composition rule) -- the collide pass gates on
+// collidable(testId) before it ever fetches the rest, so it never meets the
+// hole a beam leaves instead of reading through it.
+comp struct Beam
 {
 	Vec2i from;
 	Vec2i to;
@@ -76,19 +86,19 @@ enum class Layer : u8
 // segments in enum order, FIFO by seq within a layer (Battle::eachOrdered
 // builds the sorted walk this describes; the OrderLink spine that used to
 // walk it link by link is gone).
-struct Order
+comp struct Order
 {
 	Layer layer = Layer::Field;
 	u64 seq = 0;
 };
 
 // Created this frame: not yet integrated, exempt from its own collisions.
-struct Appearing
+comp struct Appearing
 {
 };
 
 // Skips collisions with another IgnoreSimilar entity sharing its owner.
-struct IgnoreSimilar
+comp struct IgnoreSimilar
 {
 };
 
@@ -96,21 +106,21 @@ struct IgnoreSimilar
 // then the death-mark pass attaches Doomed and the reap destroys it.
 // Absent means persistent -- the old NORMAL_LIFE=1 that a Disappearing
 // check never decremented.
-struct Lifetime
+comp struct Lifetime
 {
 	i32 remaining = 0;
 };
 
 // Marked for the reap at this frame's sync point; its onDeath, if it had
 // one, has already run. Disappearing, unbundled from ElementFlags.
-struct Doomed
+comp struct Doomed
 {
 };
 
 // Immune to weapon damage, no Lifetime to age or reap: the planet
 // (Field.cpp's spawnPlanet, Damage.cpp's weaponCollision). misc.c:55's
 // lifeSpan = NORMAL_LIFE+1 encoded this as a magic countdown instead.
-struct Indestructible
+comp struct Indestructible
 {
 };
 
@@ -130,5 +140,7 @@ class Battle;
 [[nodiscard]] bool isFiniteLife(const Battle &b, EntityId id) noexcept;
 
 }  // namespace uqm::sim
+
+#undef comp
 
 #endif  // UQM2_SIM_ENTITY_HPP

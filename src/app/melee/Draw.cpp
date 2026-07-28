@@ -322,8 +322,9 @@ draw(Game &g)
 		Visual missing;
 		if (v == nullptr)
 		{
+			const sim::Allegiance *a = g.battle.find<sim::Allegiance>(id);
 			missing = Visual{nullptr, CelPolicy::Rect,
-					colourFor(e->kind, e->playerNr)};
+					colourFor(e->kind, a != nullptr ? a->playerNr : -1)};
 			v = &missing;
 		}
 
@@ -394,13 +395,14 @@ draw(Game &g)
 
 		const Vec2i at = g.camera.toScreen(pos->current);
 
-		// A weapon draws the cel colorCycle names -- the facing for a
+		// A weapon draws the cel AnimFrame names -- the facing for a
 		// directional missile, the animation frame for the flame. Worked out
 		// before the size below, which needs it too.
 		const game::SpriteSet *set = v->sprites;
+		const sim::AnimFrame *anim = g.battle.find<sim::AnimFrame>(id);
 		const usize cel = set != nullptr
 				? (v->policy == CelPolicy::ByFrame
-								? static_cast<usize>(e->colorCycle)
+								? static_cast<usize>(anim != nullptr ? anim->n : 0)
 										% set->frames.size()
 								: static_cast<usize>(pos->facing.raw())
 										% set->frames.size())
@@ -531,7 +533,8 @@ drawHud(Game &g)
 		if (s == nullptr)
 			continue;
 
-		const Colour crewColour = colourFor(e->kind, e->playerNr);
+		const auto *a = g.battle.find<sim::Allegiance>(g.ships[p]);
+		const Colour crewColour = colourFor(e->kind, a != nullptr ? a->playerNr : -1);
 		constexpr Colour energyColour{0x60, 0xFF, 0xC0};
 
 		// Player 0 hugs the left edge, player 1 the right. Both are drawn

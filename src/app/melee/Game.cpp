@@ -123,13 +123,13 @@ setUp(Game &g, const std::filesystem::path &content)
 	setUpBattle(g);
 
 	// The initial furniture -- both ships, the asteroids, the planet -- gets
-	// its Visual now; everything spawned later is caught in iterate().
-	g.battle.eachOrdered([&g](sim::EntityId id) {
-		auto e = g.battle.get(id);
-		if (e == nullptr)
-			return;
-		g.battle.attach<Visual>(id, visualFor(g, e->kind, e->playerNr));
-	});
+	// its Visual now; everything spawned later is caught in iterate(). A
+	// pure join now (review-007 W4b): both components are attached
+	// together at spawn, so requiring them replaces the get-then-null-check.
+	g.battle.eachOrdered<sim::Element, sim::Allegiance>(
+			[&g](sim::EntityId id, sim::Element &e, sim::Allegiance &a) {
+				g.battle.attach<Visual>(id, visualFor(g, e.kind, a.playerNr));
+			});
 }
 
 void

@@ -6,6 +6,8 @@
 #include "engine/core/Types.hpp"
 #include "sim/Element.hpp"
 
+#define comp
+
 namespace uqm::sim {
 
 class Battle;
@@ -27,10 +29,22 @@ inline constexpr i32 kBlastLife = 5;
 // first. `lastFrom` is not yet consumed by anything; it is here so a future
 // kill-attribution reader does not need another pass over doDamage's
 // call sites.
-struct DamageIncoming
+comp struct DamageIncoming
 {
 	i32 amount = 0;
 	EntityId lastFrom = kNoEntity;
+};
+
+// Element{damage, blastOffset}, split out (review-007 W4b): attached only
+// where read, which is weapons alone -- damage is a redundant copy of the
+// weapon's own mass for Sound.cpp's boom selection (the mass=damage
+// coupling that actually drives doDamage lives in Physique, untouched
+// here), and blastOffset positions the blast weaponCollision spawns on
+// impact. Nothing else in the sim reads either field.
+comp struct Warhead
+{
+	i32 damage = 0;
+	i32 blastOffset = 0;
 };
 
 // Applies a crew change and reports whether the ship survived it. False means
@@ -58,5 +72,7 @@ void weaponCollision(Battle &b, EntityId id) noexcept;
 void solidCollision(Battle &b, EntityId id) noexcept;
 
 }  // namespace uqm::sim
+
+#undef comp
 
 #endif  // UQM2_SIM_DAMAGE_HPP

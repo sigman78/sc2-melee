@@ -9,6 +9,8 @@
 #include "sim/Spawn.hpp"
 #include "sim/Thrust.hpp"
 
+#define comp
+
 namespace uqm::sim {
 
 class Battle;
@@ -145,7 +147,7 @@ struct ShipSpec
 // A ship's mutable half. The C keeps this in STARSHIP beside the ELEMENT;
 // here it is a registry component keyed by the same entity (review-002 §1,
 // review-004 X3), destroyed with it.
-struct ShipState
+comp struct ShipState
 {
 	// Hooks hold a ShipState& across spawns and other hooks (shipPostProcess'
 	// weapon loop); stable addresses are load-bearing, exactly as for Element.
@@ -167,11 +169,19 @@ struct ShipState
 	// (ship.c:82,106-112); gravity sets it, next thrust clears it (ship.c:263-267).
 	bool inGravityWell = false;
 
+	// Element{turnWait, thrustWait}, split out (review-007 W4b): frames
+	// until the ship may turn or thrust again. A collision adds to both,
+	// which is the stagger you feel after hitting something
+	// (collide.c:113-116, Impulse.cpp). Ship-control clocks, so ShipState is
+	// where they belong -- every other Element tenant already left (the
+	// asteroid's spin, the GUIDED clock) before this split.
+	i32 turnWait = 0;
+	i32 thrustWait = 0;
 };
 
 // What the player is asking for, as its own component: every ship has one
 // (Battle::attachShip), so the app writes it without a ShipState field.
-struct Input
+comp struct Input
 {
 	ShipInput buttons = ShipInput::None;
 };
@@ -180,7 +190,7 @@ struct Input
 // (review-002 §1) -- ends the old abuse of ShipState as a spec-pointer
 // carrier on weapons. The pointer is copied out by readers, never held
 // into the pool, so default storage suffices.
-struct WeaponGuidance
+comp struct WeaponGuidance
 {
 	Borrowed<const WeaponSpec> spec = nullptr;
 };
@@ -190,7 +200,7 @@ struct WeaponGuidance
 // own tracking clock -- which lived in a repurposed Element::turnWait
 // until review-005 Y1. Attached by the fire block to any weapon whose
 // spec declares guidance; guidedShotPreProcess is its system function.
-struct Guided
+comp struct Guided
 {
 	i32 trackWait = 0;
 	i32 maxSpeed = 0;
@@ -212,18 +222,18 @@ inline constexpr i32 kCloakFullLevel = kCloakVisibleColours + 1;
 //     kCloakFullLevel (6)   BLACK -- fully cloaked
 // Not a fade: walked one step per frame, reversed to uncloak
 // (ships/Ilwrath.cpp).
-struct Cloak
+comp struct Cloak
 {
 	i32 level = 0;
 };
 
 // Presence is the phase; removal replaces the C's per-instance hook swap
 // (tactrans.c:868-886, 703-728). shipPreProcess dispatches on these.
-struct WarpingIn
+comp struct WarpingIn
 {
 };
 
-struct Exploding
+comp struct Exploding
 {
 };
 
@@ -255,5 +265,7 @@ inline constexpr i32 kExplosionFrames = 12;
 inline constexpr i32 kExplosionLife = kExplosionFrames * 3;
 
 }  // namespace uqm::sim
+
+#undef comp
 
 #endif  // UQM2_SIM_SHIP_HPP

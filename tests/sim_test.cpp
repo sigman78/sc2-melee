@@ -104,17 +104,16 @@ testTruncationWidthMatters()
 // key eachOrdered reads. These tests pin the same invariants the old ones
 // did, against the new shape.
 
-// A minimal, marked element for the tests below: no Collider, so it takes no
+// A minimal, marked spawn for the tests below: no Collider, so it takes no
 // part in collision math (spawn() attaches one only when given a mask, and
 // these never are), no hooks so nothing runs even if a test steps the
-// battle, and playerNr as a bare label since Element has no dedicated tag
-// field to spare.
-Element
-marked(int playerNr)
+// battle, and playerNr -- Allegiance now (review-007 W4b), Element has no
+// dedicated tag field to spare -- as a bare label.
+EntityId
+spawnMarked(Battle &b, Layer layer, int playerNr)
 {
-	Element e;
-	e.playerNr = playerNr;
-	return e;
+	return b.spawn(layer, Element{}, Position{}, Motion{}, Physique{},
+			nullptr, Allegiance{playerNr, kNoEntity});
 }
 
 // Walks in declared order collecting each element's label, the way order()
@@ -123,7 +122,9 @@ std::vector<int>
 playerNrs(Battle &b)
 {
 	std::vector<int> out;
-	b.eachOrdered([&](EntityId id) { out.push_back(b.get(id)->playerNr); });
+	b.eachOrdered([&](EntityId id) {
+		out.push_back(b.find<Allegiance>(id)->playerNr);
+	});
 	return out;
 }
 
@@ -133,26 +134,26 @@ testTraversalOrderIsDeclared()
 	// Review-005 Y2: order is a declared stratum, not an insertion
 	// position. Layers traverse in enum order; FIFO within a layer.
 	Battle b(1);
-	b.spawn(Layer::Field, marked(1));
-	b.spawn(Layer::Field, marked(2));
+	spawnMarked(b, Layer::Field, 1);
+	spawnMarked(b, Layer::Field, 2);
 	CHECK(playerNrs(b) == std::vector<int>({1, 2}),
 			"a layer is FIFO within itself");
 
 	// The pkunk.c:498-512 case, declared: Background walks before Field,
 	// so a phoenix-like element preprocesses before the field it precedes.
-	b.spawn(Layer::Background, marked(0));
+	spawnMarked(b, Layer::Background, 0);
 	CHECK(playerNrs(b) == std::vector<int>({0, 1, 2}),
 			"an earlier layer walks first, whenever it was spawned");
 
 	// Ordnance after the field -- the C's tail PutElement.
-	b.spawn(Layer::Ordnance, marked(9));
+	spawnMarked(b, Layer::Ordnance, 9);
 	CHECK(playerNrs(b) == std::vector<int>({0, 1, 2, 9}),
 			"a later layer walks last");
 
 	// And a Field spawn now lands BETWEEN the strata: after the field's
 	// tail, before the ordnance -- the position insertion order could only
 	// express by accident, declared here on purpose.
-	b.spawn(Layer::Field, marked(3));
+	spawnMarked(b, Layer::Field, 3);
 	CHECK(playerNrs(b) == std::vector<int>({0, 1, 2, 3, 9}),
 			"a spawn joins its own stratum, not the global tail");
 }
@@ -166,14 +167,14 @@ testSlotReuseDoesNotReorder()
 	// entity landing where it was asked to go, not where its recycled slot
 	// happens to sit.
 	Battle b(1);
-	b.spawn(Layer::Field, marked(1));
-	const EntityId second = b.spawn(Layer::Field, marked(2));
-	b.spawn(Layer::Field, marked(3));
+	spawnMarked(b, Layer::Field, 1);
+	const EntityId second = spawnMarked(b, Layer::Field, 2);
+	spawnMarked(b, Layer::Field, 3);
 
 	b.attach<Lifetime>(second, Lifetime{0});
 	b.step();  // reaps the middle entry, freeing its slot for reuse
 
-	b.spawn(Layer::Field, marked(4));  // which this respawn reuses
+	spawnMarked(b, Layer::Field, 4);  // which this respawn reuses
 	CHECK(playerNrs(b) == std::vector<int>({1, 3, 4}),
 			"a reused slot must not drag the new entity back to the old "
 			"position");
@@ -188,7 +189,7 @@ testStaleHandlesAreDetectable()
 	// handle from reading its new tenant. entt's versioned entity id carries
 	// that promise now, in place of EntityList's own {index, generation}.
 	Battle b(1);
-	const EntityId id = b.spawn(Layer::Field, marked(7));
+	const EntityId id = spawnMarked(b, Layer::Field, 7);
 	CHECK(b.alive(id) && b.get(id) != nullptr, "a live handle resolves");
 
 	b.attach<Lifetime>(id, Lifetime{0});
@@ -197,12 +198,12 @@ testStaleHandlesAreDetectable()
 	CHECK(b.get(id) == nullptr, "and does not resolve");
 
 	// The slot the reap just freed comes straight back.
-	const EntityId reused = b.spawn(Layer::Field, marked(8));
+	const EntityId reused = spawnMarked(b, Layer::Field, 8);
 	CHECK(reused != id, "the test needs a fresh handle, even if the slot "
 			"is the same one");
 	CHECK(!b.alive(id), "the stale handle must not resolve to the new one");
 	CHECK(b.get(id) == nullptr, "still nullptr after reuse");
-	CHECK(b.get(reused) != nullptr && b.get(reused)->playerNr == 8,
+	CHECK(b.get(reused) != nullptr && b.find<Allegiance>(reused)->playerNr == 8,
 			"the new handle works");
 
 	CHECK(!b.alive(kNoEntity), "a default handle is never alive");
@@ -219,7 +220,7 @@ testTheReapKeepsTheWalkIntact()
 	Battle b(1);
 	std::vector<EntityId> ids;
 	for (int i = 0; i < 5; ++i)
-		ids.push_back(b.spawn(Layer::Field, marked(i)));
+		ids.push_back(spawnMarked(b, Layer::Field, i));
 
 	b.attach<Lifetime>(ids[1], Lifetime{0});
 	b.attach<Lifetime>(ids[3], Lifetime{0});
@@ -242,11 +243,11 @@ testEntityAddressesAreStable()
 	// regression here would silently corrupt whichever unrelated element got
 	// moved into the freed or reallocated slot.
 	Battle b(1);
-	const EntityId A = b.spawn(Layer::Field, marked(1));
+	const EntityId A = spawnMarked(b, Layer::Field, 1);
 	// B sits between the two under test, so its reap has somewhere to
 	// disturb the layout if in_place_delete were not honoured.
-	const EntityId B = b.spawn(Layer::Field, marked(2));
-	const EntityId C = b.spawn(Layer::Field, marked(3));
+	const EntityId B = spawnMarked(b, Layer::Field, 2);
+	const EntityId C = spawnMarked(b, Layer::Field, 3);
 
 	Element *pa = b.get(A);
 	Element *pc = b.get(C);
@@ -255,12 +256,12 @@ testEntityAddressesAreStable()
 	b.step();  // reaps B -- a tombstone, not a compaction
 
 	for (int i = 0; i < 100; ++i)
-		b.spawn(Layer::Field, marked(100 + i));  // forces the pool to grow
+		spawnMarked(b, Layer::Field, 100 + i);  // forces the pool to grow
 
 	CHECK(b.get(A) == pa, "A's address must survive B's reap and the growth");
 	CHECK(b.get(C) == pc, "and so must C's");
-	CHECK(b.get(A)->playerNr == 1, "and A's data must still be A's");
-	CHECK(b.get(C)->playerNr == 3, "and C's still C's");
+	CHECK(b.find<Allegiance>(A)->playerNr == 1, "and A's data must still be A's");
+	CHECK(b.find<Allegiance>(C)->playerNr == 3, "and C's still C's");
 }
 
 // --------------------------------------------------------------------------
@@ -989,27 +990,25 @@ testCollisionPairsAreVisitedOnce()
 
 	Element a;
 	a.kind = ElementKind::Weapon;
-	a.playerNr = 0;
 	Position aPos;
 	aPos.current = Vec2i{500, 500};
 	// Transient, like a real weapon -- and load-bearing here: an at-rest
 	// overlap between two *solid* bodies is the "BAD NEWS" case the step
 	// skips, so only a transient can register this stationary hit at all.
 	// Two frames of life, because the first is spent before the test runs.
-	const EntityId ia = b.spawn(
-			Layer::Field, std::move(a), aPos, Motion{}, Physique{}, &mask);
+	const EntityId ia = b.spawn(Layer::Field, std::move(a), aPos, Motion{},
+			Physique{}, &mask, Allegiance{0, kNoEntity});
 	b.attach<Lifetime>(ia, Lifetime{2});
 
 	Element c;
 	c.kind = ElementKind::Ship;
-	c.playerNr = 1;
 	// At least one side must have mass, or the pair is skipped entirely
 	// (collide.h:39). Two massless things have no momentum to exchange.
 	const Physique cPhys{6};
 	Position cPos;
 	cPos.current = Vec2i{500, 500};
-	const EntityId ic = b.spawn(
-			Layer::Field, std::move(c), cPos, Motion{}, cPhys, &mask);
+	const EntityId ic = b.spawn(Layer::Field, std::move(c), cPos, Motion{},
+			cPhys, &mask, Allegiance{1, kNoEntity});
 
 	b.step();
 	CHECK(b.get(ia)->collidedWith == ic, "a should record hitting c");
@@ -1023,17 +1022,16 @@ testCollisionPairsAreVisitedOnce()
 
 	Element f1;
 	f1.kind = ElementKind::Weapon;
-	f1.playerNr = 0;
 	const Physique f1Phys{4};
 	Position f1Pos;
 	f1Pos.current = Vec2i{500, 500};
-	const EntityId if1 = b2.spawn(
-			Layer::Field, std::move(f1), f1Pos, Motion{}, f1Phys, &mask);
+	const EntityId if1 = b2.spawn(Layer::Field, std::move(f1), f1Pos, Motion{},
+			f1Phys, &mask, Allegiance{0, kNoEntity});
 	b2.attach<IgnoreSimilar>(if1);
 	// A synthesized EntityId{index, generation} literal no longer compiles
 	// -- entt's handle has no such constructor -- so f1 stands in as its own
 	// owner, a real spawned id the second projectile below can share.
-	b2.get(if1)->owner = if1;
+	b2.find<Allegiance>(if1)->owner = if1;
 
 	Element f2 = *b2.get(if1);
 	// A *ship*, not another flame -- the kinds differ, which is precisely the
@@ -1041,8 +1039,11 @@ testCollisionPairsAreVisitedOnce()
 	f2.kind = ElementKind::Ship;
 	const Physique f2Phys{7};
 	const Position f2Pos = *b2.find<Position>(if1);
-	const EntityId if2 = b2.spawn(
-			Layer::Field, std::move(f2), f2Pos, Motion{}, f2Phys, &mask);
+	// Same owner as f1 -- copied, not re-derived -- since what IgnoreSimilar
+	// keys on here is the two sharing one owner.
+	const Allegiance f2Allegiance = *b2.find<Allegiance>(if1);
+	const EntityId if2 = b2.spawn(Layer::Field, std::move(f2), f2Pos, Motion{},
+			f2Phys, &mask, f2Allegiance);
 	b2.attach<IgnoreSimilar>(if2);
 
 	b2.step();
@@ -1057,9 +1058,11 @@ testCollisionPairsAreVisitedOnce()
 	const Position g1Pos = *b2.find<Position>(if1);
 	const Physique g1Phys = *b2.find<Physique>(if1);
 	// Transient for the same reason as above: the target is solid, so the
-	// flame must be finite-life for a stationary overlap to be a hit.
-	const EntityId ig1 = b3.spawn(
-			Layer::Field, std::move(g1), g1Pos, Motion{}, g1Phys, &mask);
+	// flame must be finite-life for a stationary overlap to be a hit. The
+	// owner copied in here is overwritten below regardless (each element
+	// owns itself in b3), so only playerNr fidelity matters from the copy.
+	const EntityId ig1 = b3.spawn(Layer::Field, std::move(g1), g1Pos, Motion{},
+			g1Phys, &mask, *b2.find<Allegiance>(if1));
 	b3.attach<Lifetime>(ig1, Lifetime{2});
 	b3.attach<IgnoreSimilar>(ig1);
 
@@ -1067,15 +1070,15 @@ testCollisionPairsAreVisitedOnce()
 	g2.collidedWith = kNoEntity;
 	const Position g2Pos = *b2.find<Position>(if2);
 	const Physique g2Phys = *b2.find<Physique>(if2);
-	const EntityId ig2 = b3.spawn(
-			Layer::Field, std::move(g2), g2Pos, Motion{}, g2Phys, &mask);
+	const EntityId ig2 = b3.spawn(Layer::Field, std::move(g2), g2Pos, Motion{},
+			g2Phys, &mask, *b2.find<Allegiance>(if2));
 	b3.attach<IgnoreSimilar>(ig2);
 
 	// Two distinct real owners, in place of the old EntityId{7,1} /
 	// EntityId{9,1} literals: each element owning itself is enough, since
 	// what IgnoreSimilar keys on is only that the owners differ.
-	b3.get(ig1)->owner = ig1;
-	b3.get(ig2)->owner = ig2;
+	b3.find<Allegiance>(ig1)->owner = ig1;
+	b3.find<Allegiance>(ig2)->owner = ig2;
 
 	b3.step();
 	CHECK(b3.get(ig1)->collidedWith == ig2,
@@ -1103,8 +1106,10 @@ testIsqrtIsFloorSqrt()
 void
 testHeadOnCollisionExchangesMomentum()
 {
-	Element a;
-	a.kind = ElementKind::Ship;
+	// ShipState now, not Element -- the turn/thrust stagger this test pins
+	// is ShipState's own field (review-007 W4b), and a non-null ShipState*
+	// is what tells pure physics "this side is a ship".
+	ShipState a;
 	const Physique aPhys{5};
 	Motion aMotion;
 	aMotion.velocity.setComponents(worldToVelocity(20), 0);
@@ -1112,8 +1117,7 @@ testHeadOnCollisionExchangesMomentum()
 	aPos.current = Vec2i{0, 0};
 	aPos.next = Vec2i{100, 0};
 
-	Element b;
-	b.kind = ElementKind::Ship;
+	ShipState b;
 	const Physique bPhys{5};
 	Motion bMotion;
 	bMotion.velocity.setComponents(-worldToVelocity(20), 0);
@@ -1121,11 +1125,10 @@ testHeadOnCollisionExchangesMomentum()
 	bPos.current = Vec2i{200, 0};
 	bPos.next = Vec2i{110, 0};
 
-	// The trait is a tag now; pure physics is told who is a ship.
 	const Vec2i beforeA = aMotion.velocity.current();
 	CollisionScratch aScratch, bScratch;
-	applyImpulse(aPos, aMotion, aPhys, a, true, aScratch, bPos, bMotion, bPhys,
-			b, true, bScratch);
+	applyImpulse(aPos, aMotion, aPhys, &a, aScratch, bPos, bMotion, bPhys,
+			&b, bScratch);
 	const Vec2i afterA = aMotion.velocity.current();
 
 	CHECK(afterA.x < beforeA.x,
@@ -1144,8 +1147,7 @@ testGravityMassIsNotPushed()
 	CHECK(isGravityMass(101), "mass above 100 is a gravity mass");
 	CHECK(!isGravityMass(10), "a ship is not");
 
-	Element ship;
-	ship.kind = ElementKind::Ship;
+	ShipState ship;
 	const Physique shipPhys{5};
 	Motion shipMotion;
 	shipMotion.velocity.setComponents(worldToVelocity(20), 0);
@@ -1153,8 +1155,8 @@ testGravityMassIsNotPushed()
 	shipPos.current = Vec2i{0, 0};
 	shipPos.next = Vec2i{100, 0};
 
-	Element planet;
-	planet.kind = ElementKind::Planet;
+	// The planet is not a ship: no ShipState, so a null pointer -- pure
+	// physics needs nothing else to tell the two apart.
 	const Physique planetPhys{200};
 	Motion planetMotion;
 	Position planetPos;
@@ -1162,8 +1164,8 @@ testGravityMassIsNotPushed()
 	planetPos.next = Vec2i{200, 0};
 
 	CollisionScratch shipScratch, planetScratch;
-	applyImpulse(shipPos, shipMotion, shipPhys, ship, true, shipScratch,
-			planetPos, planetMotion, planetPhys, planet, false, planetScratch);
+	applyImpulse(shipPos, shipMotion, shipPhys, &ship, shipScratch,
+			planetPos, planetMotion, planetPhys, nullptr, planetScratch);
 	CHECK(planetMotion.velocity.isZero(), "the planet must not move");
 	CHECK(!shipMotion.velocity.isZero(), "the ship must");
 }
@@ -1175,30 +1177,29 @@ testStuckPairIsWorkedApart()
 	// them DefyPhysics instead. If they were *already* defying, it zeroes
 	// them and skews the impact axis by an octant, which is what eventually
 	// separates two stuck objects rather than leaving them welded.
-	Element a;
-	a.kind = ElementKind::Ship;
+	ShipState a;
 	const Physique aPhys{5};
 	Motion aMotion;
 	Position aPos;
 	aPos.current = aPos.next = Vec2i{100, 100};
 
-	Element b = a;
+	ShipState b = a;
 	const Physique &bPhys = aPhys;
 	Motion bMotion;
 	Position bPos;
 	bPos.current = bPos.next = Vec2i{100, 100};
 
 	CollisionScratch aScratch, bScratch;
-	applyImpulse(aPos, aMotion, aPhys, a, true, aScratch, bPos, bMotion, bPhys,
-			b, true, bScratch);
+	applyImpulse(aPos, aMotion, aPhys, &a, aScratch, bPos, bMotion, bPhys,
+			&b, bScratch);
 	CHECK(aScratch.defyPhysics,
 			"a stationary pair should defy physics rather than exchange nothing");
 	CHECK(bScratch.defyPhysics, "both of them");
 
 	// Second time round, already defying: velocities are zeroed and the pair
 	// gets pushed apart along a skewed axis.
-	applyImpulse(aPos, aMotion, aPhys, a, true, aScratch, bPos, bMotion, bPhys,
-			b, true, bScratch);
+	applyImpulse(aPos, aMotion, aPhys, &a, aScratch, bPos, bMotion, bPhys,
+			&b, bScratch);
 	CHECK(!aMotion.velocity.isZero() || !bMotion.velocity.isZero(),
 			"an already-stuck pair should be given a way out");
 }
@@ -1494,8 +1495,7 @@ addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
 {
 	Element p;
 	p.kind = ElementKind::Planet;
-	p.playerNr = -1;
-	p.hitPoints = 200;
+	// Allegiance defaults to NEUTRAL_PLAYER_NUM/no owner.
 	const Physique phys{200};
 	Position pos;
 	pos.current = at;
@@ -1503,6 +1503,7 @@ addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
 	const EntityId id =
 			b.spawn(Layer::Field, std::move(p), pos, Motion{}, phys, &m);
 	b.attach<Indestructible>(id);
+	b.attach<Vitality>(id, Vitality{200});
 	return id;
 }
 
@@ -1671,7 +1672,7 @@ testDestroyedAsteroidIsReplaced()
 
 	// do_damage's kill (misc.c:220-222).
 	b.eachOrdered([&](EntityId e) {
-		b.get(e)->hitPoints = 0;
+		b.find<Vitality>(e)->hitPoints = 0;
 		b.attach<Lifetime>(e, Lifetime{0});
 		b.detach<Collider>(e);
 	});
@@ -1755,15 +1756,15 @@ testPlanetsTakeNoDamage()
 
 	Element planet;
 	planet.kind = ElementKind::Planet;
-	planet.hitPoints = 200;
 	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
 			Position{}, Motion{}, Physique{200});
 	b.attach<Indestructible>(planetId);
+	b.attach<Vitality>(planetId, Vitality{200});
 
 	doDamage(b, planetId, 50);
-	auto p = b.get(planetId);
-	CHECK(p->hitPoints == 200, "a planet is not damageable, got %ld",
-			static_cast<long>(p->hitPoints));
+	auto pv = b.find<Vitality>(planetId);
+	CHECK(pv->hitPoints == 200, "a planet is not damageable, got %ld",
+			static_cast<long>(pv->hitPoints));
 	CHECK(lifeSpanOf(b, planetId) == 1, "and holds no Lifetime to kill");
 
 	// weaponCollision's own target-survives test (Damage.cpp) is the site
@@ -1774,12 +1775,14 @@ testPlanetsTakeNoDamage()
 	shot.kind = ElementKind::Weapon;
 	const EntityId shotId = b.spawn(Layer::Field, std::move(shot),
 			Position{}, Motion{}, Physique{4});  // damage == mass, weapon.c:144
+	b.attach<Vitality>(shotId, Vitality{});
+	b.attach<Warhead>(shotId, Warhead{});
 	b.get(shotId)->collidedWith = planetId;
 	weaponCollision(b, shotId);
 
-	CHECK(b.get(planetId)->hitPoints == 200,
+	CHECK(b.find<Vitality>(planetId)->hitPoints == 200,
 			"weaponCollision must not dent the planet either, got %ld",
-			static_cast<long>(b.get(planetId)->hitPoints));
+			static_cast<long>(b.find<Vitality>(planetId)->hitPoints));
 	CHECK(b.has<Doomed>(shotId), "the shot still spends itself on impact");
 
 	// The same call, asked of a ship that has fled to mass 100. isGravityMass
@@ -1787,15 +1790,15 @@ testPlanetsTakeNoDamage()
 	// even while gravity treats it as a source.
 	Element fleeing;
 	fleeing.kind = ElementKind::Ship;
-	fleeing.hitPoints = 10;
 	const EntityId fleeingId = b.spawn(Layer::Field, std::move(fleeing),
 			Position{}, Motion{}, Physique{kGravityMass});
+	b.attach<Vitality>(fleeingId, Vitality{10});
 
 	doDamage(b, fleeingId, 4);
-	auto f = b.get(fleeingId);
-	CHECK(f->hitPoints == 6,
+	auto fv = b.find<Vitality>(fleeingId);
+	CHECK(fv->hitPoints == 6,
 			"a fleeing ship is still damageable, got %ld",
-			static_cast<long>(f->hitPoints));
+			static_cast<long>(fv->hitPoints));
 }
 
 void
@@ -1870,8 +1873,6 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 
 	Element planet;
 	planet.kind = ElementKind::Planet;
-	planet.playerNr = -1;
-	planet.hitPoints = 200;
 	planet.onCollision = solidCollision;
 	Position planetPos;
 	planetPos.current = Vec2i{4000, 4000};
@@ -1879,6 +1880,7 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
 			planetPos, Motion{}, Physique{200}, &m);
 	b.attach<Indestructible>(planetId);
+	b.attach<Vitality>(planetId, Vitality{200});
 
 	// Spawned clear of the planet, then moved into it. Starting them on top of
 	// each other is not a shortcut: the planet's collision is resolved before
@@ -1936,19 +1938,17 @@ testOverlappingShipsSeparateInsteadOfSticking()
 
 	Element a;
 	a.kind = ElementKind::Ship;
-	a.playerNr = 0;
 	Position aPos;
 	aPos.current = aPos.next = Vec2i{4000, 4000};
-	const EntityId ia = b.spawn(
-			Layer::Field, std::move(a), aPos, Motion{}, Physique{6}, &m);
+	const EntityId ia = b.spawn(Layer::Field, std::move(a), aPos, Motion{},
+			Physique{6}, &m, Allegiance{0, kNoEntity});
 
 	Element c;
 	c.kind = ElementKind::Ship;
-	c.playerNr = 1;
 	Position cPos;
 	cPos.current = cPos.next = Vec2i{6000, 6000};
-	const EntityId ic = b.spawn(
-			Layer::Field, std::move(c), cPos, Motion{}, Physique{6}, &m);
+	const EntityId ic = b.spawn(Layer::Field, std::move(c), cPos, Motion{},
+			Physique{6}, &m, Allegiance{1, kNoEntity});
 
 	// Spawned far apart and established first. The distinction is the C's:
 	// an APPEARING element found overlapping something is EXECUTED on the
@@ -1995,16 +1995,20 @@ spawnTestShot(Battle &b, const CollisionMask &mask, Vec2i at, i32 playerNr,
 {
 	Element e;
 	e.kind = ElementKind::Weapon;
-	e.playerNr = playerNr;
-	e.hitPoints = hitPoints;
 	e.onCollision = weaponCollision;
 	Position pos;
 	pos.current = pos.next = at;
 	Motion motion;
 	motion.velocity.setComponents(vx, vy);
-	const EntityId id = b.spawn(
-			Layer::Field, std::move(e), pos, motion, Physique{mass}, &mask);
+	const EntityId id = b.spawn(Layer::Field, std::move(e), pos, motion,
+			Physique{mass}, &mask, Allegiance{playerNr, kNoEntity});
 	b.attach<Lifetime>(id, Lifetime{lifeSpan});
+	b.attach<Vitality>(id, Vitality{hitPoints});
+	// weaponCollision reads Warhead unconditionally when it detonates, same
+	// as production's fire block attaches to every shot; this helper never
+	// exercised damage/blastOffset's values, so both default to zero, same
+	// as the Element fields they replaced always did here.
+	b.attach<Warhead>(id, Warhead{});
 	return id;
 }
 
@@ -2021,11 +2025,10 @@ testShipShotMidFlightKeepsItsMotion()
 
 	Element ship;
 	ship.kind = ElementKind::Ship;
-	ship.playerNr = 0;
 	Position shipPos;
 	shipPos.current = shipPos.next = Vec2i{4000, 4000};
 	const EntityId is = b.spawn(Layer::Field, std::move(ship), shipPos,
-			Motion{}, Physique{6}, &m);
+			Motion{}, Physique{6}, &m, Allegiance{0, kNoEntity});
 	b.attach<PlayerShip>(is);
 
 	// A stationary shot in the ship's path. Zero damage, so the run is about
@@ -2092,9 +2095,9 @@ testToughWeaponPiercesWeakOne()
 	CHECK(b.get(it) != nullptr, "and the tough one should still be flying");
 	if (b.get(it) == nullptr)
 		return;
-	CHECK(b.get(it)->hitPoints == 2,
+	CHECK(b.find<Vitality>(it)->hitPoints == 2,
 			"having paid the weak shot's damage from its hit points, got %ld",
-			static_cast<long>(b.get(it)->hitPoints));
+			static_cast<long>(b.find<Vitality>(it)->hitPoints));
 	// They meet near x=4000 at frame 5; eight frames of unimpeded flight from
 	// 3800 is 4120 -- well past the impact point, with no truncation.
 	CHECK(b.find<Position>(it)->current.x == 3800 + 8 * 40,
@@ -2124,14 +2127,13 @@ testTurningIntoOverlapIsReverted()
 
 	Element planet;
 	planet.kind = ElementKind::Planet;
-	planet.playerNr = -1;
-	planet.hitPoints = 200;
 	planet.onCollision = solidCollision;
 	Position planetPos;
 	planetPos.current = planetPos.next = Vec2i{4000, 4000};
 	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
 			planetPos, Motion{}, Physique{200}, &wall);
 	b.attach<Indestructible>(planetId);
+	b.attach<Vitality>(planetId, Vitality{200});
 
 	// Adjacent at facing 0 (a 4x4 mask), overlapping at facing 1 (16x16).
 	const EntityId ship = spawnPlayerShip(b, d, nullptr,
@@ -2174,20 +2176,17 @@ testSpawnInsideSomethingIsExecuted()
 
 	Element planet;
 	planet.kind = ElementKind::Planet;
-	planet.playerNr = -1;
-	planet.hitPoints = 200;
 	planet.onCollision = solidCollision;
 	Position planetPos;
 	planetPos.current = planetPos.next = Vec2i{4000, 4000};
 	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
 			planetPos, Motion{}, Physique{200}, &m);
 	b.attach<Indestructible>(planetId);
+	b.attach<Vitality>(planetId, Vitality{200});
 	b.step();  // established
 
 	Element rock;
 	rock.kind = ElementKind::Asteroid;
-	rock.playerNr = -1;
-	rock.hitPoints = 1;
 	rock.onCollision = solidCollision;
 	rock.onDeath = countOverlapDeath;
 	Position rockPos;
@@ -2195,6 +2194,7 @@ testSpawnInsideSomethingIsExecuted()
 	// NORMAL_LIFE, persistent: no Lifetime at all
 	const EntityId ir = b.spawn(Layer::Field, std::move(rock), rockPos,
 			Motion{}, Physique{3}, &m);
+	b.attach<Vitality>(ir, Vitality{1});
 
 	g_overlapDeaths = 0;
 	b.step();
@@ -2310,19 +2310,19 @@ testPointDefenceBurnsIncomingFire()
 	// 400 world units.
 	Element shot;
 	shot.kind = ElementKind::Weapon;
-	shot.playerNr = 1;
-	shot.hitPoints = 1;
-	shot.damage = 1;
 	Position shotPos;
 	shotPos.current = shotPos.next = Vec2i{4000, 4200};
 	const EntityId incoming = b.spawn(Layer::Field, std::move(shot), shotPos,
-			Motion{}, Physique{1}, &m);
+			Motion{}, Physique{1}, &m, Allegiance{1, kNoEntity});
 	b.attach<Lifetime>(incoming, Lifetime{20});
+	b.attach<Vitality>(incoming, Vitality{1});
+	b.attach<Warhead>(incoming, Warhead{1, 0});
 
 	b.find<Input>(ship)->buttons = ShipInput::Special;
 	b.step();
 
-	CHECK(b.get(incoming) == nullptr || b.get(incoming)->hitPoints == 0,
+	CHECK(b.get(incoming) == nullptr
+					|| b.find<Vitality>(incoming)->hitPoints == 0,
 			"point defence should have burned the incoming shot");
 	CHECK(b.ship(ship)->specialCounter > 0, "and started its cooldown");
 

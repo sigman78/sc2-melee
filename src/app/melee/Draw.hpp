@@ -10,6 +10,8 @@ namespace uqm::game {
 struct SpriteSet;
 }
 
+#define comp
+
 namespace uqm::melee {
 
 struct Game;
@@ -24,7 +26,7 @@ struct Colour
 enum class CelPolicy : u8
 {
 	ByFacing,        // ships, asteroids, planet, blasts: cel = facing.raw() % frames
-	ByFrame,         // weapons: cel = colorCycle % frames
+	ByFrame,         // weapons: cel = AnimFrame.n % frames
 	RampPoint,       // ion trail: 1px kIonRamp[age] dot
 	RampSilhouette,  // warp shadow: silhouette tinted kIonRamp[age]
 	DebrisFrames,    // dying-ship spark: boom frames stepped by age
@@ -39,7 +41,7 @@ enum class CelPolicy : u8
 // names this type, ownership is by component type, not by store (review-004
 // X3). Reaping the entity reaps its Visual -- the old RenderStore and its
 // purgeDead are gone.
-struct Visual
+comp struct Visual
 {
 	const game::SpriteSet *sprites = nullptr;  // null for RampPoint/BeamLine/Rect
 	CelPolicy policy = CelPolicy::Rect;
@@ -58,5 +60,7 @@ struct Visual
 void draw(Game &g);
 
 }  // namespace uqm::melee
+
+#undef comp
 
 #endif  // UQM2_APP_MELEE_DRAW_HPP

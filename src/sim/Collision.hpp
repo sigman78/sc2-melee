@@ -10,6 +10,8 @@
 #include <span>
 #include <vector>
 
+#define comp
+
 namespace uqm::sim {
 
 // Swept per-pixel time-of-impact collision: intersec.c, rewritten (per-pixel
@@ -98,7 +100,7 @@ struct Impact
 // re-testing this frame) and defying physics (met with no relative motion to
 // exchange). Collision-domain, not Battle-private -- Impulse.cpp and
 // Damage.cpp write these directly.
-struct CollisionScratch
+comp struct CollisionScratch
 {
 	bool collided = false;
 	bool defyPhysics = false;
@@ -108,7 +110,7 @@ struct CollisionScratch
 // used to be NONSOLID-and-mask on Element; now it is Collider's presence,
 // checked alongside Doomed (Battle::collidable). Attach/detach is the
 // runtime toggle where a flag used to flip.
-struct Collider
+comp struct Collider
 {
 	Borrowed<const CollisionMask> mask = nullptr;
 };
@@ -128,11 +130,13 @@ struct Collider
 //     alone -- a spec with no facingMasks (a headless test or replay ship,
 //     given its mask directly at spawn instead) has nothing to rebuild from,
 //     so arrival falls back to the value stashed here.
-struct StashedMask
+comp struct StashedMask
 {
 	Borrowed<const CollisionMask> mask = nullptr;
 };
 
 }  // namespace uqm::sim
+
+#undef comp
 
 #endif  // UQM2_SIM_COLLISION_HPP

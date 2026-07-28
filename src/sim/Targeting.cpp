@@ -13,7 +13,7 @@ int
 trackShip(Battle &b, EntityId tracker, Facing &facing,
 		EntityId *outTarget) noexcept
 {
-	const auto self = b.get(tracker);
+	const auto self = b.find<Allegiance>(tracker);
 	if (self == nullptr)
 		return -1;
 
@@ -29,15 +29,20 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 	EntityId bestTarget;
 	bool found = false;
 
-	b.eachOrdered([&](EntityId id) {
-		const auto t = b.get(id);
-		if (t == nullptr || !b.has<PlayerShip>(id))
-			return;
-		if (t->playerNr == self->playerNr)
+	// Allegiance, ShipState and Position as a required join, not a get-then-
+	// null-check per iteration (review-007 W4b's join rule): every ship
+	// has all three, so PlayerShip need not be checked separately either --
+	// only a ship ever carries a ShipState (attachShip/spawnPlayerShip
+	// attach both together). Dead-ship and cloak are value tests, so they
+	// stay in the body.
+	b.eachOrdered<Allegiance, ShipState, Position>([&](EntityId id,
+															Allegiance &t,
+															ShipState &ts,
+															Position &pos) {
+		if (t.playerNr == self->playerNr)
 			return;
 		// Dead ships are not targets (weapon.c:352-353).
-		const ShipState *ts = b.ship(id);
-		if (lifeSpanOf(b, id) == 0 || ts == nullptr || ts->crew == 0)
+		if (lifeSpanOf(b, id) == 0 || ts.crew == 0)
 			return;
 		// Nor cloaked ones (weapon.c:344-348). This is the whole tactical
 		// point of the Ilwrath cloak: not that it is hard to see, but that a
@@ -45,7 +50,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 		if (isCloaked(b, id))
 			return;
 
-		const Vec2i to = b.find<Position>(id)->current;
+		const Vec2i to = pos.current;
 		const Vec2i d = wrapDelta(Vec2i{to.x - from.x, to.y - from.y});
 		const int deltaFacing = Angle(arctan(d.x, d.y)).facing() - facing;
 

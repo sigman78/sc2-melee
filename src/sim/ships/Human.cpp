@@ -40,8 +40,8 @@ spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 void
 cruiserSpecial(Battle &b, EntityId id) noexcept
 {
-	auto ship = b.get(id);
-	if (ship == nullptr)
+	const Allegiance *shipAllegiance = b.find<Allegiance>(id);
+	if (shipAllegiance == nullptr)
 		return;
 	ShipState *sp = b.ship(id);
 	if (sp == nullptr)
@@ -58,13 +58,17 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 	// Every shot in range, not just the nearest: the C walks the whole list
 	// and fires at each, paying once for the volley (human.c:225-236) -- a
-	// Cruiser surrounded by fire clears all of it, or none if it can't afford it.
-	b.eachOrdered([&](EntityId other) {
-		if (cannotAfford || ship == nullptr || other == id)
+	// Cruiser surrounded by fire clears all of it, or none if it can't afford
+	// it. Physique and Position as a required join, not a get-then-null-
+	// check (review-007 W4b's join rule): `t` (Element) was only ever read
+	// for its own existence, which Physique/Position presence already
+	// implies (both attach alongside Element in Battle::spawn).
+	b.eachOrdered<Physique, Position>([&](EntityId other, Physique &otherPhys,
+											  Position &otherPos) {
+		if (cannotAfford || shipAllegiance == nullptr || other == id)
 			return;
 
-		auto t = b.get(other);
-		if (t == nullptr || !b.collidable(other))
+		if (!b.collidable(other))
 			return;
 		if (isCloaked(b, other))
 			return;  // human.c:203-204
@@ -75,10 +79,10 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		// A deliberate divergence from the C, which will fire on a planet that
 		// just absorbs it (do_damage exempts gravity masses) -- see design-notes V4.
-		if (isGravityMass(b.find<Physique>(other)->mass))
+		if (isGravityMass(otherPhys.mass))
 			return;
 
-		const Vec2i tNext = b.find<Position>(other)->next;
+		const Vec2i tNext = otherPos.next;
 		const Vec2i dv = wrapDelta(Vec2i{tNext.x - from.x, tNext.y - from.y});
 		const i32 dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
 		const i32 dy = worldToDisplay(dv.y < 0 ? -dv.y : dv.y);
@@ -106,8 +110,6 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		const Vec2i beamTo = tNext;
 		Element beam;
 		beam.kind = ElementKind::Laser;
-		beam.playerNr = ship->playerNr;
-		beam.owner = id;
 
 		// Queued, not spawned: it enters the world at the sync point and
 		// draws its one frame of life the step after this one -- the PD
@@ -118,9 +120,10 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		cmd.element = std::move(beam);
 		cmd.beam = Beam{from, beamTo};
 		cmd.lifetime = Lifetime{1};
+		cmd.allegiance = Allegiance{shipAllegiance->playerNr, id};
 		b.queueSpawn(std::move(cmd));
 
-		ship = b.get(id);
+		shipAllegiance = b.find<Allegiance>(id);
 	});
 }
 

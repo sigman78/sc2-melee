@@ -39,8 +39,8 @@ playStepSounds(Game &g)
 	{
 		i32 damage = 0;
 		for (const sim::EntityId side : {c.a, c.b})
-			if (const auto el = g.battle.get(side); el != nullptr)
-				damage = std::max(damage, el->damage);
+			if (const auto *w = g.battle.find<sim::Warhead>(side); w != nullptr)
+				damage = std::max(damage, w->damage);
 
 		const usize boom = std::min(
 				slot(game::BattleSound::Damaged1)

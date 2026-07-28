@@ -6,6 +6,8 @@
 #include "engine/core/Types.hpp"
 #include "sim/Entity.hpp"
 
+#define comp
+
 namespace uqm::sim {
 
 class Battle;
@@ -26,7 +28,7 @@ inline constexpr int kNumAsteroids = 5;
 // The asteroid's tumble (misc.c:107-128): direction and period used to be
 // bit-packed into Element::thrustWait -- the C's field-repurposing habit,
 // reproduced here until review-005 Y1 gave the spin its own component.
-struct Spin
+comp struct Spin
 {
 	bool backwards = false;
 	i32 period = 0;
@@ -56,5 +58,7 @@ void asteroidDeath(Battle &b, EntityId id) noexcept;
 [[nodiscard]] bool timeSpaceMatterConflict(Battle &b, EntityId id);
 
 }  // namespace uqm::sim
+
+#undef comp
 
 #endif  // UQM2_SIM_FIELD_HPP

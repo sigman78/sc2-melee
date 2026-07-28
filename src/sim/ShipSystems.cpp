@@ -57,12 +57,11 @@ spawnPlayerShip(Battle &b, const ShipSpec &spec,
 {
 	Element e;
 	e.kind = ElementKind::Ship;
-	e.playerNr = playerNr;
 	e.onCollision = solidCollision;
 	Position pos{at, at, facing};
 	const Physique phys{spec.mass};
-	const EntityId id =
-			b.spawn(Layer::Field, std::move(e), pos, Motion{}, phys, mask);
+	const EntityId id = b.spawn(Layer::Field, std::move(e), pos, Motion{},
+			phys, mask, Allegiance{playerNr, kNoEntity});
 	b.attach<IgnoreSimilar>(id);
 	b.attach<PlayerShip>(id);
 	if (warpIn)
@@ -92,20 +91,19 @@ regenEnergy(ShipState &s, const ShipSpec &spec) noexcept
 // Turning. One facing step per turn_wait frames -- ships rotate in whole
 // facings, which is why the trig tables matter (ship.c:238-254).
 void
-turnShip(Battle &b, EntityId id, Element &e, ShipState &,
-		const ShipSpec &spec) noexcept
+turnShip(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 {
 	const Input &in = *b.find<Input>(id);
-	if (e.turnWait > 0)
+	if (s.turnWait > 0)
 	{
-		--e.turnWait;
+		--s.turnWait;
 	}
 	else if (any(in.buttons & (ShipInput::Left | ShipInput::Right)))
 	{
 		Position &pos = *b.find<Position>(id);
 		const int delta = any(in.buttons & ShipInput::Left) ? -1 : 1;
 		pos.facing += delta;
-		e.turnWait = spec.turnWait;
+		s.turnWait = spec.turnWait;
 		applyFacingMask(b, id, pos.facing, spec);
 	}
 }
@@ -113,13 +111,13 @@ turnShip(Battle &b, EntityId id, Element &e, ShipState &,
 // Thrust (ship.c:256-276). The facing is passed in rather than read off a
 // global -- see Thrust.hpp.
 void
-applyThrustInput(Battle &b, EntityId id, Element &e, ShipState &s,
+applyThrustInput(Battle &b, EntityId id, ShipState &s,
 		const ShipSpec &spec) noexcept
 {
 	const Input &in = *b.find<Input>(id);
-	if (e.thrustWait > 0)
+	if (s.thrustWait > 0)
 	{
-		--e.thrustWait;
+		--s.thrustWait;
 	}
 	else if (any(in.buttons & ShipInput::Thrust))
 	{
@@ -131,7 +129,7 @@ applyThrustInput(Battle &b, EntityId id, Element &e, ShipState &s,
 		// thrust result; gravity re-sets the well flag next frame if still inside
 		// one, so leaving the well loses the licence to exceed max speed at once.
 		s.inGravityWell = false;
-		e.thrustWait = spec.thrustWait;
+		s.thrustWait = spec.thrustWait;
 
 		// Exhaust only on frames the ship actually accelerates (ship.c:274), and
 		// not while FULLY cloaked (ship.c:271 gates on OBJECT_CLOAKED, true only at
@@ -144,8 +142,7 @@ applyThrustInput(Battle &b, EntityId id, Element &e, ShipState &s,
 // Firing. The energy is spent as part of the test, so a ship that cannot
 // afford the shot does not start the cooldown either.
 void
-fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
-		const ShipSpec &spec) noexcept
+fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 {
 	const Input &in = *b.find<Input>(id);
 	if (s.weaponCounter > 0)
@@ -161,7 +158,7 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 		view.position = shipPos.next;
 		view.velocity = shipMotion.velocity;
 		view.facing = shipPos.facing;
-		view.playerNr = e.playerNr;
+		view.playerNr = b.find<Allegiance>(id)->playerNr;
 		view.weaponSpeed = spec.weapon.speed;
 		view.weaponLife = spec.weapon.life;
 		view.weaponDamage = spec.weapon.damage;
@@ -179,23 +176,21 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			const Spawn &sp = buf[i];
 			Element w;
 			w.kind = ElementKind::Weapon;
-			w.playerNr = sp.playerNr;
 			Position wPos;
 			wPos.current = wrap(sp.position);
 			wPos.next = wPos.current;
 			wPos.facing = sp.facing;
 			Motion wMotion;
-			w.hitPoints = sp.hitPoints;
-			w.damage = sp.damage;
 			// A weapon's mass is its damage (weapon.c:101; laser's is 1, weapon.c:58).
 			// Not bookkeeping: CollisionPossible skips pairs where both masses are
-			// zero, so a massless shot can't hit another shot.
+			// zero, so a massless shot can't hit another shot. Warhead.damage is
+			// a separate copy of the same value -- Sound.cpp's boom selection
+			// reads it, not this mass.
 			const Physique wPhys{sp.damage};
-			w.blastOffset = sp.blastOffset;
 			// The mask follows the sprite FRAME, not the facing: same thing for the
 			// nuke (16 facing cels, frameIndex = facing), different for the flame (8
-			// ANIMATION cels, frameIndex 0). colorCycle carries the frame.
-			w.colorCycle = sp.frameIndex;
+			// ANIMATION cels, frameIndex 0). AnimFrame carries the frame (cmd.animFrame
+			// below).
 			const CollisionMask *shotMask = spec.weapon.masks.empty()
 					? nullptr
 					: &spec.weapon.masks[static_cast<usize>(sp.frameIndex)
@@ -206,7 +201,8 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			w.preProcess = sp.preProcess != nullptr ? sp.preProcess
 													: spec.weapon.preProcess;
 			wMotion.velocity.setVector(sp.speed, sp.facing);
-			w.owner = id;  // pParent: what IGNORE_SIMILAR is tested against
+			// owner = id: pParent, what IGNORE_SIMILAR is tested against.
+			const Allegiance wAllegiance{sp.playerNr, id};
 
 			// Backed off by one frame of its own muzzle velocity, as the C does for
 			// every missile (weapon.c:126-127); the catch-up pass integrates it
@@ -240,6 +236,10 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			cmd.ignoreSimilar = sp.ignoreSimilar;
 			cmd.collider = shotMask;
 			cmd.lifetime = Lifetime{sp.life};
+			cmd.vitality = Vitality{sp.hitPoints};
+			cmd.warhead = Warhead{sp.damage, sp.blastOffset};
+			cmd.animFrame = AnimFrame{sp.frameIndex};
+			cmd.allegiance = wAllegiance;
 
 			// A guided shot starts with its tracking clock already wound:
 			// initialize_nuke seeds TRACK_WAIT (human.c:297-299), so the
@@ -287,12 +287,10 @@ void explosionStep(Battle &b, EntityId id) noexcept;
 void
 energyRegenPass(Battle &b) noexcept
 {
-	b.eachShip([&b](EntityId id, ShipState &s) {
-		if (b.has<WarpingIn>(id))
-			return;
-		const Element *e = b.get(id);
-		if (e == nullptr || b.has<Appearing>(id))
-			return;
+	// WarpingIn/Appearing are presence filters on the iterated ship, so they
+	// belong in the query (SiGMan's review), not an in-body has<>/!has<>
+	// guard; crew == 0 is a value test and stays in the body.
+	b.each<ShipState>(entt::exclude<WarpingIn, Appearing>, [](ShipState &s) {
 		if (s.crew == 0)
 			return;
 		regenEnergy(s, *s.spec);
@@ -308,8 +306,7 @@ namespace {
 void
 shipMachinesStep(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
+	if (b.get(id) == nullptr)
 		return;
 	ShipState *sp = b.ship(id);
 	if (sp == nullptr)
@@ -330,7 +327,7 @@ shipMachinesStep(Battle &b, EntityId id) noexcept
 		s.crew = spec.maxCrew;
 		s.energy = spec.maxEnergy;
 		in.buttons = ShipInput::None;
-		e->owner = id;
+		b.find<Allegiance>(id)->owner = id;
 		applyFacingMask(b, id, b.find<Position>(id)->facing, spec);
 		return;
 	}
@@ -344,19 +341,6 @@ shipMachinesStep(Battle &b, EntityId id) noexcept
 
 	if (spec.preProcess != nullptr)
 		spec.preProcess(b, id);
-}
-
-// The skip list every ship pass below applies: warping in, appearing, or
-// dead hulls run none of Turn/Thrust/Fire/SpecialGate.
-[[nodiscard]] bool
-shouldSkipShipFrame(Battle &b, EntityId id, const ShipState &s,
-		bool checkAppearing) noexcept
-{
-	if (b.has<WarpingIn>(id))
-		return true;
-	if (checkAppearing && b.has<Appearing>(id))
-		return true;
-	return s.crew == 0;
 }
 
 }  // namespace
@@ -373,11 +357,21 @@ shipMachinesPass(Battle &b) noexcept
 void
 turnPass(Battle &b) noexcept
 {
-	b.eachElementWith<ShipState>([&b](EntityId id, Element &e, ShipState &s) {
-		if (shouldSkipShipFrame(b, id, s, true))
-			return;
-		turnShip(b, id, e, s, *s.spec);
-	});
+	// PlayerShip is redundant to check separately: ShipState only ever
+	// attaches alongside it (attachShip/spawnPlayerShip), so requiring
+	// ShipState in the join already selects exactly the ships. WarpingIn/
+	// Appearing are presence filters -> the query's exclude; crew == 0 is a
+	// value test -> stays in the body (review-007 W4b's join rule, and
+	// SiGMan's presence-in-the-query review). Order-free: turning has no
+	// cross-entity or spawn-ordering dependency. Element itself dropped from
+	// the join now that turnWait moved to ShipState -- turnShip reads
+	// nothing else off it.
+	b.each<ShipState>(entt::exclude<WarpingIn, Appearing>,
+			[&b](EntityId id, ShipState &s) {
+				if (s.crew == 0)
+					return;
+				turnShip(b, id, s, *s.spec);
+			});
 }
 
 // A thrusting ship queues an ion-trail spawn command (spawnIonTrail), and
@@ -388,35 +382,29 @@ turnPass(Battle &b) noexcept
 void
 thrustPass(Battle &b) noexcept
 {
-	b.eachOrdered([&b](EntityId id) {
-		if (!b.has<PlayerShip>(id))
-			return;
-		auto e = b.get(id);
-		ShipState *sp = b.ship(id);
-		if (e == nullptr || sp == nullptr
-				|| shouldSkipShipFrame(b, id, *sp, true))
-			return;
-		applyThrustInput(b, id, *e, *sp, *sp->spec);
-	});
+	b.eachOrdered<ShipState>(entt::exclude<WarpingIn, Appearing>,
+			[&b](EntityId id, ShipState &s) {
+				if (s.crew == 0)
+					return;
+				applyThrustInput(b, id, s, *s.spec);
+			});
 }
 
 void
 fireAndSpecialGatePass(Battle &b) noexcept
 {
-	b.eachOrdered([&b](EntityId id) {
-		if (!b.has<PlayerShip>(id))
-			return;
-		auto e = b.get(id);
-		ShipState *sp = b.ship(id);
-		// No Appearing check here, unlike Turn/Thrust: ShipMachines already
-		// forces Input::None on the appearing frame, so fireWeapon/
-		// gateSpecial see nothing pressed regardless.
-		if (e == nullptr || sp == nullptr
-				|| shouldSkipShipFrame(b, id, *sp, false))
-			return;
-		fireWeapon(b, id, *e, *sp, *sp->spec);
-		gateSpecial(b, id, *sp, *sp->spec);
-	});
+	// No Appearing exclusion here, unlike Turn/Thrust: ShipMachines already
+	// forces Input::None on the appearing frame, so fireWeapon/gateSpecial
+	// see nothing pressed regardless. Neither reads Element any more (the
+	// ship's own playerNr moved to Allegiance, fetched inside fireWeapon),
+	// so the join shrinks to just ShipState.
+	b.eachOrdered<ShipState>(entt::exclude<WarpingIn>,
+			[&b](EntityId id, ShipState &s) {
+				if (s.crew == 0)
+					return;
+				fireWeapon(b, id, s, *s.spec);
+				gateSpecial(b, id, s, *s.spec);
+			});
 }
 
 void
@@ -458,9 +446,9 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 		g->clock = g->trackWait;
 
 		// The mask follows the facing too, or a steering nuke's rect keeps the
-		// launch cel's size while the sprite changes cel. colorCycle is the cel
+		// launch cel's size while the sprite changes cel. AnimFrame is the cel
 		// the renderer draws.
-		e->colorCycle = pos->facing.raw();
+		b.find<AnimFrame>(id)->n = pos->facing.raw();
 		if (!ws->masks.empty())
 		{
 			if (Collider *c = b.find<Collider>(id))
@@ -497,8 +485,10 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 
 	Element t;
 	t.kind = ElementKind::IonTrail;
-	t.playerNr = -1;  // NEUTRAL: exhaust belongs to nobody
-	t.colorCycle = 0;
+	// NEUTRAL: exhaust belongs to nobody -- cmd.allegiance below defaults
+	// to exactly that (playerNr -1, no owner), so nothing sets it here. No
+	// AnimFrame either: an ion trail animates by Lifetime::remaining
+	// (Draw.cpp's RampPoint), and nothing ever read its old colorCycle.
 	Position pos;
 	pos.current = wrap(Vec2i{shipPos.current.x + cosine(angle, back),
 			shipPos.current.y + sine(angle, back)});
@@ -535,7 +525,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		sp->crew = sp->spec->maxCrew;
 		sp->energy = sp->spec->maxEnergy;
 		b.find<Input>(id)->buttons = ShipInput::None;
-		e->owner = id;
+		b.find<Allegiance>(id)->owner = id;
 		b.attach<Lifetime>(id, Lifetime{kWarpInFrames});
 		// Stashed before detaching: applyFacingMask can't always rebuild this
 		// on arrival (a spec with no facingMasks -- a headless test or replay
@@ -560,7 +550,6 @@ warpInStep(Battle &b, EntityId id) noexcept
 
 		Element shadow;
 		shadow.kind = ElementKind::ShipShadow;
-		shadow.playerNr = e->playerNr;  // picks which ship's sprites to draw
 		Position shadowPos;
 		shadowPos.facing = shipPos.facing;
 		shadowPos.current = wrap(Vec2i{shipPos.current.x - cosine(angle, back),
@@ -573,6 +562,9 @@ warpInStep(Battle &b, EntityId id) noexcept
 		cmd.element = std::move(shadow);
 		cmd.position = shadowPos;
 		cmd.lifetime = Lifetime{kIonTrailLife};
+		// Picks which ship's sprites to draw; no owner of its own (never set
+		// on the old Element either).
+		cmd.allegiance = Allegiance{b.find<Allegiance>(id)->playerNr, kNoEntity};
 		b.queueSpawn(std::move(cmd));
 	}
 
@@ -607,11 +599,12 @@ warpInStep(Battle &b, EntityId id) noexcept
 void
 sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 {
-	b.eachOrdered([&b, id](EntityId other) {
-		if (other == id)
-			return;
-		auto e = b.get(other);
-		if (e == nullptr || !(e->owner == id))
+	// Allegiance is a required join now, not a get-then-null-check: every
+	// live entity has one (the uniform attach), so requiring it in
+	// eachOrdered<Allegiance> is the same filter, just declared instead of
+	// checked.
+	b.eachOrdered<Allegiance>([&b, id](EntityId other, Allegiance &a) {
+		if (other == id || !(a.owner == id))
 			return;
 		b.attachOrReplace<Lifetime>(other, Lifetime{0});
 		b.attachOrReplace<Doomed>(other);
@@ -634,7 +627,8 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	b.find<Motion>(id)->velocity.zero();
 	if (ShipState *sp = b.ship(id))
 		sp->energy = 0;
-	e->colorCycle = 0;
+	// A dying ship draws ByFacing (Draw.cpp), not ByFrame, so it never had
+	// an AnimFrame to reset -- the old colorCycle = 0 here was dead too.
 	b.detach<Doomed>(id);
 	b.attach<Lifetime>(id, Lifetime{kExplosionLife});
 	b.detach<Collider>(id);
@@ -689,7 +683,8 @@ explosionStep(Battle &b, EntityId id) noexcept
 
 		Element d;
 		d.kind = ElementKind::Debris;
-		d.playerNr = -1;  // NEUTRAL: wreckage belongs to nobody
+		// NEUTRAL: wreckage belongs to nobody -- cmd.allegiance below
+		// defaults to exactly that.
 		Position dPos;
 		dPos.current = wrap(Vec2i{from.x + cosine(spot, dist),
 				from.y + sine(spot, dist)});

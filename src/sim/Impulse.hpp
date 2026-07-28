@@ -5,6 +5,7 @@
 
 #include "engine/core/Types.hpp"
 #include "sim/Element.hpp"
+#include "sim/Ship.hpp"
 #include "sim/Thrust.hpp"
 
 namespace uqm::sim {
@@ -37,20 +38,20 @@ inline constexpr i32 kCollisionThrustWait = 3;  // collide.h:29
 
 // Applies the collision response to both elements. They are assumed to have
 // already been placed at their impact positions by the sweep.
-// aIsShip/bIsShip: the PlayerShip trait is a tag component now (review-004
-// X4), and pure physics takes facts as parameters rather than a registry.
+// aShip/bShip: non-null iff that side is a ship -- the turn/thrust stagger
+// (collide.c:111-116) is a ShipState field now (review-007 W4b moved it out
+// of Element), so a pointer that's null exactly when there's no ShipState to
+// stagger replaces the old Element&+bool pair; nothing else here ever
+// touched Element.
 // aScratch/bScratch: the collided/defyPhysics scratch, read and written here
 // but owned by the collision domain, not by Impulse -- no registry access.
 // aPos/bPos: read-only, for the impact axis. aMotion/bMotion: the velocity
 // this applies to. aPhys/bPhys: read-only, the mass the denominators and
-// isGravityMass need. The turn/thrust stagger stays on Element until W4b
-// moves it into ShipState (review-007 W4a split Position, Motion and
-// Physique out of Element).
+// isGravityMass need.
 void applyImpulse(const Position &aPos, Motion &aMotion,
-		const Physique &aPhys, Element &a, bool aIsShip,
-		CollisionScratch &aScratch, const Position &bPos, Motion &bMotion,
-		const Physique &bPhys, Element &b, bool bIsShip,
-		CollisionScratch &bScratch) noexcept;
+		const Physique &aPhys, ShipState *aShip, CollisionScratch &aScratch,
+		const Position &bPos, Motion &bMotion, const Physique &bPhys,
+		ShipState *bShip, CollisionScratch &bScratch) noexcept;
 
 }  // namespace uqm::sim
 

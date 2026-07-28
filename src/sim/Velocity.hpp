@@ -7,6 +7,8 @@
 #include "engine/core/Types.hpp"
 #include "sim/Trig.hpp"
 
+#define comp
+
 namespace uqm::sim {
 
 // How a ship's speed stands against its own maximum. Lives here, not in
@@ -120,11 +122,13 @@ private:
 // Element's velocity, split out (review-007 W4a): every mover has one, and
 // Integrate (Battle.cpp) is the only pass that needs nothing else off
 // Element to advance a Position.
-struct Motion
+comp struct Motion
 {
 	Velocity velocity;
 };
 
 }  // namespace uqm::sim
+
+#undef comp
 
 #endif  // UQM2_SIM_VELOCITY_HPP
