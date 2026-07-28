@@ -59,8 +59,7 @@ accumulateDamage(Battle &b, EntityId id, i32 amount, EntityId from) noexcept
 void
 doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
+	if (!b.alive(id))
 		return;
 
 	if (b.has<PlayerShip>(id))
@@ -103,8 +102,7 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 void
 weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 {
-	auto w = b.get(id);
-	if (w == nullptr)
+	if (!b.alive(id))
 		return;
 	CollisionScratch &wScratch = *b.find<CollisionScratch>(id);
 
@@ -114,8 +112,7 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	if (wScratch.collided)
 		return;
 
-	auto target = b.get(targetId);
-	if (target == nullptr)
+	if (!b.alive(targetId))
 		return;
 	CollisionScratch &targetScratch = *b.find<CollisionScratch>(targetId);
 
@@ -131,12 +128,10 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 			&& (isFiniteLife(b, targetId) || lifeSpanOf(b, targetId) == 1))
 	{
 		doDamage(b, targetId, damage, b.find<Allegiance>(id)->owner);
-		w = b.get(id);
-		target = b.get(targetId);
-		if (w == nullptr)
+		if (!b.alive(id))
 			return;
 		i32 left = 0;
-		if (target != nullptr)
+		if (b.alive(targetId))
 		{
 			const ShipState *ts = b.ship(targetId);
 			const Vitality *tv = b.find<Vitality>(targetId);
@@ -152,7 +147,7 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// The weapon's own hit points are its Vitality now, same as any other
 	// non-ship collidable.
 	Vitality *wVital = b.find<Vitality>(id);
-	if (target != nullptr
+	if (b.alive(targetId)
 			&& isFiniteLife(b, targetId)
 			&& (targetScratch.collided
 					|| wVital->hitPoints > b.find<Physique>(targetId)->mass))
@@ -181,8 +176,6 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// weapon's playerNr, no owner of its own (never set on the old Element
 	// either).
 	const i32 shooterPlayerNr = b.find<Allegiance>(id)->playerNr;
-	Element blast;
-	blast.kind = ElementKind::Blast;
 	Position blastPos;
 	blastPos.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(warhead.blastOffset)),
 			at.y + sine(angle, displayToWorld(warhead.blastOffset))});
@@ -193,7 +186,6 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// (review-006 §4's accepted latency).
 	SpawnCommand cmd;
 	cmd.layer = Layer::Ordnance;
-	cmd.element = std::move(blast);
 	cmd.position = blastPos;
 	cmd.lifetime = Lifetime{kBlastLife};
 	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
@@ -205,12 +197,10 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 void
 solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
+	if (!b.alive(id))
 		return;
 
-	auto other = b.get(otherId);
-	if (other == nullptr)
+	if (!b.alive(otherId))
 		return;
 
 	// ship.c:356. A transient thing hitting you is the weapon's business, not

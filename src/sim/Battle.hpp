@@ -47,12 +47,22 @@ struct CollisionEvent
 	Vec2i afterB;
 };
 
+// What SpawnEvent::kind distinguishes: the two flavors Sound.cpp's dispatch
+// ever asks for, derived from composition at record time
+// (Battle::recordSpawn), not stored on the spawned entity itself.
+enum class SpawnFlavor : u8
+{
+	Unknown = 0,
+	Weapon,
+	Laser,
+};
+
 // Something entered the simulation this step; the audio layer reads these to
 // start effects. Observational only, like CollisionEvent -- see design-notes D5.
 struct SpawnEvent
 {
 	EntityId id = kNoEntity;
-	ElementKind kind = ElementKind::Unknown;
+	SpawnFlavor kind = SpawnFlavor::Unknown;
 	i32 playerNr = -1;
 };
 
@@ -68,7 +78,6 @@ struct SpawnEvent
 struct SpawnCommand
 {
 	Layer layer = Layer::Field;
-	Element element;
 	Position position;
 	Motion motion;
 	Physique physique;
@@ -211,19 +220,6 @@ public:
 	// solidity lives in a separate component (review-007 W2).
 	[[nodiscard]] bool collidable(EntityId id) const noexcept;
 
-	// The element, or null for a dead or stale id. A raw borrow: the pool
-	// is in_place_delete, so the address holds for the entity's lifetime --
-	// but the old EntityRef's removed-while-held debug check is gone with
-	// EntityList (review-004's ledger records the loss).
-	[[nodiscard]] Element *get(EntityId id) noexcept
-	{
-		return reg_.valid(id) ? reg_.try_get<Element>(id) : nullptr;
-	}
-	[[nodiscard]] const Element *get(EntityId id) const noexcept
-	{
-		return reg_.valid(id) ? reg_.try_get<Element>(id) : nullptr;
-	}
-
 	// THE spawn: order is gameplay (design-notes D8), and the position is
 	// declared, not computed -- the caller names the stratum (Entity.hpp
 	// Layer), FIFO within it. spawnFront/spawnBack/insertAfter retired
@@ -253,7 +249,7 @@ public:
 	// drainSpawnCommands' per-command extras) exactly as a direct make()
 	// call would, instead of re-deriving the id for another round of
 	// Battle::attach.
-	Spawned spawn(Layer layer, Element e, Position pos = Position{},
+	Spawned spawn(Layer layer, Position pos = Position{},
 			Motion motion = Motion{}, Physique physique = Physique{},
 			Borrowed<const CollisionMask> collider = nullptr,
 			Allegiance allegiance = Allegiance{},
@@ -266,7 +262,7 @@ public:
 	// collidable(testId) before it would ever read through the hole);
 	// `beam` is what a mover's `pos` is elsewhere. Still gets Order (walked
 	// and drawn like anything else) and Allegiance, same as spawn() above.
-	Spawned spawnBeam(Layer layer, Element e, Beam beam,
+	Spawned spawnBeam(Layer layer, Beam beam,
 			Allegiance allegiance = Allegiance{});
 
 	// A decorative particle -- an ion trail, a warp-in shadow, an impact
@@ -277,13 +273,13 @@ public:
 	// Collider -- the collide pass gates on collidable(testId), which this
 	// never satisfies). Still gets Order and Allegiance, same as spawn()
 	// and spawnBeam above.
-	Spawned spawnEffect(Layer layer, Element e, Position pos,
+	Spawned spawnEffect(Layer layer, Position pos,
 			Allegiance allegiance = Allegiance{});
 
 	// The one decoration that actually drifts (the explosion's debris):
 	// spawnEffect's shape plus Motion, so Integrate still advances it --
 	// everything spawnEffect omits stays omitted.
-	Spawned spawnEffect(Layer layer, Element e, Position pos, Motion motion,
+	Spawned spawnEffect(Layer layer, Position pos, Motion motion,
 			Allegiance allegiance = Allegiance{});
 
 	// The fluent spawn (review-007 W9): the entity with its declared Order

@@ -12,8 +12,7 @@ namespace uqm::sim {
 bool
 calculateGravity(Battle &b, EntityId id)
 {
-	auto self = b.get(id);
-	if (self == nullptr)
+	if (!b.alive(id))
 		return false;
 
 	const bool selfHasGravity =
@@ -33,8 +32,7 @@ calculateGravity(Battle &b, EntityId id)
 		if (insideAWell || other == id)
 			return;
 
-		auto t = b.get(other);
-		if (t == nullptr || !b.collidable(other))
+		if (!b.alive(other) || !b.collidable(other))
 			return;
 
 		// Only pairs that disagree about being a source are interesting: two

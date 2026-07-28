@@ -54,7 +54,7 @@ playStepSounds(Game &g)
 	// events (design-notes.md D5), the same shape the collision sounds use.
 	for (const sim::SpawnEvent &sp : g.battle.spawns())
 	{
-		if (sp.kind == sim::ElementKind::Weapon)
+		if (sp.kind == sim::SpawnFlavor::Weapon)
 		{
 			// Whose weapon: the nuke and the flame are different sounds,
 			// both the Primary slot of their owner's own .snd.
@@ -63,7 +63,7 @@ playStepSounds(Game &g)
 				g.audio.play(set[slot(game::ShipSound::Primary)],
 						kEffectGain);
 		}
-		else if (sp.kind == sim::ElementKind::Laser)
+		else if (sp.kind == sim::SpawnFlavor::Laser)
 		{
 			// The owner's Secondary: secondary.wav, the point-defence laser
 			// (human.c:232-234).

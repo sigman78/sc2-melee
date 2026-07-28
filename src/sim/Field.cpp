@@ -58,9 +58,8 @@ rubbleDeath(Battle &b, EntityId id) noexcept
 bool
 timeSpaceMatterConflict(Battle &b, EntityId id)
 {
-	auto self = b.get(id);
 	const Collider *selfCollider = b.find<Collider>(id);
-	if (self == nullptr || selfCollider == nullptr)
+	if (!b.alive(id) || selfCollider == nullptr)
 		return false;
 
 	const Vec2i selfAt = b.find<Position>(id)->current;
@@ -94,7 +93,7 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 void
 placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 {
-	if (b.get(id) == nullptr)
+	if (!b.alive(id))
 		return;
 
 	// Far enough from every *other* ship, across the wrap. Squared, so there
@@ -141,8 +140,6 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 EntityId
 spawnPlanet(Battle &b, const CollisionMask *mask)
 {
-	Element p;
-	p.kind = ElementKind::Planet;
 	// Motion defaults to zero; the planet never moves. Allegiance defaults
 	// to NEUTRAL_PLAYER_NUM/no owner too, so spawn() below gets no explicit
 	// one.
@@ -151,7 +148,7 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	// the planet isn't yet a gravity source, so calculateGravity asks only
 	// "is this spot inside someone else's well?" -- which is what rejects it.
 	Spawned s = b.spawn(
-			Layer::Field, std::move(p), Position{}, Motion{}, Physique{}, mask);
+			Layer::Field, Position{}, Motion{}, Physique{}, mask);
 	const EntityId id = s.id();
 
 	// misc.c:55's lifeSpan = NORMAL_LIFE+1 encoded indestructibility as a
@@ -176,8 +173,6 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 EntityId
 spawnAsteroid(Battle &b, const CollisionMask *mask)
 {
-	Element a;
-	a.kind = ElementKind::Asteroid;
 	// Allegiance defaults to NEUTRAL_PLAYER_NUM/no owner, same as the planet.
 	const Physique phys{3};      // NORMAL_LIFE, persistent: no Lifetime at all
 
@@ -215,7 +210,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	spin.backwards = (b.rng().next() & (1u << 7)) != 0;
 
 	pos.next = pos.current;
-	Spawned s = b.spawn(Layer::Field, std::move(a), pos, motion, phys, mask);
+	Spawned s = b.spawn(Layer::Field, pos, motion, phys, mask);
 	s.with(spin).with(Vitality{1}).with(DeathSpawn{asteroidDeath});
 
 	// A standing copy of the birth mask, independent of the Collider: a kill
@@ -229,16 +224,13 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 void
 asteroidDeath(Battle &b, EntityId id) noexcept
 {
-	auto dead = b.get(id);
-	if (dead == nullptr)
+	if (!b.alive(id))
 		return;
 
 	const StashedMask *deadMask = b.find<StashedMask>(id);
 	const Position *deadPos = b.find<Position>(id);
 	const Allegiance *deadAllegiance = b.find<Allegiance>(id);
 
-	Element r;
-	r.kind = ElementKind::Blast;
 	Position rPos;
 	rPos.current = deadPos->current;
 	rPos.next = rPos.current;
@@ -251,7 +243,6 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	// replacement asteroid.
 	SpawnCommand cmd;
 	cmd.layer = Layer::Ordnance;
-	cmd.element = std::move(r);
 	cmd.position = rPos;
 	cmd.lifetime = Lifetime{5};
 	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)

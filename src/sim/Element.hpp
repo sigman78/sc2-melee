@@ -108,60 +108,6 @@ comp struct FrameDriven
 {
 };
 
-// What kind of thing this is: a real tag, not a frame-pointer comparison
-// (cyborg.c:1222-1227) or a cross-ship header include for constants
-// (shofixti.c:251-253 pulls in orz.h to recognise a turret).
-enum class ElementKind : u8
-{
-	Unknown = 0,
-	Ship,
-	Weapon,
-	Asteroid,
-	Planet,
-	Blast,
-	Turret,
-
-	// A beam: Beam{from,to} is its two *ends*, not before/after positions --
-	// matching the C's LINE_PRIM reuse of one element for it (weapon.c:44-85).
-	Laser,
-
-	// A single point of a ship's exhaust, and the shadow a ship leaves while
-	// warping in. One element in the C too -- both use cycle_ion_trail
-	// (tactrans.c:756-790), which is why they share a kind here.
-	IonTrail,
-
-	// A fading silhouette shed while warping in: ship-shaped, not a point --
-	// the C draws it as a STAMPFILL_PRIM (tactrans.c:893-930), sharing the ion
-	// trail's colour ramp but not its geometry.
-	ShipShadow,
-
-	// One spark of a dying ship. The explosion is a *swarm* of these thrown
-	// off over 26 frames while the hull is still there (tactrans.c:542-615),
-	// not one animation played on the wreck.
-	Debris,
-};
-
-struct Element
-{
-	// Stable addresses: Battle::get()'s raw pointer is held across nested
-	// calls (resolveAgainst's own recursion, killOverlapSpawn's doDamage),
-	// which the old arena guaranteed and entt's default swap-and-pop storage
-	// does not.
-	static constexpr auto in_place_delete = true;
-
-	ElementKind kind = ElementKind::Unknown;
-
-	// The silhouette/facing this element entered the frame with is NOT here:
-	// it is the overlap-repair protocol's own scratch (process.c:453-506),
-	// so it lives as a component private to Battle.cpp (review-004 X5).
-	//
-	// Everything else Element once carried -- flags, kind-specific fields,
-	// preProcess/onDeath/onCollision hooks, collidedWith -- has moved to its
-	// own component or a dispatch keyed on component presence (review-007
-	// W3 through W5). What is left is what this file's name still means:
-	// which kind of thing this is.
-};
-
 }  // namespace uqm::sim
 
 #undef comp

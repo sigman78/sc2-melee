@@ -55,11 +55,9 @@ spawnPlayerShip(Battle &b, const ShipSpec &spec,
 		Borrowed<const CollisionMask> mask, Vec2i at, Facing facing,
 		i32 playerNr, bool warpIn)
 {
-	Element e;
-	e.kind = ElementKind::Ship;
 	Position pos{at, at, facing};
 	const Physique phys{spec.mass};
-	Spawned s = b.spawn(Layer::Field, std::move(e), pos, Motion{}, phys, mask,
+	Spawned s = b.spawn(Layer::Field, pos, Motion{}, phys, mask,
 			Allegiance{playerNr, kNoEntity});
 	s.with(IgnoreSimilar{}).with(PlayerShip{});
 	if (warpIn)
@@ -172,8 +170,6 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 		for (usize i = 0; i < n; ++i)
 		{
 			const Spawn &sp = buf[i];
-			Element w;
-			w.kind = ElementKind::Weapon;
 			Position wPos;
 			wPos.current = wrap(sp.position);
 			wPos.next = wPos.current;
@@ -242,7 +238,6 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 			// reassemble at fire time -- presence is std::optional's own
 			// question now, not an "any of three scalars nonzero" test.
 			cmd.guided = spec.weapon.guided;
-			cmd.element = std::move(w);
 			cmd.position = wPos;
 			cmd.motion = wMotion;
 			cmd.physique = wPhys;
@@ -297,7 +292,7 @@ namespace {
 void
 shipMachinesStep(Battle &b, EntityId id) noexcept
 {
-	if (b.get(id) == nullptr)
+	if (!b.alive(id))
 		return;
 	ShipState *sp = b.ship(id);
 	if (sp == nullptr)
@@ -410,8 +405,7 @@ guidedSteerPass(Battle &b) noexcept
 void
 guidedShotPreProcess(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
+	if (!b.alive(id))
 		return;
 	Position *pos = b.find<Position>(id);
 	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
@@ -429,8 +423,7 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 	else
 	{
 		(void)trackShip(b, id, facing);
-		e = b.get(id);
-		if (e == nullptr)
+		if (!b.alive(id))
 			return;
 		pos = b.find<Position>(id);
 		pos->facing = facing;
@@ -461,8 +454,7 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 void
 spawnIonTrail(Battle &b, EntityId ship) noexcept
 {
-	const auto e = b.get(ship);
-	if (e == nullptr)
+	if (!b.alive(ship))
 		return;
 	const Position &shipPos = *b.find<Position>(ship);
 
@@ -475,8 +467,6 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 			? displayToWorld(static_cast<i32>(hull->mask->size().h) / 2)
 			: 0;
 
-	Element t;
-	t.kind = ElementKind::IonTrail;
 	// NEUTRAL: exhaust belongs to nobody -- cmd.allegiance below defaults
 	// to exactly that (playerNr -1, no owner), so nothing sets it here. No
 	// AnimFrame either: an ion trail animates by Lifetime::remaining
@@ -490,7 +480,6 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	// that matters, once it exists next frame (review-006 §4).
 	SpawnCommand cmd;
 	cmd.layer = Layer::Background;
-	cmd.element = std::move(t);
 	cmd.position = pos;
 	cmd.lifetime = Lifetime{kIonTrailLife};
 	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
@@ -503,8 +492,7 @@ namespace {
 void
 warpInStep(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
+	if (!b.alive(id))
 		return;
 	ShipState *sp = b.ship(id);
 	if (sp == nullptr)
@@ -541,8 +529,6 @@ warpInStep(Battle &b, EntityId id) noexcept
 		const Angle angle = shipPos.facing.angle();
 		const i32 back = kTransitionSpeed * (lifeSpanOf(b, id) - 1);
 
-		Element shadow;
-		shadow.kind = ElementKind::ShipShadow;
 		Position shadowPos;
 		shadowPos.facing = shipPos.facing;
 		shadowPos.current = wrap(Vec2i{shipPos.current.x - cosine(angle, back),
@@ -551,19 +537,16 @@ warpInStep(Battle &b, EntityId id) noexcept
 
 		SpawnCommand cmd;
 		cmd.layer = Layer::Background;
-		cmd.element = std::move(shadow);
 		cmd.position = shadowPos;
 		cmd.lifetime = Lifetime{kIonTrailLife};
 		cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
 		cmd.shadow = true;
-		// Picks which ship's sprites to draw; no owner of its own (never set
-		// on the old Element either).
+		// Picks which ship's sprites to draw; no owner of its own.
 		cmd.allegiance = Allegiance{b.find<Allegiance>(id)->playerNr, kNoEntity};
 		b.queueSpawn(std::move(cmd));
 	}
 
-	e = b.get(id);
-	if (e == nullptr)
+	if (!b.alive(id))
 		return;
 
 	if (lifeSpanOf(b, id) <= 1)
@@ -614,8 +597,7 @@ sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 void
 startShipExplosion(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
+	if (!b.alive(id))
 		return;
 
 	// The ship becomes its own explosion rather than vanishing
@@ -640,8 +622,7 @@ namespace {
 void
 explosionStep(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
+	if (!b.alive(id))
 		return;
 
 	// How many sparks this frame: the C's schedule (tactrans.c:545-575) ramps
@@ -679,8 +660,6 @@ explosionStep(Battle &b, EntityId id) noexcept
 		const i32 speed = displayToWorld(
 				static_cast<i32>(((r1 >> 8) & 0xFFu) % 5u));
 
-		Element d;
-		d.kind = ElementKind::Debris;
 		// NEUTRAL: wreckage belongs to nobody -- cmd.allegiance below
 		// defaults to exactly that.
 		Position dPos;
@@ -696,7 +675,6 @@ explosionStep(Battle &b, EntityId id) noexcept
 
 		SpawnCommand cmd;
 		cmd.layer = Layer::Background;
-		cmd.element = std::move(d);
 		cmd.position = dPos;
 		cmd.motion = dMotion;
 		cmd.lifetime = Lifetime{kDebrisLife};

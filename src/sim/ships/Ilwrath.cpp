@@ -57,8 +57,7 @@ namespace {
 void
 cloakedAutoAim(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
+	if (!b.alive(id))
 		return;
 	Position *pos = b.find<Position>(id);
 
@@ -67,9 +66,7 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 	if (trackShip(b, id, facing, &targetId) < 0)
 		return;
 
-	auto t = b.get(targetId);
-	e = b.get(id);
-	if (t == nullptr || e == nullptr)
+	if (!b.alive(targetId) || !b.alive(id))
 		return;
 	pos = b.find<Position>(id);
 	const Position &targetPos = *b.find<Position>(targetId);
@@ -103,8 +100,7 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 void
 ilwrathPreProcess(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
+	if (!b.alive(id))
 		return;
 	ShipState *sp = b.ship(id);
 	if (sp == nullptr)
@@ -146,8 +142,7 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 			{
 				// Stepping off BLACK under fire is the ambush.
 				cloakedAutoAim(b, id);
-				e = b.get(id);
-				if (e == nullptr)
+				if (!b.alive(id))
 					return;
 			}
 			--c->level;  // reaching 0 is the C's SetPrimType(STAMP)

@@ -218,8 +218,8 @@ iterate(Game &g)
 	// shot to death.
 	if (match.winner < 0)
 	{
-		const bool alive0 = g.battle.get(match.shipIds[0]) != nullptr;
-		const bool alive1 = g.battle.get(match.shipIds[1]) != nullptr;
+		const bool alive0 = g.battle.alive(match.shipIds[0]);
+		const bool alive1 = g.battle.alive(match.shipIds[1]);
 		if (!alive0 || !alive1)
 		{
 			match.winner = alive0 ? 0 : (alive1 ? 1 : 2);
@@ -244,7 +244,7 @@ iterate(Game &g)
 	std::array<Vec2i, 2> eyes{};
 	usize living = 0;
 	for (const sim::EntityId id : match.shipIds)
-		if (auto e = g.battle.get(id); e != nullptr)
+		if (g.battle.alive(id))
 			eyes[living++] = g.battle.find<sim::Position>(id)->current;
 	if (living > 0)
 		g.battle.context<game::Camera>().follow(

@@ -245,12 +245,10 @@ visualFor(Game &g, sim::EntityId id, i32 playerNr)
 		return set.valid() ? Visual{&set, fallback} : Visual{nullptr, fallback};
 	};
 
-	// Composition selects the art now (review-007 W7): ElementKind is gone
-	// from this dispatch, the last app-side read of it. The six tags this
-	// keys on (Planet/Trail/Shadow/Debris/Blast, plus Cloaked in renderShips)
-	// have their sim attach sites landing in the parallel sim track; until
-	// that merges, an entity that should be one of those draws as the
-	// default Rect fallback below instead of its real look (see the report).
+	// Composition selects the art now (review-007 W7): what an element draws
+	// as follows from what it is composed of, not a kind field -- the tags
+	// this keys on (Planet/Trail/Shadow/Debris/Blast/Spin, plus Cloaked in
+	// renderShips) are attached at each one's own spawn site.
 
 	if (b.has<sim::ShipState>(id) || b.has<sim::Shadow>(id))
 		return def != nullptr
@@ -364,17 +362,11 @@ renderStars(Game &g)
 	});
 }
 
-// The battlefield's one gravity well. Keyed on the Planet tag: its sim
-// attach site lands in the parallel sim track (review-007 W6), so this pass
-// draws nothing until the merge -- expected, see the report. each<>, not
-// eachOrdered: Planet is an empty tag, and eachOrdered's plain get<> cannot
-// destructure one (Battle.cpp's animatePass comment explains why; each<>'s
-// underlying view elides it instead). There is only ever one, so draw order
-// among planets is moot.
+// The battlefield's one gravity well, keyed on the Planet tag.
 void
 renderPlanet(Game &g)
 {
-	g.battle.each<sim::Planet, sim::Position, Visual>(
+	g.battle.eachOrdered<sim::Planet, sim::Position, Visual>(
 			[&g](sim::EntityId, sim::Position &pos, Visual &v) {
 				drawFacingSprite(g, pos, v);
 			});
@@ -442,11 +434,8 @@ renderShips(Game &g)
 				const Vec2i tl{at.x - off.x, at.y - off.y};
 
 				// Cloak tint (ilwrath.c:250-285): Cloaked is the full-black
-				// invisible step (review-007 W6's invariant, tag <=> level ==
-				// full); its sim attach site lands in the parallel track, so
-				// a fully cloaked ship still draws plain until the merge
-				// (expected gap, see the report). The 1..5 tint ramp reads
-				// Cloak.level directly, unaffected either way.
+				// invisible step (the tag holds iff level is full); the 1..5
+				// tint ramp reads Cloak.level directly.
 				if (const sim::Cloak *cloak = g.battle.find<sim::Cloak>(id))
 				{
 					if (g.battle.has<sim::Cloaked>(id))
@@ -468,9 +457,9 @@ renderShips(Game &g)
 
 // Warhead identifies a weapon shot in flight; a beam has no Position at all
 // (review-007 W4a) and is drawn as a line between its own two ends instead.
-// Shots draw before beams -- a declared choice (both keep their own seq
-// order; the two groups are no longer globally interleaved by spawn order
-// the way one combined walk used to leave them, see the report).
+// Shots draw before beams -- a declared choice; both keep their own seq
+// order, but the two groups are no longer globally interleaved by spawn
+// order the way one combined walk used to leave them.
 void
 renderProjectiles(Game &g)
 {
@@ -514,13 +503,9 @@ renderProjectiles(Game &g)
 	});
 }
 
-// The Trail/Shadow/Debris/Blast tags from review-007 §1, in that declared
-// order (a stacking choice: the old code interleaved all four by spawn
-// order in one combined walk; see the report). Their sim attach sites land
-// in the parallel track, so every one of these views is empty until the
-// merge -- expected, see the report. each<>, not eachOrdered: all four are
-// empty tags (Battle.cpp's animatePass comment explains why eachOrdered's
-// plain get<> cannot destructure one).
+// The Trail/Shadow/Debris/Blast tags, in that declared order -- a stacking
+// choice: the old code interleaved all four by spawn order in one combined
+// walk. Each keeps its own seq order within its pass.
 void
 renderEffects(Game &g)
 {
@@ -528,7 +513,7 @@ renderEffects(Game &g)
 
 	// Ion trail: a single point stepping through the colour ramp as it ages.
 	// Lifetime::remaining counts down, so the ramp index counts up.
-	g.battle.each<sim::Trail, sim::Position>(
+	g.battle.eachOrdered<sim::Trail, sim::Position>(
 			[&g, &camera](sim::EntityId id, sim::Position &pos) {
 				const usize step = static_cast<usize>(
 						sim::kIonTrailLife - sim::lifeSpanOf(g.battle, id));
@@ -542,7 +527,7 @@ renderEffects(Game &g)
 	// Warp-in shadow: the hull as a flat fill stepping through the same
 	// ramp -- the ship's own art, borrowed via Visual, drawn as a tinted
 	// silhouette instead of the sprite.
-	g.battle.each<sim::Shadow, sim::Position, Visual>(
+	g.battle.eachOrdered<sim::Shadow, sim::Position, Visual>(
 			[&g, &camera](sim::EntityId id, sim::Position &pos, Visual &v) {
 				const game::SpriteSet *set = v.sprites;
 				if (set == nullptr)
@@ -568,7 +553,7 @@ renderEffects(Game &g)
 
 	// A spark of a dying ship: the boom animation, stepped by its own age
 	// rather than by a facing, since it has none.
-	g.battle.each<sim::Debris, sim::Position, Visual>(
+	g.battle.eachOrdered<sim::Debris, sim::Position, Visual>(
 			[&g, &camera](sim::EntityId id, sim::Position &pos, Visual &v) {
 				const Vec2i at = camera.toScreen(pos.current);
 				const game::SpriteSet *set = v.sprites;
@@ -592,7 +577,7 @@ renderEffects(Game &g)
 
 	// Blast: a weapon's impact flash, or the rubble an asteroid leaves --
 	// both draw by facing, same as the planet and the asteroid field.
-	g.battle.each<sim::Blast, sim::Position, Visual>(
+	g.battle.eachOrdered<sim::Blast, sim::Position, Visual>(
 			[&g](sim::EntityId, sim::Position &pos, Visual &v) {
 				drawFacingSprite(g, pos, v);
 			});

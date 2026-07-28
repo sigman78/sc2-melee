@@ -112,7 +112,6 @@ Battle::Battle(u32 seed) : rng_(seed)
 {
 	// One chunk was the whole battle in the old arena (EntityList's
 	// kChunkSize); the reserve keeps the steady-state step allocation-free.
-	reg_.storage<Element>().reserve(64);
 	reg_.storage<Position>().reserve(64);
 	reg_.storage<Motion>().reserve(64);
 	reg_.storage<Physique>().reserve(64);
@@ -125,8 +124,7 @@ Battle::Battle(u32 seed) : rng_(seed)
 bool
 Battle::collidable(EntityId id) const noexcept
 {
-	const Element *e = get(id);
-	return e != nullptr && reg_.all_of<Collider>(id)
+	return alive(id) && reg_.all_of<Collider>(id)
 			&& !reg_.all_of<Doomed>(id);
 }
 
@@ -161,8 +159,7 @@ Battle::buildOrderedIds(std::vector<EntityId> &out) const noexcept
 }
 
 // The value SpawnEvent::kind carries, derived from what the entity actually
-// composes (review-007 W6) instead of copied off Element::kind, a field on
-// its way out entirely: a Beam makes this a laser, a Warhead makes it a
+// composes (review-007 W6): a Beam makes this a laser, a Warhead makes it a
 // weapon -- the only two flavors Sound.cpp's dispatch ever asks for. Both
 // components are already attached by the time this runs (spawn/spawnBeam
 // call it last), so this is a real composition read, not a guess ahead of
@@ -170,11 +167,11 @@ Battle::buildOrderedIds(std::vector<EntityId> &out) const noexcept
 void
 Battle::recordSpawn(EntityId id, const Allegiance &allegiance)
 {
-	ElementKind flavor = ElementKind::Unknown;
+	SpawnFlavor flavor = SpawnFlavor::Unknown;
 	if (reg_.all_of<Beam>(id))
-		flavor = ElementKind::Laser;
+		flavor = SpawnFlavor::Laser;
 	else if (reg_.all_of<Warhead>(id))
-		flavor = ElementKind::Weapon;
+		flavor = SpawnFlavor::Weapon;
 	spawns_.push_back(SpawnEvent{id, flavor, allegiance.playerNr});
 }
 
@@ -242,7 +239,7 @@ Battle::weaponSpec(EntityId id) const noexcept
 }
 
 Spawned
-Battle::spawn(Layer layer, Element e, Position pos, Motion motion,
+Battle::spawn(Layer layer, Position pos, Motion motion,
 		Physique physique, Borrowed<const CollisionMask> collider,
 		Allegiance allegiance, std::optional<Warhead> warhead)
 {
@@ -259,8 +256,7 @@ Battle::spawn(Layer layer, Element e, Position pos, Motion motion,
 	// Builds through make() (review-007 W9): the universal attach set,
 	// named one .with() at a time instead of a block of reg_.emplace calls.
 	Spawned s = make(layer);
-	s.with(std::move(e))
-			.with(pos)
+	s.with(pos)
 			.with(motion)
 			.with(physique)
 			.with(allegiance)
@@ -279,7 +275,7 @@ Battle::spawn(Layer layer, Element e, Position pos, Motion motion,
 }
 
 Spawned
-Battle::spawnBeam(Layer layer, Element e, Beam beam, Allegiance allegiance)
+Battle::spawnBeam(Layer layer, Beam beam, Allegiance allegiance)
 {
 	// The minimal-composition rule's worked example (review-007 W4b): a
 	// beam is never solid (no Collider ever attaches to one) and never
@@ -292,7 +288,7 @@ Battle::spawnBeam(Layer layer, Element e, Beam beam, Allegiance allegiance)
 	// Allegiance stay -- a beam is still walked and drawn like anything
 	// else, and Allegiance is the one uniform attach.
 	Spawned s = make(layer);
-	s.with(std::move(e)).with(beam).with(allegiance);
+	s.with(beam).with(allegiance);
 
 	// Recorded last, once Beam is in place: recordSpawn's flavor reads
 	// has<Beam> (review-007 W6) -- unconditionally Laser here.
@@ -301,7 +297,7 @@ Battle::spawnBeam(Layer layer, Element e, Beam beam, Allegiance allegiance)
 }
 
 Spawned
-Battle::spawnEffect(Layer layer, Element e, Position pos, Allegiance allegiance)
+Battle::spawnEffect(Layer layer, Position pos, Allegiance allegiance)
 {
 	// A decorative particle (review-007 W5's diet): never solid, and its
 	// Position is set once at spawn and never touched again (the caller
@@ -310,7 +306,7 @@ Battle::spawnEffect(Layer layer, Element e, Position pos, Allegiance allegiance)
 	// reasoning as spawnBeam's, minus the Position exemption (a decoration
 	// is drawn at a place, a beam is drawn between two).
 	Spawned s = make(layer);
-	s.with(std::move(e)).with(pos).with(allegiance);
+	s.with(pos).with(allegiance);
 
 	// Never a Beam, never a Warhead: recordSpawn's flavor is always Unknown
 	// for an effect, which is correct -- nothing reads it for one.
@@ -320,11 +316,11 @@ Battle::spawnEffect(Layer layer, Element e, Position pos, Allegiance allegiance)
 
 Spawned
 Battle::spawnEffect(
-		Layer layer, Element e, Position pos, Motion motion, Allegiance allegiance)
+		Layer layer, Position pos, Motion motion, Allegiance allegiance)
 {
 	// The one decoration that actually drifts (the explosion's debris):
 	// spawnEffect's shape plus Motion, so Integrate still advances it.
-	Spawned s = spawnEffect(layer, std::move(e), pos, allegiance);
+	Spawned s = spawnEffect(layer, pos, allegiance);
 	s.with(motion);
 	return s;
 }
@@ -335,15 +331,13 @@ Battle::spawnEffect(
 void
 Battle::killOverlapSpawn(EntityId id)
 {
-	auto e = get(id);
-	if (e == nullptr)
+	if (!alive(id))
 		return;
 
 	const ShipState *s = ship(id);
 	const Vitality *v = find<Vitality>(id);
 	doDamage(*this, id, s != nullptr ? s->crew : v != nullptr ? v->hitPoints : 0);
-	e = get(id);
-	if (e == nullptr)
+	if (!alive(id))
 		return;
 	reg_.get<CollisionScratch>(id).collided = true;
 	reg_.emplace_or_replace<Doomed>(id);
@@ -370,11 +364,9 @@ bool
 Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		usize testIdx, TimeValue maxTime)
 {
-	auto e = get(elemId);
-	if (e == nullptr)
+	if (!alive(elemId))
 		return true;
-	auto t = get(testId);
-	if (t == nullptr)
+	if (!alive(testId))
 		return false;
 
 	// Solidity first, before any of Motion/Physique/CollisionScratch is
@@ -498,17 +490,15 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		if (!eScratch.collided
 				&& processCollisions(elemId, elemIdx, testIdx + 1, earlier))
 			return false;
-		e = get(elemId);
-		t = get(testId);
 		ePos = reg_.try_get<Position>(elemId);
 		tPos = reg_.try_get<Position>(testId);
 		eMotion = reg_.try_get<Motion>(elemId);
 		tMotion = reg_.try_get<Motion>(testId);
 		ePhys = reg_.try_get<Physique>(elemId);
 		tPhys = reg_.try_get<Physique>(testId);
-		if (e == nullptr)
+		if (!alive(elemId))
 			return true;
-		if (t == nullptr)
+		if (!alive(testId))
 			return false;
 
 		if (!tScratch.collided)
@@ -521,17 +511,15 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			if (processCollisions(testId, testIdx, from, earlier))
 				return false;
 		}
-		e = get(elemId);
-		t = get(testId);
 		ePos = reg_.try_get<Position>(elemId);
 		tPos = reg_.try_get<Position>(testId);
 		eMotion = reg_.try_get<Motion>(elemId);
 		tMotion = reg_.try_get<Motion>(testId);
 		ePhys = reg_.try_get<Physique>(elemId);
 		tPhys = reg_.try_get<Physique>(testId);
-		if (e == nullptr)
+		if (!alive(elemId))
 			return true;
-		if (t == nullptr)
+		if (!alive(testId))
 			return false;
 	}
 
@@ -566,18 +554,16 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	if (reg_.all_of<PlayerShip>(testId))
 	{
 		respond(tIsWeapon, testId, elemId);
-		if (get(elemId) != nullptr)
+		if (alive(elemId))
 			respond(eIsWeapon, elemId, testId);
 	}
 	else
 	{
 		respond(eIsWeapon, elemId, testId);
-		if (get(testId) != nullptr)
+		if (alive(testId))
 			respond(tIsWeapon, testId, elemId);
 	}
 
-	e = get(elemId);
-	t = get(testId);
 	ePos = reg_.try_get<Position>(elemId);
 	tPos = reg_.try_get<Position>(testId);
 	eMotion = reg_.try_get<Motion>(elemId);
@@ -588,17 +574,17 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// Whoever NEWLY raised Collided stops at the impact point
 	// (process.c:572-596); a side that was already stopped keeps the
 	// position its first collision gave it.
-	if (t != nullptr && tScratch.collided && !testHad)
+	if (alive(testId) && tScratch.collided && !testHad)
 		tPos->next = testStop;
 
 	bool impulsed = false;
-	if (e != nullptr && eScratch.collided && !elemHad)
+	if (alive(elemId) && eScratch.collided && !elemHad)
 	{
 		ePos->next = elemStop;
 
 		// Momentum exchange is solid-on-solid only (process.c:598-601). A
 		// weapon hit is resolved by damage, in the dispatch above.
-		if (t != nullptr && bothSolidNow)
+		if (alive(testId) && bothSolidNow)
 		{
 			// Pure physics is told who is a ship by a ShipState pointer, null
 			// for anything else (review-007 W4b: the turn/thrust stagger is
@@ -617,8 +603,8 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		}
 	}
 
-	event.afterA = e != nullptr ? worldVelocityOf(*eMotion) : event.beforeA;
-	event.afterB = t != nullptr ? worldVelocityOf(*tMotion) : event.beforeB;
+	event.afterA = alive(elemId) ? worldVelocityOf(*eMotion) : event.beforeA;
+	event.afterB = alive(testId) ? worldVelocityOf(*tMotion) : event.beforeB;
 	collisions_.push_back(event);
 
 	if (impulsed)
@@ -633,8 +619,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// Keeps scanning unless out of the game for the frame (process.c:609-618):
 	// stopped, or no longer collidable -- a ship merely hit by a missile is
 	// neither, and can still bounce off another ship this frame.
-	e = get(elemId);
-	if (e == nullptr || eScratch.collided)
+	if (!alive(elemId) || eScratch.collided)
 		return true;
 	if (!collidable(elemId))
 	{
@@ -658,7 +643,7 @@ Battle::processCollisions(
 	for (usize idx = fromIdx; idx < collideOrder_.size();)
 	{
 		const EntityId testId = collideOrder_[idx];
-		if (get(testId) == nullptr)
+		if (!alive(testId))
 			break;
 
 		const usize succIdx = idx + 1;
@@ -670,8 +655,7 @@ Battle::processCollisions(
 		idx = succIdx;
 	}
 
-	auto e = get(elemId);
-	return e == nullptr || reg_.get<CollisionScratch>(elemId).collided;
+	return !alive(elemId) || reg_.get<CollisionScratch>(elemId).collided;
 }
 
 // CapturePrior (pipeline slot 1): the silhouette/facing every element enters
@@ -881,9 +865,9 @@ Battle::ageDecrementPass() noexcept
 void
 Battle::reapPass() noexcept
 {
-	// Element is in_place_delete, so removing the CURRENT entity mid-walk
-	// is safe -- entt leaves later slots undisturbed, no separate
-	// next-before-remove capture needed the way the spine walk required.
+	// Erasing the entity currently returned by a view's iterator is safe by
+	// entt's own contract, so removing it mid-walk needs no separate
+	// next-before-remove capture the way the old spine walk required.
 	for (EntityId id : reg_.view<Doomed>())
 		removeElement(id);
 }
@@ -940,22 +924,19 @@ Battle::drainSpawnCommands()
 		// on the Spawned each hands back.
 		Spawned s = [&]() -> Spawned {
 			if (cmd.beam)
-				return spawnBeam(cmd.layer, std::move(cmd.element), *cmd.beam,
-						cmd.allegiance);
+				return spawnBeam(cmd.layer, *cmd.beam, cmd.allegiance);
 			if (cmd.effect)
 				return cmd.effectMoves
-						? spawnEffect(cmd.layer, std::move(cmd.element),
-								  cmd.position, cmd.motion, cmd.allegiance)
-						: spawnEffect(cmd.layer, std::move(cmd.element),
-								  cmd.position, cmd.allegiance);
+						? spawnEffect(cmd.layer, cmd.position, cmd.motion,
+								  cmd.allegiance)
+						: spawnEffect(cmd.layer, cmd.position, cmd.allegiance);
 			// warhead passed straight into spawn(), not attached after: it
 			// has to be there before spawn() records the SpawnEvent, whose
 			// flavor now reads has<Warhead> instead of a hand-set kind
 			// (review-007 W6). cmd.warhead is never set alongside cmd.beam
 			// or cmd.effect, so this is the only place it needs reading.
-			return spawn(cmd.layer, std::move(cmd.element), cmd.position,
-					cmd.motion, cmd.physique, cmd.collider, cmd.allegiance,
-					cmd.warhead);
+			return spawn(cmd.layer, cmd.position, cmd.motion, cmd.physique,
+					cmd.collider, cmd.allegiance, cmd.warhead);
 		}();
 		if (cmd.weaponSpec != nullptr)
 			s.with(WeaponGuidance{cmd.weaponSpec});

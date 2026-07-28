@@ -246,19 +246,16 @@ simulateBattle(u32 seed, std::ostream *trace)
 		b.step();
 
 		for (const SpawnEvent &sp : b.spawns())
-			if (sp.kind == ElementKind::Weapon)
+			if (sp.kind == SpawnFlavor::Weapon)
 				++r.shots;
 		r.collisions += b.collisions().size();
 
 		u64 frameDigest = kFnvOffset;
 		usize walkIndex = 0;
 		b.eachOrdered([&](EntityId id) {
-			const Element *e = b.get(id);
-			// Position, not Element (review-007 W4a): same value, same
-			// order, so the fold is bit-for-bit identical to the
-			// pre-split baseline. A beam has no Position at all (W4a's Beam
-			// step) -- its Beam.from is what this digest folded as `current`
-			// before the split, so fold that instead to keep the hash equal.
+			// A beam has no Position at all (review-007 W4a) -- its Beam.from
+			// is what this digest folds as `current` instead, to keep the
+			// hash equal across that split.
 			const Position *pos = b.find<Position>(id);
 			const Vec2i at = pos != nullptr ? pos->current : b.find<Beam>(id)->from;
 			foldI32(frameDigest, at.x);
@@ -277,8 +274,7 @@ simulateBattle(u32 seed, std::ostream *trace)
 			}
 			if (trace != nullptr)
 			{
-				*trace << b.frame() << ' ' << walkIndex << ' '
-						<< static_cast<int>(e->kind) << ' ' << at.x
+				*trace << b.frame() << ' ' << walkIndex << ' ' << at.x
 						<< ' ' << at.y << ' ' << lifeSpanOf(b, id);
 				if (ss != nullptr)
 					*trace << ' ' << ss->crew << ' ' << ss->energy;
@@ -292,14 +288,14 @@ simulateBattle(u32 seed, std::ostream *trace)
 			r.checkpoints.push_back(battleHash);
 
 		if (deathFrame < 0
-				&& (b.get(shipId[0]) == nullptr || b.get(shipId[1]) == nullptr))
+				&& (!b.alive(shipId[0]) || !b.alive(shipId[1])))
 			deathFrame = frame;
 		if (deathFrame >= 0 && frame >= deathFrame + kDeathBuffer)
 			break;
 	}
 
-	const bool alive0 = b.get(shipId[0]) != nullptr;
-	const bool alive1 = b.get(shipId[1]) != nullptr;
+	const bool alive0 = b.alive(shipId[0]);
+	const bool alive1 = b.alive(shipId[1]);
 	r.winner = (alive0 && alive1) ? -1 : (alive0 ? 0 : (alive1 ? 1 : 2));
 	r.endFrame = b.frame();
 	r.hash = battleHash;

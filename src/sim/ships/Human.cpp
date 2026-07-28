@@ -60,9 +60,9 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 	// and fires at each, paying once for the volley (human.c:225-236) -- a
 	// Cruiser surrounded by fire clears all of it, or none if it can't afford
 	// it. Physique and Position as a required join, not a get-then-null-
-	// check (review-007 W4b's join rule): `t` (Element) was only ever read
-	// for its own existence, which Physique/Position presence already
-	// implies (both attach alongside Element in Battle::spawn).
+	// check (review-007 W4b's join rule): existence was only ever read for
+	// its own sake, which Physique/Position presence already implies (both
+	// attach at every Battle::spawn call).
 	b.eachOrdered<Physique, Position>([&](EntityId other, Physique &otherPhys,
 											  Position &otherPos) {
 		if (cannotAfford || shipAllegiance == nullptr || other == id)
@@ -108,8 +108,6 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		// and it is the only component holding this entity's geometry at all
 		// (review-007 W4a: a beam has no Position).
 		const Vec2i beamTo = tNext;
-		Element beam;
-		beam.kind = ElementKind::Laser;
 
 		// Queued, not spawned: it enters the world at the sync point and
 		// draws its one frame of life the step after this one -- the PD
@@ -117,7 +115,6 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		// (review-006 §4's accepted latency).
 		SpawnCommand cmd;
 		cmd.layer = Layer::Ordnance;
-		cmd.element = std::move(beam);
 		cmd.beam = Beam{from, beamTo};
 		cmd.lifetime = Lifetime{1};
 		cmd.allegiance = Allegiance{shipAllegiance->playerNr, id};

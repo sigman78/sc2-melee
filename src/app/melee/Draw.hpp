@@ -42,8 +42,7 @@ comp struct Visual
 // The attach-time art selection (review-007 W7): what an element draws as,
 // chosen from what it is composed of -- a ShipState or Shadow tag means the
 // owner's ship art, a Warhead means the owner's weapon art, and so on down
-// to the plain Rect fallback. ElementKind is gone from this dispatch (the
-// last app-side read of it); ownership of "what kind of thing this is" now
+// to the plain Rect fallback. Ownership of "what kind of thing this is"
 // belongs entirely to composition. Built once per spawned element, in
 // setUp() and iterate() -- Art comes from the owner's roster entry or
 // kMeleeArt, resolved through Resources' cache, which is why the Game is
