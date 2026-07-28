@@ -61,9 +61,15 @@ Battle grows typed joins — each<Ts...> and eachOrdered<Ts...> yielding
 destructured refs — and a pass's component list moves into its call
 signature: the read-set as code, not documentation. Per-id find<> inside
 an iteration lambda survives only for conditional cross-entity lookups
-(another ship's optional Cloak), the legitimately rare case. Templates
-land in W4b's opener; each stage converts the passes it touches;
-grep-extinct by W9.
+(another ship's optional Cloak), the legitimately rare case. Extended by
+SiGMan mid-W4b into standing policy: **use complex queries proactively** —
+presence/absence filters live in the query (view<Ts...> joins,
+entt::exclude<Xs...>), only value tests stay in the body
+(ageDecrementPass excludes Doomed instead of testing it per iteration;
+regen's WarpingIn/Appearing gates likewise). Performance is a non-issue
+at this scale; expressiveness is the point — the query IS the pass's
+declared meaning. Templates land in W4b's opener; each stage converts
+the passes it touches; grep-extinct by W9.
 
 **The X5 reversal, owned:** X5 declined the universal-core split — the
 live walk touched everything per-entity, so a split bought ceremony. Z4
