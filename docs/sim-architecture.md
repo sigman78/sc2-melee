@@ -62,20 +62,19 @@ Spin, Cloak), optional phases are component presence (WarpingIn,
 Exploding — the C's per-instance hook mutation has no successor), and the
 ship phases themselves are named systems called in pinned order.
 
-> **DRAFT, review-007 W9 — the paragraph above is now historical.** The
-> per-instance phase hooks it describes (`ElementHook`'s collision and death
-> slots, `collidedWith`) are gone as of review-007 W5, not just thinned:
-> `onCollision` is a dispatch on `has<Warhead>` (`weaponCollision` for a
-> shot, `solidCollision` for anything else, taking the other id as a plain
-> argument — no stored `collidedWith`); `onDeath` is a `DeathSpawn{emit}`
-> payload plus the `SweepsOwnedOnDeath` tag, run from both death sites in
-> `Battle.cpp`. What survives at the *spec* level — a ship's own
-> `preProcess` (the Ilwrath cloak machine) and a special's activation
-> `hook` — was never a per-instance mutation to begin with (no C-style
-> `chmmr.c:773`-style hook swap exists here), so "Behavior slot" above
-> should be read as describing that spec-level pair only, not a general
-> per-entity phase mechanism. Left for the main session to fold into the
-> prose properly; flagging the divergence is the point of this note.
+The per-instance phase hooks that paragraph describes are gone (review-007
+W5), not merely thinned. `onCollision` is a dispatch on `has<Warhead>` —
+`weaponCollision` for a shot, `solidCollision` for anything else — taking
+the other id as an argument, so there is no stored `collidedWith` either.
+`onDeath` is a `DeathSpawn{emit}` payload plus the `SweepsOwnedOnDeath`
+tag, run from both death sites in `Battle.cpp`. `ElementHook` is deleted,
+and so, by review-007's close, is Element itself.
+
+What survives is spec-level and always was: a ship's `preProcess` (the
+Ilwrath cloak machine) and a special's activation `hook`. Neither is a
+per-instance mutation — nothing here swaps a hook on a live entity the way
+`chmmr.c:773` does — so read "Behavior slot" above as naming that pair,
+not a general per-entity phase mechanism.
 
 Traversal order is *data*, all the way down (review-006): every spawn
 names its stratum, and `Order{layer, seq}` on the entity is the whole

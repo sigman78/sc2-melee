@@ -163,10 +163,11 @@ app churns them.
 | W3 | `Lifetime{remaining}` + `Doomed`: the aging/death/reap protocol on components; lifeSpan and FiniteLife die; **ElementFlags deleted** (last bits gone). The high-care stage: the died-last-frame protocol and Z4's decrement position are the subtlest pins in the sim | bit-green |
 | W4 | The body split, sub-gated one component at a time like Z5: Position → Motion → Beam{from,to} → Vitality → Warhead → Allegiance → AnimFrame → clocks into ShipState; Spawn.hpp's descriptor structs reshaped (they are a mini-Element); **Element deleted** at the end | bit-green per sub-step |
 | W5 | Opener: Vec2i grows its operators (+, -, unary -, +=, -=) and the pure vector-math spellings sweep to them (SiGMan: component-wise construction was inherited noise, nothing more). Then hooks dissolve: the collision-response system, DeathSpawn/SweepsOwnedOnDeath, the flame animation component; ElementHook and collidedWith deleted | **done, bit-green throughout** — every hook is data: onCollision dispatches on has\<Warhead\> (weaponCollision/solidCollision take the other id as an argument; the flame's wrapper is `Warhead::lingersOnHit`); onDeath is the `SweepsOwnedOnDeath` tag plus `DeathSpawn{emit}` payloads, run at both death sites; the animate pass iterates Spin (eachOrdered, Z5's proven order) and `FrameDriven` flame growth (plain each\<\> — an empty tag cannot pass through get\<\>); guidedShotPreProcess was vestigial, guidedSteerPass already owned it. Element = {kind}. The spawn-diet finding inverted the plan's hint: Battle::spawn's universal attach set is *correct* — its four callers are all collision-domain — and the diet landed one level up as `spawnEffect` for the never-solid particles, of which IgnoreVelocity died |
-| W6 | Planet + effect tags (gravityPass stops scanning by mass); SpawnEvent derives flavor from composition; `Cloaked` tag with its invariant pin, isCloaked deleted. Kind still exists, now unread by sim and sound | bit-green |
-| W7 | The semantic render pipeline (§2) on the finished tags; CelPolicy retires, Visual shrinks to data; **ElementKind deleted here** — its last consumer (visualFor's dispatch) dissolves into the passes | baseline untouched by construction; suite 8/8; driven screenshots incl. F1 overlay; stacking changes named in the commit |
-| W8 | The app-state migration (§3): Starfield entity, Mark entities + age reap, AnnouncedDead, ctx surface, Battle::destroy for app-owned entities | same gates + screenshots; Game struct visibly shrinks |
-| W9 | Specs as payloads; ShipDef-level un-composition; the general fluent builder (final vocabulary exists now); the verdict with measurements (LOC, compile time as observation); sim-architecture.md amended | bit-green; the record |
+| W6 | Planet + effect tags (gravityPass stops scanning by mass); SpawnEvent derives flavor from composition; `Cloaked` tag with its invariant pin, isCloaked deleted. Kind still exists, now unread by sim and sound | **done, bit-green** — `Warhead` had to move into `Battle::spawn`'s parameter list so the derived flavor reads a real component instead of anticipating one |
+| W7 | The semantic render pipeline (§2) on the finished tags; CelPolicy retires, Visual shrinks to data; **ElementKind's last app read dies here** — visualFor's dispatch dissolves into the passes; the type itself goes in the harmonization sweep | **done** — baseline untouched by construction; suite green; driven screenshots incl. F1 overlay; stacking changes named in the commit |
+| W8 | The app-state migration (§3): Starfield entity, Mark entities + age reap, AnnouncedDead, ctx surface, Battle::destroy for app-owned entities | **done** — same gates + screenshots; Game keeps window, battle, pacer, players, audio, content, running, and nothing else |
+| W9 | Specs as payloads; ShipDef-level un-composition; the general fluent builder (final vocabulary exists now); the verdict with measurements (LOC, compile time as observation); sim-architecture.md amended | **done, bit-green**; the record below |
+| — | Post-merge harmonization: **Element and ElementKind deleted**, SpawnEvent keeps its own SpawnFlavor, `eachOrdered` learns to elide tags | **done, bit-green**; review-007 closed |
 
 ### Execution shift after W5 (SiGMan, 2026-07-28)
 
@@ -220,10 +221,11 @@ Track briefs staged in `.claude/briefs/`.
   (dissolving hooks first would avoid double-sweeping them, but the
   response system's clean expression needs Warhead/Vitality to exist).
 
-## 7. Sim-track verdict (W6 + W9) — DRAFT, main session to edit
+## 7. The verdict
 
-Executed in the w-sim worktree, parallel to the app track (W7+W8), off the
-skeleton commit. Both gates green throughout; no baseline re-record.
+W6+W9 ran in one worktree and W7+W8 in another, both off the skeleton
+commit, then merged without a conflict. Every gate green throughout; the
+baseline was never re-recorded.
 
 **W6.** `Planet` attached at `spawnPlanet`; `gravityPass` now finds the well
 via `each<Planet>` instead of scanning every collidable's mass — the scan
@@ -292,16 +294,15 @@ Already documented in place before this stage; left as is.
 | Measurement | Value |
 | --- | --- |
 | `git diff --stat` vs merge-base(main) for src/sim + sim_test.cpp | 33 files changed, 8963 insertions(+) — main predates the ECS rewrite entirely, so this is the whole subsystem, not this stage |
-| `git diff --stat` vs the pre-W6 skeleton commit (this stage's own delta) | 11 files changed, 272 insertions(+), 201 deletions(-) |
+| `git diff --stat` vs the skeleton commit (the sim stage's own delta) | 11 files changed, 272 insertions(+), 201 deletions(-) |
 | Cold build wall-clock (`cmake --build build/core --target clean` then `cmake --build build/core`) | 45.8s real |
-| `replay_test --compare` | all 32 battles matched exactly (both stage boundaries) |
-| `ctest` | 10/10 passed (both stage boundaries) |
+| `replay_test --compare` | all 32 battles matched exactly, at every stage boundary and after the merge |
+| `ctest` | green at every boundary — 8/8 in the configuration this repo builds by default, 10/10 with `UQM_LEGACY` on (the two extra tests exercise the original C, untouched here) |
 
 **Component census** (component → attach set), sim components only:
 
 | Component | Attached at |
 | --- | --- |
-| Element | every sim spawn (`spawn`/`spawnBeam`/`spawnEffect`) |
 | Position | `spawn`, `spawnEffect` (both overloads) |
 | Motion | `spawn`, `spawnEffect`'s drifting overload (debris) |
 | Physique | `spawn` only |
@@ -339,3 +340,60 @@ Already documented in place before this stage; left as is.
 | Warhead | `spawn`, iff a weapon (`cmd.warhead` forwarded in) |
 | Spin | `spawnAsteroid` only |
 | DeathSpawn | `spawnAsteroid`, `asteroidDeath`'s rubble (`rubbleDeath` payload) |
+
+**W7 — the pipeline.** `clear → stars → planet → asteroids → ships →
+projectiles → effects → marks → hud → overlay → present`, each pass keyed on
+the components that identify its content, exactly as §2 lists. `CelPolicy`
+is gone: the pass *is* the policy. `Visual` shrank to `{sprites, fallback}`,
+and `visualFor` reduced to art selection from composition. Three stacking
+changes, all of them now declared rather than inherited from spawn order:
+ships draw over the planet and the asteroid field, shots draw before beams,
+and Trail/Shadow/Debris/Blast draw in that fixed order.
+
+Marks stayed behind the same `DebugToggles.overlay` gate that used to cover
+both halves of the old `drawOverlay`. §2 lists marks and overlay as separate
+stages and only annotates the latter as gated, which reads as marks being
+unconditional; making them so would have been a visible behavior change in a
+stage whose whole claim is that nothing visible moved. The gate is the
+deliberate reading, recorded here rather than left as a silent difference
+from the plan.
+
+**W8 — app state.** `MatchState`, `DebugToggles`, `BattleConfig` and
+`Camera` moved into the registry's context; the starfield became one entity
+with a `Starfield` component and no Order; collision marks became `Mark`
+entities reaped by age through `Battle::destroy`; `deathAnnounced[2]` became
+an `AnnouncedDead` tag on the ship. `Game` keeps `window`, `battle`,
+`pacer`, `players`, `audio`, `content` and `running` — device, content and
+pacing, which is what §3 said should stay.
+
+The skeleton needed one surface the plan had not named: `Battle::create()`,
+a bare entity with no Order, outside the element count and outside the
+ordered walk. `make(Layer)` is wrong for app-owned state — it declares a
+position in a walk the starfield and the marks have no business being in.
+Splitting the two spellings is what keeps `buildOrderedIds` able to key on
+`Order` at all.
+
+**The harmonization.** `Element` ended the review as `{kind}`, and W6 and W7
+between them removed the last reader on each side, so it went, and
+`ElementKind` with it. `SpawnEvent` kept a flavor but owns it now —
+`SpawnFlavor{Unknown, Weapon, Laser}`, the two values `Sound.cpp` actually
+asks for — instead of borrowing a taxonomy whose other nine values nothing
+read. `Battle::get` went too: its null return had only ever meant "not
+alive", so its callers ask `alive()` and say what they mean. `sim_test` now
+recognises an entity by the component it is asserting about rather than by a
+label, which is the same move the production code made, one layer down.
+
+One defect surfaced late and is worth naming, because the plan's own words
+hid it. §2 declares z-order to be `(pass, seq)`, but `eachOrdered`
+destructured its type list by hand through `get<Ts>`, which entt defines as
+`void` for an empty type — so a tag could filter `each<>` and never the
+ordered walk, and every tag-keyed render pass had to fall back to unordered
+iteration. Half the declared z-order was therefore unimplementable, quietly,
+in exactly the passes the tags were introduced for. `fetchOrdered` drops
+empty types from the tuple the callback is applied to, the way entt's own
+views already do, and the effect passes take the ordered walk.
+
+**Closed.** Element is gone, every hook is data, traversal order is data,
+solidity is presence, and the render pipeline reads as a list of passes
+named after what they draw. 32 battles bit-exact, suite green, driven run
+verified with the collision overlay.
