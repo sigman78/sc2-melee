@@ -176,6 +176,14 @@ public:
 			fn(id, e);
 	}
 
+	// A ship-only walk, order-free like eachElement.
+	template <class Fn>
+	void eachShip(Fn &&fn)
+	{
+		for (auto [id, s] : reg_.view<ShipState>().each())
+			fn(id, s);
+	}
+
 private:
 	// The world itself, for component types the typed surface above does not
 	// cover. Private: everything outside Battle goes through attach/find/
@@ -214,6 +222,7 @@ private:
 	usize count_ = 0;
 	Rng rng_;
 	u64 frame_ = 0;
+	u64 nextSeq_ = 0;
 
 	// Both reused across steps so a steady-state frame allocates nothing.
 	std::vector<CollisionEvent> collisions_;

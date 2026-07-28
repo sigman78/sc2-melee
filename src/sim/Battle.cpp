@@ -5,6 +5,7 @@
 #include "engine/core/Types.hpp"
 #include "sim/Damage.hpp"
 #include "sim/Impulse.hpp"
+#include "sim/ShipSystems.hpp"
 #include "sim/World.hpp"
 
 #include <cassert>
@@ -217,6 +218,7 @@ Battle::spawn(Layer layer, Element e)
 	reg_.emplace<Element>(id, std::move(e));
 	reg_.emplace<OrderLink>(id);
 	reg_.emplace<PriorSilhouette>(id);
+	reg_.emplace<Seq>(id, Seq{nextSeq_++});
 	linkAtLayerTail(layer, id);
 	++count_;
 	return id;
@@ -707,6 +709,7 @@ Battle::step()
 {
 	collisions_.clear();
 	spawns_.clear();
+	energyRegenPass(*this);
 	preProcessPass();
 	postProcessPass();
 	++frame_;

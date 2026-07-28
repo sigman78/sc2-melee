@@ -11,6 +11,10 @@ namespace uqm::sim {
 
 class Battle;
 
+// Energy regeneration (ship.c:225-230), as a whole-battle pass run before
+// shipPreProcess so every consumer reads its own ship's post-regen energy.
+void energyRegenPass(Battle &b) noexcept;
+
 // The two halves of a ship's frame (ship.c:149-280, 282-347): turning and
 // thrusting in the pre pass, firing in the post pass so a spawned weapon is
 // caught up by the step loop this frame -- see design-notes D1.

@@ -245,6 +245,21 @@ void explosionStep(Battle &b, EntityId id) noexcept;
 }  // namespace
 
 void
+energyRegenPass(Battle &b) noexcept
+{
+	b.eachShip([&b](EntityId id, ShipState &s) {
+		if (b.has<WarpingIn>(id))
+			return;
+		const Element *e = b.get(id);
+		if (e == nullptr || any(e->flags & ElementFlags::Appearing))
+			return;
+		if (s.crew == 0)
+			return;
+		regenEnergy(s, *s.spec);
+	});
+}
+
+void
 shipPreProcess(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
@@ -284,8 +299,6 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 			explosionStep(b, id);
 		return;
 	}
-
-	regenEnergy(s, spec);
 
 	// The ship's own hook, after regen and before turning -- RACE_DESC
 	// .preprocess_func's slot (ship.c:232-236). The Ilwrath cloak lives here,

@@ -59,6 +59,12 @@ struct OrderLink
 	Layer layer = Layer::Field;
 };
 
+// Spawn order; nothing consumes it yet.
+struct Seq
+{
+	u64 n = 0;
+};
+
 }  // namespace uqm::sim
 
 #endif  // UQM2_SIM_ENTITY_HPP
