@@ -116,9 +116,11 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	const i32 damage = b.find<Physique>(id)->mass;
 
 	// weapon.c:145-158: hurts anything transient or at NORMAL_LIFE (excludes
-	// something already dying). A target that SURVIVES marks the weapon
+	// something already dying), except an Indestructible target -- the
+	// planet, which weapon.c's magic lifeSpan=2 used to fail this test on
+	// its own (review-007). A target that SURVIVES marks the weapon
 	// Collided ("did effect"), which also stops it at the impact point.
-	if (damage > 0
+	if (damage > 0 && !b.has<Indestructible>(targetId)
 			&& (isFiniteLife(b, targetId) || lifeSpanOf(b, targetId) == 1))
 	{
 		doDamage(b, targetId, damage, w->owner);

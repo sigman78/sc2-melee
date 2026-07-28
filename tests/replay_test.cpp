@@ -265,7 +265,9 @@ simulateBattle(u32 seed, std::ostream *trace)
 			foldI32(frameDigest, at.y);
 			// find<Lifetime> ? remaining : 1 -- the literal persistent value
 			// Lifetime replaces, so every digest matches bit-for-bit against
-			// the pre-Lifetime baseline (review-007 W3).
+			// the pre-Lifetime baseline (review-007 W3). The planet's fold
+			// changes from 2 to 1 here (Indestructible replaces its
+			// Lifetime{2}) -- the one legal re-record review-007 justifies.
 			foldI32(frameDigest, lifeSpanOf(b, id));
 			const ShipState *ss = b.ship(id);
 			if (ss != nullptr)
@@ -483,8 +485,11 @@ doRecord(const std::string &path)
 	return 0;
 }
 
+// `limit` runs/checks only the first `limit` battles -- baseline parsing is
+// unchanged (still the full file), so this is an inner-loop gate over the
+// same baseline, not a different one.
 int
-doCompare(const std::string &path)
+doCompare(const std::string &path, int limit = kNumBattles)
 {
 	bool ok = false;
 	const std::vector<BaselineEntry> baseline = requireBaseline(path, ok);
@@ -492,7 +497,7 @@ doCompare(const std::string &path)
 		return 1;
 
 	int mismatchedBattles = 0;
-	for (int i = 0; i < kNumBattles; ++i)
+	for (int i = 0; i < limit; ++i)
 	{
 		const u32 seed = seedFor(i);
 		const BattleResult a = simulateBattle(seed, nullptr);
@@ -535,11 +540,10 @@ doCompare(const std::string &path)
 
 	if (mismatchedBattles > 0)
 	{
-		std::printf("%d of %d battles mismatched\n", mismatchedBattles,
-				kNumBattles);
+		std::printf("%d of %d battles mismatched\n", mismatchedBattles, limit);
 		return 1;
 	}
-	std::printf("all %d battles matched exactly\n", kNumBattles);
+	std::printf("all %d battles matched exactly\n", limit);
 	return 0;
 }
 
@@ -678,6 +682,8 @@ main(int argc, char **argv)
 		return doRecord(argv[2]);
 	if (argc == 3 && std::strcmp(argv[1], "--compare") == 0)
 		return doCompare(argv[2]);
+	if (argc == 4 && std::strcmp(argv[1], "--compare-first") == 0)
+		return doCompare(argv[3], std::atoi(argv[2]));
 	if (argc == 3 && std::strcmp(argv[1], "--similar") == 0)
 		return doSimilar(argv[2]);
 	if (argc == 4 && std::strcmp(argv[1], "--trace") == 0)
@@ -685,6 +691,7 @@ main(int argc, char **argv)
 
 	std::fprintf(stderr,
 			"usage: replay_test --record <file> | --compare <file> | "
-			"--similar <file> | --trace <battleIndex> <file>\n");
+			"--compare-first <N> <file> | --similar <file> | "
+			"--trace <battleIndex> <file>\n");
 	return 1;
 }

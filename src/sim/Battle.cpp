@@ -101,8 +101,7 @@ lifeSpanOf(const Battle &b, EntityId id) noexcept
 bool
 isFiniteLife(const Battle &b, EntityId id) noexcept
 {
-	const Lifetime *l = b.find<Lifetime>(id);
-	return l != nullptr && l->ages;
+	return b.find<Lifetime>(id) != nullptr;
 }
 
 Battle::Battle(u32 seed) : rng_(seed)
@@ -721,15 +720,15 @@ Battle::applyDamageIncoming() noexcept
 //   dead next frame; testOpposingMissilesDestroyEachOther and
 //   testPointDefenceBurnsOwnNuke both failed this way before landing here.
 //
-// view<Lifetime>, not view<Element>: only a Lifetime holder ages, and the
-// planet's Lifetime{2, false} is a holder that must not -- `ages` is the
-// gate that keeps it a real, readable value without a countdown.
+// view<Lifetime>, not view<Element>: only a Lifetime holder ages. The
+// planet has none (Indestructible instead), so it is invisible to this
+// view entirely -- no per-entity exemption needed.
 void
 Battle::ageDecrementPass() noexcept
 {
 	for (auto [id, life] : reg_.view<Lifetime>().each())
 	{
-		if (life.ages && !reg_.all_of<Doomed>(id))
+		if (!reg_.all_of<Doomed>(id))
 			--life.remaining;
 	}
 }

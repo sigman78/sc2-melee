@@ -1502,7 +1502,7 @@ addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
 	pos.next = at;
 	const EntityId id =
 			b.spawn(Layer::Field, std::move(p), pos, Motion{}, phys, &m);
-	b.attach<Lifetime>(id, Lifetime{2, /*ages=*/false});
+	b.attach<Indestructible>(id);
 	return id;
 }
 
@@ -1758,13 +1758,29 @@ testPlanetsTakeNoDamage()
 	planet.hitPoints = 200;
 	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
 			Position{}, Motion{}, Physique{200});
-	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
+	b.attach<Indestructible>(planetId);
 
 	doDamage(b, planetId, 50);
 	auto p = b.get(planetId);
 	CHECK(p->hitPoints == 200, "a planet is not damageable, got %ld",
 			static_cast<long>(p->hitPoints));
-	CHECK(lifeSpanOf(b, planetId) == 2, "and is certainly not killable");
+	CHECK(lifeSpanOf(b, planetId) == 1, "and holds no Lifetime to kill");
+
+	// weaponCollision's own target-survives test (Damage.cpp) is the site
+	// review-007 rewired onto Indestructible -- doDamage's mass guard above
+	// is a separate, older immunity and would not by itself catch a
+	// regression there.
+	Element shot;
+	shot.kind = ElementKind::Weapon;
+	const EntityId shotId = b.spawn(Layer::Field, std::move(shot),
+			Position{}, Motion{}, Physique{4});  // damage == mass, weapon.c:144
+	b.get(shotId)->collidedWith = planetId;
+	weaponCollision(b, shotId);
+
+	CHECK(b.get(planetId)->hitPoints == 200,
+			"weaponCollision must not dent the planet either, got %ld",
+			static_cast<long>(b.get(planetId)->hitPoints));
+	CHECK(b.has<Doomed>(shotId), "the shot still spends itself on impact");
 
 	// The same call, asked of a ship that has fled to mass 100. isGravityMass
 	// is the predicate *without* gravity.c's `+ 1`, so it stays damageable
@@ -1862,7 +1878,7 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	planetPos.next = planetPos.current;
 	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
 			planetPos, Motion{}, Physique{200}, &m);
-	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
+	b.attach<Indestructible>(planetId);
 
 	// Spawned clear of the planet, then moved into it. Starting them on top of
 	// each other is not a shortcut: the planet's collision is resolved before
@@ -2115,7 +2131,7 @@ testTurningIntoOverlapIsReverted()
 	planetPos.current = planetPos.next = Vec2i{4000, 4000};
 	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
 			planetPos, Motion{}, Physique{200}, &wall);
-	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
+	b.attach<Indestructible>(planetId);
 
 	// Adjacent at facing 0 (a 4x4 mask), overlapping at facing 1 (16x16).
 	const EntityId ship = spawnPlayerShip(b, d, nullptr,
@@ -2165,7 +2181,7 @@ testSpawnInsideSomethingIsExecuted()
 	planetPos.current = planetPos.next = Vec2i{4000, 4000};
 	const EntityId planetId = b.spawn(Layer::Field, std::move(planet),
 			planetPos, Motion{}, Physique{200}, &m);
-	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
+	b.attach<Indestructible>(planetId);
 	b.step();  // established
 
 	Element rock;

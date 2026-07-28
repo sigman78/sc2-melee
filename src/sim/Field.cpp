@@ -175,10 +175,9 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	const EntityId id = b.spawn(
 			Layer::Field, std::move(p), Position{}, Motion{}, Physique{}, mask);
 
-	// NORMAL_LIFE + 1 (misc.c:55), WITHOUT FiniteLife: the one entity whose
-	// lifeSpan isn't 1 despite being persistent. `ages = false` is what
-	// AgeDecrement reads to leave this value alone forever -- see Entity.hpp.
-	b.attach<Lifetime>(id, Lifetime{2, /*ages=*/false});
+	// misc.c:55's lifeSpan = NORMAL_LIFE+1 encoded indestructibility as a
+	// magic countdown value; the tag says it directly (Entity.hpp).
+	b.attach<Indestructible>(id);
 
 	do
 	{
