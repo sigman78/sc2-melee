@@ -124,8 +124,8 @@ Battle::Battle(u32 seed) : rng_(seed)
 bool
 Battle::collidable(EntityId id) const noexcept
 {
-	return alive(id) && reg_.all_of<Collider>(id)
-			&& !reg_.all_of<Doomed>(id);
+	return alive(id) && reg_.all_of<Collider>(id) && !reg_.all_of<Doomed>(id)
+			&& !reg_.all_of<WarpingIn>(id);
 }
 
 void

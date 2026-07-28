@@ -214,10 +214,13 @@ public:
 	}
 	[[nodiscard]] usize size() const noexcept { return count_; }
 
-	// CollidingElement (collide.h:31-33): a Collider and not Doomed.
-	// Something dying this frame must not still be hit, and must not still
-	// pull on anything. Free-standing rather than an Element method now that
-	// solidity lives in a separate component (review-007 W2).
+	// CollidingElement (collide.h:31-33): a Collider, not Doomed, and not
+	// WarpingIn. Something dying this frame must not still be hit, and must
+	// not still pull on anything; a ship still warping in keeps its Collider
+	// the whole time (ShipSystems.cpp) but must not be hit either, which is
+	// what the WarpingIn exclusion is for. Free-standing rather than an
+	// Element method now that solidity lives in a separate component
+	// (review-007 W2).
 	[[nodiscard]] bool collidable(EntityId id) const noexcept;
 
 	// THE spawn: order is gameplay (design-notes D8), and the position is

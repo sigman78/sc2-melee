@@ -2361,9 +2361,12 @@ testShipWarpsInBeforeItIsSolid()
 
 	b.step();
 	CHECK(ship(), "the ship should survive its first frame");
-	CHECK(!b.has<sim::Collider>(shipId),
+	CHECK(!b.collidable(shipId),
 			"an arriving ship must be intangible -- that is what stops two of "
 			"them materialising inside each other");
+	CHECK(b.has<Collider>(shipId),
+			"and it keeps its mask while intangible: WarpingIn is what makes it "
+			"untouchable, not the absence of a Collider");
 
 	// Partway through: shadows are being shed, they are hull-sized rather than
 	// points, and -- the part that was wrong twice -- each new one is laid

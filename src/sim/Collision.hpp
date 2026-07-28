@@ -115,21 +115,12 @@ comp struct Collider
 	Borrowed<const CollisionMask> mask = nullptr;
 };
 
-// A mask value carried independently of Collider, for wherever code needs
-// one to survive a stretch of deliberate non-solidity -- attaching a real
-// Collider instead would make the holder collide, which is exactly what
-// these moments must not do:
-//   - the asteroid field's recycle (Field.cpp): the live asteroid keeps a
-//     standing copy of its own birth mask, since a kill (doDamage) detaches
-//     its Collider on the spot, well before asteroidDeath runs and needs the
-//     value for the rubble it spawns; the rubble then carries the same
-//     value the same way through its own non-solid life, for rubbleDeath to
-//     hand to the replacement asteroid.
-//   - a ship warping in (ShipSystems.cpp): intangible on the way in, so
-//     applyFacingMask's normal rebuild-from-facingMasks can't be trusted
-//     alone -- a spec with no facingMasks (a headless test or replay ship,
-//     given its mask directly at spawn instead) has nothing to rebuild from,
-//     so arrival falls back to the value stashed here.
+// A durable copy of a birth mask, carried independently of Collider and
+// outliving it -- the asteroid field's recycle (Field.cpp). A kill
+// (doDamage) detaches the live asteroid's Collider on the spot, well before
+// asteroidDeath runs and needs the mask for the rubble it spawns; the
+// rubble then carries the same value the same way through its own
+// non-solid life, for rubbleDeath to hand to the replacement asteroid.
 comp struct StashedMask
 {
 	Borrowed<const CollisionMask> mask = nullptr;

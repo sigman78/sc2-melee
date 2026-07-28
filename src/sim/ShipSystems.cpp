@@ -501,19 +501,15 @@ warpInStep(Battle &b, EntityId id) noexcept
 	{
 		// Arriving: invisible, untouchable, on a clock (tactrans.c:858-866). The
 		// ship is in the simulation the whole time -- just not hittable or drawn --
-		// which stops two ships materialising inside each other.
+		// which stops two ships materialising inside each other. The Collider
+		// stays attached throughout; collidable() excludes it by WarpingIn
+		// instead, so there is no mask to lose track of and nothing to restore
+		// on arrival.
 		sp->crew = sp->spec->maxCrew;
 		sp->energy = sp->spec->maxEnergy;
 		b.find<Input>(id)->buttons = ShipInput::None;
 		b.find<Allegiance>(id)->owner = id;
 		b.attach<Lifetime>(id, Lifetime{kWarpInFrames});
-		// Stashed before detaching: applyFacingMask can't always rebuild this
-		// on arrival (a spec with no facingMasks -- a headless test or replay
-		// ship, given its mask directly at spawn -- has nothing to rebuild
-		// from), so arrival falls back to this instead.
-		if (const Collider *c = b.find<Collider>(id))
-			b.attach<StashedMask>(id, StashedMask{c->mask});
-		b.detach<Collider>(id);
 		b.find<Motion>(id)->velocity.zero();
 		return;
 	}
@@ -551,20 +547,14 @@ warpInStep(Battle &b, EntityId id) noexcept
 	if (lifeSpanOf(b, id) <= 1)
 	{
 		// Arrived: solid, visible, under its own control (tactrans.c:868-886).
-		// applyFacingMask reattaches the Collider warpInStep's Appearing
-		// branch detached, rebuilt from the spec's facingMasks; the stash
-		// covers a spec with none to rebuild from (a null-mask test ship had
-		// nothing stashed either, so still nothing re-attaches).
+		// The Collider was never removed, so applyFacingMask's rebuild from
+		// the spec's facingMasks is a refresh, not a reattach; a spec with
+		// none to rebuild from (a headless test or replay ship, given its
+		// mask directly at spawn) simply leaves the Collider's mask as it
+		// already was.
 		b.detach<Lifetime>(id);  // NORMAL_LIFE: persistent again
 		b.find<Motion>(id)->velocity.zero();
 		applyFacingMask(b, id, b.find<Position>(id)->facing, *sp->spec);
-		if (!b.has<Collider>(id))
-		{
-			if (const StashedMask *sm = b.find<StashedMask>(id);
-					sm != nullptr && sm->mask != nullptr)
-				b.attach<Collider>(id, sm->mask);
-		}
-		b.detach<StashedMask>(id);
 		b.detach<WarpingIn>(id);
 	}
 }
