@@ -13,17 +13,28 @@ proof of behavior.
 
 **Rendering becomes a declared pipeline**, symmetric to step():
 
-    clear → Starfield → RenderLayer(Background) → RenderLayer(Field)
-          → RenderLayer(Ordnance) → Marks → Hud → Overlay(ctx-gated)
-          → present
+    clear → Starfield → RampPoints → RampSilhouettes → DebrisFrames
+          → Sprites(+Rect fallback) → Beams → Marks → Hud
+          → Overlay(ctx-gated) → present
 
-Each RenderLayer pass walks its stratum in (layer, seq) order and
-dispatches on Visual.policy per entity. Decomposition is by *layer*, not
-by technique: per-technique passes (view<SpriteVisual>, view<BeamVisual>…)
-would batch draws across seq and break z-order within a layer, and at
-forty entities there is no batching win to pay for that. Visual's policy
-enum is data-driven dispatch already; new layers becoming new passes is
-the extensibility that matters (M2 panels, hyperspace strata).
+One pass per drawing *technique*, each walking eachOrdered filtered by
+Visual.policy — so the effective z-order is the declared triple
+**(technique, layer, seq)**. The first draft decomposed by layer to
+preserve within-layer cross-technique interleaving; SiGMan's challenge
+("where does that actually matter?") survived the accounting: every
+load-bearing ordering in current content is *within* one technique
+(flame self-overlap, ship-over-ship), which the filtered eachOrdered
+preserves, and the only cross-technique overlaps are cosmetically
+negligible decorations — with beams-over-projectiles arguably an
+improvement. Pass order encodes the surviving cross-technique intent:
+decorations under hulls, beams on top. The Rect fallback folds into the
+sprite pass (a no-art stand-in, not a technique).
+
+Recorded edge for M2: an entity drawn by two techniques (a shield glow
+over its own hull) splits across passes and can sandwich wrong against
+another entity's sprite; the fix, when it is needed, is declarable — a
+technique priority or a dedicated layer — not a return to interleaved
+per-entity dispatch.
 
 **True singletons go to entt's context**, not a magic entity: ctx state
 has no id, never appears in a view, cannot be reaped. Candidates:
