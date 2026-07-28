@@ -162,11 +162,27 @@ app churns them.
 | W2 | `Collider{mask}`: solidity is presence, NonSolid dies, collidable() dies | bit-green |
 | W3 | `Lifetime{remaining}` + `Doomed`: the aging/death/reap protocol on components; lifeSpan and FiniteLife die; **ElementFlags deleted** (last bits gone). The high-care stage: the died-last-frame protocol and Z4's decrement position are the subtlest pins in the sim | bit-green |
 | W4 | The body split, sub-gated one component at a time like Z5: Position → Motion → Beam{from,to} → Vitality → Warhead → Allegiance → AnimFrame → clocks into ShipState; Spawn.hpp's descriptor structs reshaped (they are a mini-Element); **Element deleted** at the end | bit-green per sub-step |
-| W5 | Opener: Vec2i grows its operators (+, -, unary -, +=, -=) and the pure vector-math spellings sweep to them (SiGMan: component-wise construction was inherited noise, nothing more). Then hooks dissolve: the collision-response system, DeathSpawn/SweepsOwnedOnDeath, the flame animation component; ElementHook and collidedWith deleted | bit-green; adjudicated checkpoint if it grows teeth; the commit names every hook and what carries its behavior |
+| W5 | Opener: Vec2i grows its operators (+, -, unary -, +=, -=) and the pure vector-math spellings sweep to them (SiGMan: component-wise construction was inherited noise, nothing more). Then hooks dissolve: the collision-response system, DeathSpawn/SweepsOwnedOnDeath, the flame animation component; ElementHook and collidedWith deleted | **done, bit-green throughout** — every hook is data: onCollision dispatches on has\<Warhead\> (weaponCollision/solidCollision take the other id as an argument; the flame's wrapper is `Warhead::lingersOnHit`); onDeath is the `SweepsOwnedOnDeath` tag plus `DeathSpawn{emit}` payloads, run at both death sites; the animate pass iterates Spin (eachOrdered, Z5's proven order) and `FrameDriven` flame growth (plain each\<\> — an empty tag cannot pass through get\<\>); guidedShotPreProcess was vestigial, guidedSteerPass already owned it. Element = {kind}. The spawn-diet finding inverted the plan's hint: Battle::spawn's universal attach set is *correct* — its four callers are all collision-domain — and the diet landed one level up as `spawnEffect` for the never-solid particles, of which IgnoreVelocity died |
 | W6 | Planet + effect tags (gravityPass stops scanning by mass); SpawnEvent derives flavor from composition; `Cloaked` tag with its invariant pin, isCloaked deleted. Kind still exists, now unread by sim and sound | bit-green |
 | W7 | The semantic render pipeline (§2) on the finished tags; CelPolicy retires, Visual shrinks to data; **ElementKind deleted here** — its last consumer (visualFor's dispatch) dissolves into the passes | baseline untouched by construction; suite 8/8; driven screenshots incl. F1 overlay; stacking changes named in the commit |
 | W8 | The app-state migration (§3): Starfield entity, Mark entities + age reap, AnnouncedDead, ctx surface, Battle::destroy for app-owned entities | same gates + screenshots; Game struct visibly shrinks |
 | W9 | Specs as payloads; ShipDef-level un-composition; the general fluent builder (final vocabulary exists now); the verdict with measurements (LOC, compile time as observation); sim-architecture.md amended | bit-green; the record |
+
+### Execution shift after W5 (SiGMan, 2026-07-28)
+
+The remaining stages run batched, not sequential — the per-stage cadence
+proved too slow and token-expensive. The shape: the main session pre-lands
+a **skeleton commit** carrying every shared surface (the W6 tags, Battle's
+setContext/context/destroy, the builder shell) so the remaining work
+partitions into two disjoint-file tracks that cannot conflict by
+construction; then **W6+W9 (sim track) and W7+W8 (app track) execute as
+two parallel agents in separate git worktrees** with their own build dirs.
+The one entangled deletion — ElementKind, which the app track stops
+reading while the sim track still writes — is deferred to a small
+post-merge harmonization sweep. Gates are unchanged in kind, batched in
+frequency: each track runs its full battery at its two stage boundaries;
+the merged result gets one final battery plus the driven visual check.
+Track briefs staged in `.claude/briefs/`.
 
 ## 5. Risks named
 
