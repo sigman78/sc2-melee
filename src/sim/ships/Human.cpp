@@ -64,7 +64,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 			return;
 
 		auto t = b.get(other);
-		if (t == nullptr || !t->collidable())
+		if (t == nullptr || !b.collidable(other))
 			return;
 		if (isCloaked(b, other))
 			return;  // human.c:203-204
@@ -106,7 +106,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		beam.kind = ElementKind::Laser;
 		beam.playerNr = ship->playerNr;
 		beam.owner = id;
-		beam.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
+		beam.flags = ElementFlags::FiniteLife;
 		beam.lifeSpan = 1;
 		beam.current = from;
 		beam.next = beamTo;

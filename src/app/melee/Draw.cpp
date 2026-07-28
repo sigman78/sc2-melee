@@ -387,9 +387,25 @@ draw(Game &g)
 
 		const Vec2i at = g.camera.toScreen(e->current);
 
+		// A weapon draws the cel colorCycle names -- the facing for a
+		// directional missile, the animation frame for the flame. Worked out
+		// before the size below, which needs it too.
+		const game::SpriteSet *set = v->sprites;
+		const usize cel = set != nullptr
+				? (v->policy == CelPolicy::ByFrame
+								? static_cast<usize>(e->colorCycle)
+										% set->frames.size()
+								: static_cast<usize>(e->facing.raw())
+										% set->frames.size())
+				: 0;
+
 		// One zoom, one scale, no separate LOD path (design-notes.md D6).
+		// Size comes from content's own mask -- the same CollisionMask a
+		// Collider would borrow, reached through the SpriteSet instead of
+		// the entity, so a NonSolid element (no Collider at all) still
+		// draws at its real size. No sprite at all keeps the old fallback.
 		const Extent2u mask =
-				e->mask != nullptr ? e->mask->size() : Extent2u{8, 8};
+				set != nullptr ? set->masks[cel].size() : Extent2u{8, 8};
 		const i32 w = std::max(
 				1, g.camera.scale(sim::displayToWorld(
 						   static_cast<i32>(mask.w))));
@@ -412,7 +428,7 @@ draw(Game &g)
 		{
 			const i32 crew = s->crew;
 
-			if (any(e->flags & sim::ElementFlags::NonSolid) && crew > 0)
+			if (!g.battle.has<sim::Collider>(id) && crew > 0)
 				return;  // still warping in
 
 			// A dying ship keeps its own hull for the first fifteen frames,
@@ -423,21 +439,13 @@ draw(Game &g)
 				return;
 		}
 
-		if (const game::SpriteSet *set = v->sprites; set != nullptr)
+		if (set != nullptr)
 		{
-			// A weapon draws the cel colorCycle names -- the facing for a
-			// directional missile, the animation frame for the flame.
-			const usize i = v->policy == CelPolicy::ByFrame
-					? static_cast<usize>(e->colorCycle)
-							% set->frames.size()
-					: static_cast<usize>(e->facing.raw())
-							% set->frames.size();
-
 			// Draw from the cel's hotspot, not its centre: each facing's
 			// hotspot differs (the ship is asymmetric), and centring would
 			// shift the hull as it turns and offset it from the mask.
-			const Vec2i hs = set->masks[i].hotspot();
-			const Extent2u src = set->masks[i].size();
+			const Vec2i hs = set->masks[cel].hotspot();
+			const Extent2u src = set->masks[cel].size();
 			const i32 ox = src.w != 0
 					? static_cast<i32>(hs.x) * w
 							/ static_cast<i32>(src.w)
@@ -454,17 +462,17 @@ draw(Game &g)
 			{
 				const usize step = static_cast<usize>(
 						sim::kIonTrailLife - e->lifeSpan);
-				if (step >= kIonRamp.size() || i >= set->silhouettes.size())
+				if (step >= kIonRamp.size() || cel >= set->silhouettes.size())
 					return;
 				const Colour c = kIonRamp[step];
-				g.window.drawTinted(set->silhouettes[i],
+				g.window.drawTinted(set->silhouettes[cel],
 						Vec2i{at.x - ox, at.y - oy}, dest, c.r, c.g, c.b);
 				return;
 			}
 
 			const sim::Cloak *cloakState = g.battle.find<sim::Cloak>(id);
 			const i32 cloak = cloakState != nullptr ? cloakState->level : 0;
-			if (cloak > 0 && i < set->silhouettes.size())
+			if (cloak > 0 && cel < set->silhouettes.size())
 			{
 				// Cloak ramp (ilwrath.c:250-285): levels 1..5 are the fill
 				// colours; kCloakFullLevel is BLACK, which the C fills but
@@ -472,12 +480,12 @@ draw(Game &g)
 				if (cloak >= sim::kCloakFullLevel)
 					return;
 				const Colour c = kCloakRamp[static_cast<usize>(cloak)];
-				g.window.drawTinted(set->silhouettes[i],
+				g.window.drawTinted(set->silhouettes[cel],
 						Vec2i{at.x - ox, at.y - oy}, dest, c.r, c.g, c.b);
 				return;
 			}
 
-			g.window.draw(set->frames[i], Vec2i{at.x - ox, at.y - oy}, dest);
+			g.window.draw(set->frames[cel], Vec2i{at.x - ox, at.y - oy}, dest);
 			return;
 		}
 
@@ -538,18 +546,21 @@ void
 drawOverlay(Game &g)
 {
 	// Mask bounds, so it is visible when a silhouette is not what you expect.
+	// Reads the Collider now, not the entity: an element without one has no
+	// collision box to show, which is the truthful picture (review-007 W2).
 	g.battle.eachOrdered([&g](sim::EntityId id) {
 		const auto e = g.battle.get(id);
-		if (e == nullptr || e->mask == nullptr)
+		const sim::Collider *c = g.battle.find<sim::Collider>(id);
+		if (e == nullptr || c == nullptr)
 			return;
 
 		const Vec2i at = g.camera.toScreen(e->current);
-		const Extent2u m = e->mask->size();
+		const Extent2u m = c->mask->size();
 		const i32 w = g.camera.scale(
 				sim::displayToWorld(static_cast<i32>(m.w)));
 		const i32 h = g.camera.scale(
 				sim::displayToWorld(static_cast<i32>(m.h)));
-		const Vec2i hs = e->mask->hotspot();
+		const Vec2i hs = c->mask->hotspot();
 		const i32 ox = m.w != 0
 				? static_cast<i32>(hs.x) * w
 						/ static_cast<i32>(m.w)

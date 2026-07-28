@@ -65,8 +65,8 @@ asteroidPreProcess(Battle &b, EntityId id) noexcept
 void
 rubbleDeath(Battle &b, EntityId id) noexcept
 {
-	auto e = b.get(id);
-	const CollisionMask *mask = (e != nullptr) ? e->mask : nullptr;
+	const StashedMask *rm = b.find<StashedMask>(id);
+	const CollisionMask *mask = rm != nullptr ? rm->mask : nullptr;
 
 	SpawnCommand cmd;
 	cmd.deferred = [](Battle &bb, Borrowed<const CollisionMask> m) noexcept {
@@ -82,26 +82,30 @@ bool
 timeSpaceMatterConflict(Battle &b, EntityId id)
 {
 	auto self = b.get(id);
-	if (self == nullptr || self->mask == nullptr)
+	const Collider *selfCollider = b.find<Collider>(id);
+	if (self == nullptr || selfCollider == nullptr)
 		return false;
 
-	const Body a{self->mask, self->current, self->current};
+	const Body a{selfCollider->mask, self->current, self->current};
 
 	// Order-independent: a plain OR over every other element, so the walk
 	// need not be the spine -- eachElement is enough, and keeps
 	// entt::registry out of this file.
 	bool conflict = false;
 	b.eachElement([&](EntityId other, Element &t) {
-		if (conflict || other == id || t.mask == nullptr)
+		if (conflict || other == id)
+			return;
+		const Collider *tCollider = b.find<Collider>(other);
+		if (tCollider == nullptr)
 			return;
 
 		// A player ship counts even when it is not collidable -- gravity.c:175
 		// calls that case "ship in transition", and it is what stops a planet
 		// materialising on top of a ship that is still warping in.
-		if (!t.collidable() && !b.has<PlayerShip>(other))
+		if (!b.collidable(other) && !b.has<PlayerShip>(other))
 			return;
 
-		const Body other_{t.mask, t.current, t.current};
+		const Body other_{tCollider->mask, t.current, t.current};
 		if (sweptIntersect(a, other_))
 			conflict = true;
 	});
@@ -160,7 +164,6 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	p.playerNr = -1;             // NEUTRAL_PLAYER_NUM
 	p.hitPoints = 200;
 	p.lifeSpan = 2;              // NORMAL_LIFE + 1 (misc.c:55)
-	p.mask = mask;
 	p.onCollision = solidCollision;
 	p.velocity.zero();
 
@@ -169,7 +172,7 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	// "is this spot inside someone else's well?" -- which is what rejects it.
 	p.mass = 0;
 
-	const EntityId id = b.spawn(Layer::Field, std::move(p));
+	const EntityId id = b.spawn(Layer::Field, std::move(p), mask);
 
 	do
 	{
@@ -192,7 +195,6 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	a.hitPoints = 1;
 	a.mass = 3;
 	a.lifeSpan = 1;              // NORMAL_LIFE, and never decremented
-	a.mask = mask;
 	a.preProcess = asteroidPreProcess;
 	a.onCollision = solidCollision;
 	a.onDeath = asteroidDeath;
@@ -228,8 +230,14 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	spin.backwards = (b.rng().next() & (1u << 7)) != 0;
 
 	a.next = a.current;
-	const EntityId id = b.spawn(Layer::Field, std::move(a));
+	const EntityId id = b.spawn(Layer::Field, std::move(a), mask);
 	b.attach<Spin>(id, spin);
+
+	// A standing copy of the birth mask, independent of the Collider: a kill
+	// (doDamage) detaches the Collider on the spot so the asteroid stops
+	// colliding immediately, one frame or more before asteroidDeath runs --
+	// this is what asteroidDeath still has to hand the rubble.
+	b.attach<StashedMask>(id, StashedMask{mask});
 	return id;
 }
 
@@ -240,23 +248,28 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	if (dead == nullptr)
 		return;
 
+	const StashedMask *deadMask = b.find<StashedMask>(id);
+
 	Element r;
 	r.kind = ElementKind::Blast;
 	r.playerNr = dead->playerNr;
-	r.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
+	r.flags = ElementFlags::FiniteLife;
 	r.lifeSpan = 5;
 	r.current = dead->current;
 	r.next = r.current;
 	r.turnWait = 0;
 	r.onDeath = rubbleDeath;
-	r.mask = dead->mask;
 
 	// Queued, not spawned: it enters the world at the sync point and acts
 	// next frame (review-006 §4's accepted one-frame latency), where the C's
-	// tail insertion let the same frame's live walk still reach it.
+	// tail insertion let the same frame's live walk still reach it. The
+	// rubble itself never collides -- rubbleMask just carries the asteroid's
+	// mask through its non-solid life, for rubbleDeath to hand to the
+	// replacement asteroid.
 	SpawnCommand cmd;
 	cmd.layer = Layer::Ordnance;
 	cmd.element = std::move(r);
+	cmd.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr;
 	b.queueSpawn(std::move(cmd));
 }
 

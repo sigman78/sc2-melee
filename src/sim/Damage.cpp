@@ -86,7 +86,7 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 	}
 	e->hitPoints = 0;
 	e->lifeSpan = 0;
-	e->flags |= ElementFlags::NonSolid;
+	b.detach<Collider>(id);
 }
 
 void
@@ -153,14 +153,15 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	// Disappearing again so the fireball lingers one frame (flameCollision,
 	// ilwrath.c:141-148).
 	wScratch.collided = true;
-	w->flags |= ElementFlags::NonSolid | ElementFlags::Disappearing;
+	w->flags |= ElementFlags::Disappearing;
+	b.detach<Collider>(id);
 
 	// The blast, offset along the direction of travel so it sits on the
 	// surface it hit rather than inside it (weapon.c:198-208).
 	Element blast;
 	blast.kind = ElementKind::Blast;
 	blast.playerNr = w->playerNr;
-	blast.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
+	blast.flags = ElementFlags::FiniteLife;
 	blast.lifeSpan = kBlastLife;
 	blast.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(blastOffset)),
 			at.y + sine(angle, displayToWorld(blastOffset))});

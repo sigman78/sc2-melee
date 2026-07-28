@@ -58,8 +58,11 @@ flamePreProcess(Battle &b, EntityId id) noexcept
 	++e->colorCycle;
 	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
 	if (ws != nullptr && !ws->masks.empty())
-		e->mask = &ws->masks[static_cast<usize>(e->colorCycle)
-				% ws->masks.size()];
+	{
+		if (Collider *c = b.find<Collider>(id))
+			c->mask = &ws->masks[static_cast<usize>(e->colorCycle)
+					% ws->masks.size()];
+	}
 }
 
 void
@@ -120,7 +123,7 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 	if (e->turnWait == 0)
 		e->turnWait = 1;
 
-	applyFacingMask(*e, *b.ship(id)->spec);
+	applyFacingMask(b, id, *e, *b.ship(id)->spec);
 }
 
 }  // namespace

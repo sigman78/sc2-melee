@@ -17,7 +17,7 @@ calculateGravity(Battle &b, EntityId id)
 		return false;
 
 	const bool selfHasGravity =
-			self->collidable() && isGravitySource(self->mass);
+			b.collidable(id) && isGravitySource(self->mass);
 
 	// Doc §2 refinement 1: gravity now runs as its own pipeline pass right
 	// after GuidedSteer, before Integrate has touched anyone's `next` this
@@ -34,7 +34,7 @@ calculateGravity(Battle &b, EntityId id)
 			return;
 
 		auto t = b.get(other);
-		if (t == nullptr || !t->collidable())
+		if (t == nullptr || !b.collidable(other))
 			return;
 
 		// Only pairs that disagree about being a source are interesting: two
@@ -90,7 +90,7 @@ gravityPass(Battle &b)
 {
 	b.eachOrdered([&b](EntityId id) {
 		const Element *e = b.get(id);
-		if (e == nullptr || !e->collidable() || !isGravitySource(e->mass))
+		if (e == nullptr || !b.collidable(id) || !isGravitySource(e->mass))
 			return;
 		(void)calculateGravity(b, id);
 	});

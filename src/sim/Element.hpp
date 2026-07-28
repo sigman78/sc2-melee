@@ -27,9 +27,6 @@ enum class ElementFlags : u32
 
 	// Counts down `lifeSpan` and disappears at zero.
 	FiniteLife = 1u << 2,
-
-	// Takes part in no collisions at all.
-	NonSolid = 1u << 3,
 };
 
 // Traits as types: any(flags & X) became registry().all_of<X>(id), and the
@@ -191,9 +188,6 @@ struct Element
 	i32 turnWait = 0;
 	i32 thrustWait = 0;
 
-	// Not owned: masks live with the content and outlive the battle.
-	Borrowed<const CollisionMask> mask = nullptr;
-
 	// The silhouette/facing this element entered the frame with is NOT here:
 	// it is the overlap-repair protocol's own scratch (process.c:453-506),
 	// so it lives as a component private to Battle.cpp (review-004 X5) --
@@ -213,17 +207,6 @@ struct Element
 	// itself. IGNORE_SIMILAR skips a pair sharing an owner (stops a flame
 	// burning its own ship) -- owner, not player, so allied ships still collide.
 	EntityId owner = kNoEntity;
-
-	// CollidingElement (collide.h:31-33): NONSOLID *or* DISAPPEARING is out.
-	// Something dying this frame must not still be hit, and must not still
-	// pull on anything.
-	[[nodiscard]] bool
-	collidable() const noexcept
-	{
-		return mask != nullptr
-				&& !any(flags
-						& (ElementFlags::NonSolid | ElementFlags::Disappearing));
-	}
 };
 
 }  // namespace uqm::sim

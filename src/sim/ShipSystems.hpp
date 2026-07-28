@@ -58,7 +58,8 @@ void guidedShotPreProcess(Battle &b, EntityId id) noexcept;
 // ships/Ilwrath.cpp), which spend energy and re-derive the facing mask
 // from their own hooks.
 bool deltaEnergy(ShipState &s, i32 delta) noexcept;
-void applyFacingMask(Element &e, const ShipSpec &spec) noexcept;
+void applyFacingMask(
+		Battle &b, EntityId id, Element &e, const ShipSpec &spec) noexcept;
 
 }  // namespace uqm::sim
 

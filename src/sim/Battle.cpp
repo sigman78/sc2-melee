@@ -34,11 +34,11 @@ struct PriorSilhouette
 // stopped, when both carry IGNORE_SIMILAR and share an owner (both, not
 // either; owner, not player or kind), or when neither side has mass.
 [[nodiscard]] bool
-collisionPossible(const Element &test, const Element &elem, bool testCollided,
-		bool elemCollided, bool testIgnoreSimilar,
-		bool elemIgnoreSimilar) noexcept
+collisionPossible(const Element &test, const Element &elem,
+		bool testCollidable, bool testCollided, bool elemCollided,
+		bool testIgnoreSimilar, bool elemIgnoreSimilar) noexcept
 {
-	if (!test.collidable())
+	if (!testCollidable)
 		return false;
 	if (testCollided && elemCollided)
 		return false;
@@ -54,9 +54,18 @@ collisionPossible(const Element &test, const Element &elem, bool testCollided,
 // isn't optional, or the intersect test sees everything 4x further apart.
 // The C converts at this exact boundary (collide.h:44-54).
 [[nodiscard]] Body
-bodyOf(const Element &e) noexcept
+bodyOf(const Element &e, const CollisionMask *mask) noexcept
 {
-	return Body{e.mask, worldToDisplay(e.current), worldToDisplay(e.next)};
+	return Body{mask, worldToDisplay(e.current), worldToDisplay(e.next)};
+}
+
+// The entity's current mask, or null if it has no Collider -- Collider took
+// over from the field Element::mask used to be (review-007 W2).
+[[nodiscard]] const CollisionMask *
+maskOf(const entt::registry &reg, EntityId id) noexcept
+{
+	const Collider *c = reg.try_get<Collider>(id);
+	return c != nullptr ? c->mask : nullptr;
 }
 
 // Where a body stops, rewound to the impact time in world units, not
@@ -90,6 +99,14 @@ Battle::Battle(u32 seed) : rng_(seed)
 	reg_.storage<PriorSilhouette>().reserve(64);
 	reg_.storage<CollisionScratch>().reserve(64);
 	collideOrder_.reserve(64);
+}
+
+bool
+Battle::collidable(EntityId id) const noexcept
+{
+	const Element *e = get(id);
+	return e != nullptr && reg_.all_of<Collider>(id)
+			&& !any(e->flags & ElementFlags::Disappearing);
 }
 
 void
@@ -167,22 +184,27 @@ Battle::attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec)
 }
 
 EntityId
-Battle::spawn(Layer layer, Element e)
+Battle::spawn(Layer layer, Element e, Borrowed<const CollisionMask> collider)
 {
 	const EntityId id = reg_.create();
 	recordSpawn(id, e);
 
-	// Seeded from the element being spawned, not left null: a mid-pipeline
-	// spawn (a death hook's replacement asteroid) reaches Collide with no
-	// CapturePrior pass of its own to have filled this in, and a null mask
-	// reads as "turned" against anything it overlaps, letting the
-	// overlap-repair protocol assign that null mask onto a live element.
-	const PriorSilhouette prior{e.mask, e.facing};
+	// Seeded from the mask the element is spawning with, not left null: a
+	// mid-pipeline spawn (a death hook's replacement asteroid) reaches
+	// Collide with no CapturePrior pass of its own to have filled this in,
+	// and a null mask reads as "turned" against anything it overlaps,
+	// letting the overlap-repair protocol assign that null mask onto a live
+	// element. Attaching the Collider here too, in the same call, is what
+	// keeps this seed and the component in agreement -- a caller attaching
+	// one a statement later would leave this reading stale.
+	const PriorSilhouette prior{collider, e.facing};
 	reg_.emplace<Element>(id, std::move(e));
 	reg_.emplace<PriorSilhouette>(id, prior);
 	reg_.emplace<CollisionScratch>(id);
 	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
 	reg_.emplace<Appearing>(id);
+	if (collider != nullptr)
+		reg_.emplace<Collider>(id, Collider{collider});
 	++count_;
 	return id;
 }
@@ -227,8 +249,9 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	CollisionScratch &eScratch = reg_.get<CollisionScratch>(elemId);
 	CollisionScratch &tScratch = reg_.get<CollisionScratch>(testId);
 
-	if (!collisionPossible(*t, *e, tScratch.collided, eScratch.collided,
-			reg_.all_of<IgnoreSimilar>(testId), reg_.all_of<IgnoreSimilar>(elemId)))
+	if (!collisionPossible(*t, *e, collidable(testId), tScratch.collided,
+			eScratch.collided, reg_.all_of<IgnoreSimilar>(testId),
+			reg_.all_of<IgnoreSimilar>(elemId)))
 		return false;
 
 	// A transient element doesn't collide on its spawn frame (process.c:389-394)
@@ -241,7 +264,9 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 
 	const bool bothSolid =
 			!any((e->flags | t->flags) & ElementFlags::FiniteLife);
-	Impact hit = sweptIntersect(bodyOf(*e), bodyOf(*t), maxTime);
+	Impact hit = sweptIntersect(
+			bodyOf(*e, maskOf(reg_, elemId)), bodyOf(*t, maskOf(reg_, testId)),
+			maxTime);
 
 	// "BAD NEWS" (process.c:397-516): impact at time 1 between two solids is a
 	// standing overlap, not a new collision -- a repair protocol, not a
@@ -253,17 +278,17 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			// The scanner already stopped this frame; the overlap is real
 			// only if it persists with the test element taken at its END
 			// position (process.c:405-413).
-			const Body still{
-					t->mask, worldToDisplay(t->next), worldToDisplay(t->next)};
-			hit = sweptIntersect(bodyOf(*e), still, 1);
+			const Body still{maskOf(reg_, testId), worldToDisplay(t->next),
+					worldToDisplay(t->next)};
+			hit = sweptIntersect(bodyOf(*e, maskOf(reg_, elemId)), still, 1);
 			if (hit.time != 1)
 				break;
 		}
 
 		const PriorSilhouette &ePrior = reg_.get<PriorSilhouette>(elemId);
 		const PriorSilhouette &tPrior = reg_.get<PriorSilhouette>(testId);
-		const bool eTurned = e->mask != ePrior.mask;
-		const bool tTurned = t->mask != tPrior.mask;
+		const bool eTurned = maskOf(reg_, elemId) != ePrior.mask;
+		const bool tTurned = maskOf(reg_, testId) != tPrior.mask;
 		if (!eTurned && !tTurned)
 		{
 			// Neither silhouette changed: either a spawn wedged inside something
@@ -283,17 +308,27 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		// A silhouette changed into the overlap -- something rotated into a wall.
 		// Undo the turn (process.c:453-506) and ask again: the old silhouette may
 		// find no contact, a genuine impact, or a standing overlap settled above.
+		// A null prior reverts to no Collider at all, not one with a null mask
+		// -- Collider's presence is what collidable() reads, so a mask left
+		// null would misread as still solid.
 		if (eTurned)
 		{
-			e->mask = ePrior.mask;
+			if (ePrior.mask != nullptr)
+				reg_.get<Collider>(elemId).mask = ePrior.mask;
+			else
+				reg_.remove<Collider>(elemId);
 			e->facing = ePrior.facing;
 		}
 		if (tTurned)
 		{
-			t->mask = tPrior.mask;
+			if (tPrior.mask != nullptr)
+				reg_.get<Collider>(testId).mask = tPrior.mask;
+			else
+				reg_.remove<Collider>(testId);
 			t->facing = tPrior.facing;
 		}
-		hit = sweptIntersect(bodyOf(*e), bodyOf(*t), maxTime);
+		hit = sweptIntersect(bodyOf(*e, maskOf(reg_, elemId)),
+				bodyOf(*t, maskOf(reg_, testId)), maxTime);
 	}
 
 	if (!hit)
@@ -425,7 +460,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	e = get(elemId);
 	if (e == nullptr || eScratch.collided)
 		return true;
-	if (!e->collidable())
+	if (!collidable(elemId))
 	{
 		eScratch.collided = true;
 		return true;
@@ -475,8 +510,7 @@ Battle::capturePriorPass() noexcept
 	for (auto [id, e, prior, scratch] :
 			reg_.view<Element, PriorSilhouette, CollisionScratch>().each())
 	{
-		(void)id;
-		prior.mask = e.mask;
+		prior.mask = maskOf(reg_, id);
 		prior.facing = e.facing;
 		scratch.collided = false;
 	}
@@ -565,9 +599,7 @@ Battle::collidePass()
 	for (usize i = 0; i < collideOrder_.size(); ++i)
 	{
 		const EntityId id = collideOrder_[i];
-		auto e = get(id);
-		if (e != nullptr && e->collidable()
-				&& !reg_.get<CollisionScratch>(id).collided)
+		if (collidable(id) && !reg_.get<CollisionScratch>(id).collided)
 		{
 			// Successors only, so each pair is visited once per frame.
 			(void)processCollisions(id, i, i + 1, kMaxTimeValue);
@@ -685,7 +717,7 @@ Battle::drainSpawnCommands()
 			continue;
 		}
 
-		const EntityId id = spawn(cmd.layer, std::move(cmd.element));
+		const EntityId id = spawn(cmd.layer, std::move(cmd.element), cmd.collider);
 		if (cmd.weaponSpec != nullptr)
 			attachWeaponSpec(id, cmd.weaponSpec);
 		if (cmd.guided)
@@ -696,6 +728,8 @@ Battle::drainSpawnCommands()
 			attach<BeamGeometry>(id);
 		if (cmd.ignoreSimilar)
 			attach<IgnoreSimilar>(id);
+		if (cmd.rubbleMask != nullptr)
+			attach<StashedMask>(id, StashedMask{cmd.rubbleMask});
 	}
 	spawnCommands_.clear();
 }

@@ -57,7 +57,7 @@ struct Game
 	std::array<input::InputAccumulator, 2> players;
 
 	// Everything content-addressed. Resources owns the sets and the masks
-	// inside them, so both outlive the battle -- which is what Element::mask
+	// inside them, so both outlive the battle -- which is what Collider
 	// assumes.
 	platform::Audio audio;
 	game::Resources content;

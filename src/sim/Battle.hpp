@@ -78,6 +78,17 @@ struct SpawnCommand
 	bool beamGeometry = false;
 	bool ignoreSimilar = false;
 
+	// Non-null attaches a Collider once the spawn lands (the fire block's
+	// shot; see Battle::spawn, which every direct spawn site goes through
+	// instead).
+	Borrowed<const CollisionMask> collider = nullptr;
+
+	// Non-null for the asteroid field's rubble (Field.cpp's asteroidDeath):
+	// the mask it carries through its own non-solid life, so its own death
+	// hook can hand it to the next asteroid -- never a Collider, since that
+	// would make the rubble collide. See StashedMask (Collision.hpp).
+	Borrowed<const CollisionMask> rubbleMask = nullptr;
+
 	// An escape hatch for a spawn whose construction itself must happen at
 	// the sync point, in queue order, instead of at emission -- the
 	// asteroid field's recycle (Field.cpp's rubbleDeath) draws RNG building
@@ -107,6 +118,12 @@ public:
 	}
 	[[nodiscard]] usize size() const noexcept { return count_; }
 
+	// CollidingElement (collide.h:31-33): a Collider and not Disappearing.
+	// Something dying this frame must not still be hit, and must not still
+	// pull on anything. Free-standing rather than an Element method now that
+	// solidity lives in a separate component (review-007 W2).
+	[[nodiscard]] bool collidable(EntityId id) const noexcept;
+
 	// The element, or null for a dead or stale id. A raw borrow: the pool
 	// is in_place_delete, so the address holds for the entity's lifetime --
 	// but the old EntityRef's removed-while-held debug check is gone with
@@ -126,7 +143,13 @@ public:
 	// with review-005 Y2; the C's InsertElement gymnastics (pkunk.c:498-512
 	// head-inserts the phoenix to preprocess before the death hook) become
 	// a Layer declaration when that ship arrives.
-	EntityId spawn(Layer layer, Element e);
+	//
+	// `collider` attaches a Collider iff non-null, and seeds PriorSilhouette
+	// with the same value in the same call -- centralised here so no caller
+	// can attach one a statement late and leave the overlap-repair protocol's
+	// first-frame comparison reading a stale null (see the .cpp).
+	EntityId spawn(Layer layer, Element e,
+			Borrowed<const CollisionMask> collider = nullptr);
 
 	// Registers a spawn for the sync point instead of creating it now --
 	// what a pipeline pass calls in place of spawn() (see SpawnCommand).

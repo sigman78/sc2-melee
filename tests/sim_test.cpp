@@ -104,8 +104,9 @@ testTruncationWidthMatters()
 // key eachOrdered reads. These tests pin the same invariants the old ones
 // did, against the new shape.
 
-// A minimal, marked element for the tests below: NonSolid so it takes no
-// part in collision math, no hooks so nothing runs even if a test steps the
+// A minimal, marked element for the tests below: no Collider, so it takes no
+// part in collision math (spawn() attaches one only when given a mask, and
+// these never are), no hooks so nothing runs even if a test steps the
 // battle, and playerNr as a bare label since Element has no dedicated tag
 // field to spare.
 Element
@@ -113,7 +114,6 @@ marked(int playerNr)
 {
 	Element e;
 	e.playerNr = playerNr;
-	e.flags = ElementFlags::NonSolid;
 	return e;
 }
 
@@ -987,7 +987,6 @@ testCollisionPairsAreVisitedOnce()
 
 	Element a;
 	a.current = Vec2i{500, 500};
-	a.mask = &mask;
 	a.kind = ElementKind::Weapon;
 	a.playerNr = 0;
 	// Transient, like a real weapon -- and load-bearing here: an at-rest
@@ -996,17 +995,16 @@ testCollisionPairsAreVisitedOnce()
 	// Two frames of life, because the first is spent before the test runs.
 	a.flags = ElementFlags::FiniteLife;
 	a.lifeSpan = 2;
-	const EntityId ia = b.spawn(Layer::Field, std::move(a));
+	const EntityId ia = b.spawn(Layer::Field, std::move(a), &mask);
 
 	Element c;
 	c.current = Vec2i{500, 500};
-	c.mask = &mask;
 	c.kind = ElementKind::Ship;
 	c.playerNr = 1;
 	// At least one side must have mass, or the pair is skipped entirely
 	// (collide.h:39). Two massless things have no momentum to exchange.
 	c.mass = 6;
-	const EntityId ic = b.spawn(Layer::Field, std::move(c));
+	const EntityId ic = b.spawn(Layer::Field, std::move(c), &mask);
 
 	b.step();
 	CHECK(b.get(ia)->collidedWith == ic, "a should record hitting c");
@@ -1020,11 +1018,10 @@ testCollisionPairsAreVisitedOnce()
 
 	Element f1;
 	f1.current = Vec2i{500, 500};
-	f1.mask = &mask;
 	f1.kind = ElementKind::Weapon;
 	f1.playerNr = 0;
 	f1.mass = 4;
-	const EntityId if1 = b2.spawn(Layer::Field, std::move(f1));
+	const EntityId if1 = b2.spawn(Layer::Field, std::move(f1), &mask);
 	b2.attach<IgnoreSimilar>(if1);
 	// A synthesized EntityId{index, generation} literal no longer compiles
 	// -- entt's handle has no such constructor -- so f1 stands in as its own
@@ -1036,7 +1033,7 @@ testCollisionPairsAreVisitedOnce()
 	// case the old same-kind test let through.
 	f2.kind = ElementKind::Ship;
 	f2.mass = 7;
-	const EntityId if2 = b2.spawn(Layer::Field, std::move(f2));
+	const EntityId if2 = b2.spawn(Layer::Field, std::move(f2), &mask);
 	b2.attach<IgnoreSimilar>(if2);
 
 	b2.step();
@@ -1052,12 +1049,12 @@ testCollisionPairsAreVisitedOnce()
 	// flame must be finite-life for a stationary overlap to be a hit.
 	g1.flags = ElementFlags::FiniteLife;
 	g1.lifeSpan = 2;
-	const EntityId ig1 = b3.spawn(Layer::Field, std::move(g1));
+	const EntityId ig1 = b3.spawn(Layer::Field, std::move(g1), &mask);
 	b3.attach<IgnoreSimilar>(ig1);
 
 	Element g2 = *b2.get(if2);
 	g2.collidedWith = kNoEntity;
-	const EntityId ig2 = b3.spawn(Layer::Field, std::move(g2));
+	const EntityId ig2 = b3.spawn(Layer::Field, std::move(g2), &mask);
 	b3.attach<IgnoreSimilar>(ig2);
 
 	// Two distinct real owners, in place of the old EntityId{7,1} /
@@ -1470,10 +1467,9 @@ addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
 	p.hitPoints = 200;
 	p.mass = 200;
 	p.lifeSpan = 2;
-	p.mask = &m;
 	p.current = at;
 	p.next = at;
-	return b.spawn(Layer::Field, std::move(p));
+	return b.spawn(Layer::Field, std::move(p), &m);
 }
 
 void
@@ -1505,7 +1501,7 @@ testGravityPullsTowardTheSource()
 	const EntityId ship =
 			spawnPlayerShip(b, earthlingCruiser(), nullptr,
 					Vec2i{4100, 4000}, Facing(0), 0, /*warpIn=*/false);
-	b.get(ship)->mask = &m;
+	b.attach<Collider>(ship, &m);
 	b.ship(ship)->speed = SpeedState::AtMax;
 
 	CHECK(!calculateGravity(b, planet),
@@ -1542,7 +1538,7 @@ testGravityHasAHardEdge()
 		const EntityId ship =
 				spawnPlayerShip(b, earthlingCruiser(), nullptr,
 						Vec2i{4000 + dx, 4000}, Facing(0), 0, /*warpIn=*/false);
-		b.get(ship)->mask = &m;
+		b.attach<Collider>(ship, &m);
 
 		(void)calculateGravity(b, planet);
 		const bool moved = !b.get(ship)->velocity.isZero();
@@ -1560,7 +1556,7 @@ testFleeingShipIsImmuneToGravity()
 	const EntityId ship =
 			spawnPlayerShip(b, earthlingCruiser(), nullptr,
 					Vec2i{4100, 4000}, Facing(0), 0, /*warpIn=*/false);
-	b.get(ship)->mask = &m;
+	b.attach<Collider>(ship, &m);
 	b.get(ship)->mass = kGravityMass;  // DoRunAway, battle.c:92
 
 	(void)calculateGravity(b, planet);
@@ -1642,7 +1638,7 @@ testDestroyedAsteroidIsReplaced()
 	b.eachOrdered([&](EntityId e) {
 		b.get(e)->hitPoints = 0;
 		b.get(e)->lifeSpan = 0;
-		b.get(e)->flags |= ElementFlags::NonSolid;
+		b.detach<Collider>(e);
 	});
 
 	int asteroids = 0;
@@ -1672,7 +1668,7 @@ testPlanetPlacementAvoidsEverything()
 	const EntityId ship =
 			spawnPlayerShip(b, earthlingCruiser(), nullptr,
 					Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
-	b.get(ship)->mask = &m;
+	b.attach<Collider>(ship, &m);
 
 	const EntityId planet = spawnPlanet(b, &m);
 	CHECK(b.get(planet)->mass == 200,
@@ -1769,7 +1765,7 @@ testMissileDamagesAndSpendsItself()
 	// Two ships nose to nose, so the Cruiser's missile cannot miss.
 	const EntityId gunner = spawnPlayerShip(b, cruiser, nullptr,
 			Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
-	b.get(gunner)->mask = &m;
+	b.attach<Collider>(gunner, &m);
 
 	// 400 world units away, not 100. HUMAN_OFFSET is 42 *display* pixels,
 	// which is 168 world units, so the Cruiser's missile is born further from
@@ -1778,7 +1774,7 @@ testMissileDamagesAndSpendsItself()
 	const EntityId target =
 			spawnPlayerShip(b, ilwrathAvenger(), nullptr,
 					Vec2i{4000, 3600}, Facing(8), 1, /*warpIn=*/false);
-	b.get(target)->mask = &m;
+	b.attach<Collider>(target, &m);
 	b.step();
 
 	const i32 before = b.ship(target)->crew;
@@ -1827,11 +1823,10 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	planet.mass = 200;
 	planet.hitPoints = 200;
 	planet.lifeSpan = 2;
-	planet.mask = &m;
 	planet.current = Vec2i{4000, 4000};
 	planet.next = planet.current;
 	planet.onCollision = solidCollision;
-	(void)b.spawn(Layer::Field, std::move(planet));
+	(void)b.spawn(Layer::Field, std::move(planet), &m);
 
 	// Spawned clear of the planet, then moved into it. Starting them on top of
 	// each other is not a shortcut: the planet's collision is resolved before
@@ -1841,7 +1836,7 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	// placing a ship inside anything (misc.c:63-70, ship.c:480).
 	const EntityId ship = spawnPlayerShip(b, earthlingCruiser(), nullptr,
 			Vec2i{5000, 5000}, Facing(0), 0, /*warpIn=*/false);
-	b.get(ship)->mask = &m;
+	b.attach<Collider>(ship, &m);
 	b.step();
 
 	CHECK(b.get(ship) != nullptr, "the ship should have survived setup");
@@ -1891,17 +1886,15 @@ testOverlappingShipsSeparateInsteadOfSticking()
 	a.kind = ElementKind::Ship;
 	a.playerNr = 0;
 	a.mass = 6;
-	a.mask = &m;
 	a.current = a.next = Vec2i{4000, 4000};
-	const EntityId ia = b.spawn(Layer::Field, std::move(a));
+	const EntityId ia = b.spawn(Layer::Field, std::move(a), &m);
 
 	Element c;
 	c.kind = ElementKind::Ship;
 	c.playerNr = 1;
 	c.mass = 6;
-	c.mask = &m;
 	c.current = c.next = Vec2i{6000, 6000};
-	const EntityId ic = b.spawn(Layer::Field, std::move(c));
+	const EntityId ic = b.spawn(Layer::Field, std::move(c), &m);
 
 	// Spawned far apart and established first. The distinction is the C's:
 	// an APPEARING element found overlapping something is EXECUTED on the
@@ -1952,11 +1945,10 @@ spawnTestShot(Battle &b, const CollisionMask &mask, Vec2i at, i32 playerNr,
 	e.playerNr = playerNr;
 	e.hitPoints = hitPoints;
 	e.mass = mass;
-	e.mask = &mask;
 	e.current = e.next = at;
 	e.velocity.setComponents(vx, vy);
 	e.onCollision = weaponCollision;
-	return b.spawn(Layer::Field, std::move(e));
+	return b.spawn(Layer::Field, std::move(e), &mask);
 }
 
 void
@@ -1974,9 +1966,8 @@ testShipShotMidFlightKeepsItsMotion()
 	ship.kind = ElementKind::Ship;
 	ship.playerNr = 0;
 	ship.mass = 6;
-	ship.mask = &m;
 	ship.current = ship.next = Vec2i{4000, 4000};
-	const EntityId is = b.spawn(Layer::Field, std::move(ship));
+	const EntityId is = b.spawn(Layer::Field, std::move(ship), &m);
 	b.attach<PlayerShip>(is);
 
 	// A stationary shot in the ship's path. Zero damage, so the run is about
@@ -2079,10 +2070,9 @@ testTurningIntoOverlapIsReverted()
 	planet.mass = 200;
 	planet.hitPoints = 200;
 	planet.lifeSpan = 2;
-	planet.mask = &wall;
 	planet.current = planet.next = Vec2i{4000, 4000};
 	planet.onCollision = solidCollision;
-	(void)b.spawn(Layer::Field, std::move(planet));
+	(void)b.spawn(Layer::Field, std::move(planet), &wall);
 
 	// Adjacent at facing 0 (a 4x4 mask), overlapping at facing 1 (16x16).
 	const EntityId ship = spawnPlayerShip(b, d, nullptr,
@@ -2129,10 +2119,9 @@ testSpawnInsideSomethingIsExecuted()
 	planet.mass = 200;
 	planet.hitPoints = 200;
 	planet.lifeSpan = 2;
-	planet.mask = &m;
 	planet.current = planet.next = Vec2i{4000, 4000};
 	planet.onCollision = solidCollision;
-	(void)b.spawn(Layer::Field, std::move(planet));
+	(void)b.spawn(Layer::Field, std::move(planet), &m);
 	b.step();  // established
 
 	Element rock;
@@ -2141,11 +2130,10 @@ testSpawnInsideSomethingIsExecuted()
 	rock.hitPoints = 1;
 	rock.mass = 3;
 	rock.lifeSpan = 1;
-	rock.mask = &m;
 	rock.current = rock.next = Vec2i{4004, 4000};  // inside the planet
 	rock.onCollision = solidCollision;
 	rock.onDeath = countOverlapDeath;
-	const EntityId ir = b.spawn(Layer::Field, std::move(rock));
+	const EntityId ir = b.spawn(Layer::Field, std::move(rock), &m);
 
 	g_overlapDeaths = 0;
 	b.step();
@@ -2254,7 +2242,7 @@ testPointDefenceBurnsIncomingFire()
 	const EntityId ship =
 			spawnPlayerShip(b, earthlingCruiser(), nullptr,
 					Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
-	b.get(ship)->mask = &m;
+	b.attach<Collider>(ship, &m);
 	b.step();
 
 	// An enemy shot well inside LASER_RANGE, which is 100 display pixels --
@@ -2267,9 +2255,8 @@ testPointDefenceBurnsIncomingFire()
 	shot.hitPoints = 1;
 	shot.damage = 1;
 	shot.mass = 1;
-	shot.mask = &m;
 	shot.current = shot.next = Vec2i{4000, 4200};
-	const EntityId incoming = b.spawn(Layer::Field, std::move(shot));
+	const EntityId incoming = b.spawn(Layer::Field, std::move(shot), &m);
 
 	b.find<Input>(ship)->buttons = ShipInput::Special;
 	b.step();
@@ -2357,7 +2344,7 @@ testShipWarpsInBeforeItIsSolid()
 
 	b.step();
 	CHECK(ship() != nullptr, "the ship should survive its first frame");
-	CHECK(any(ship()->flags & sim::ElementFlags::NonSolid),
+	CHECK(!b.has<sim::Collider>(shipId),
 			"an arriving ship must be intangible -- that is what stops two of "
 			"them materialising inside each other");
 
@@ -2411,18 +2398,24 @@ testShipWarpsInBeforeItIsSolid()
 			closing, receding);
 
 	const sim::Element *s = nullptr;
+	sim::EntityId sId = kNoEntity;
 	b.eachOrdered([&](sim::EntityId id) {
 		if (s != nullptr)
 			return;
 		auto p = b.get(id);
 		if (p != nullptr && p->kind == sim::ElementKind::ShipShadow)
+		{
 			s = p;
+			sId = id;
+		}
 	});
 	if (s != nullptr)
 	{
-		CHECK(s->mask == &hull,
-				"a shadow carries the hull's mask, or it is drawn at a "
-				"fallback size and reads as debris rather than as the ship");
+		// The shadow itself carries no Collider -- it was never collidable;
+		// Draw.cpp draws it hull-sized straight from content (Move A), not
+		// from a copied mask here (its old carrier, which died with Move A).
+		CHECK(!b.has<sim::Collider>(sId),
+				"a shadow never collides, and never did");
 		CHECK(s->facing == Facing(4), "a shadow keeps the facing it was shed at");
 
 		// And it lies *behind* the ship. The exhaust's own direction is the
@@ -2445,8 +2438,7 @@ testShipWarpsInBeforeItIsSolid()
 	for (int i = 0; i < 4; ++i)
 		b.step();
 	CHECK(ship() != nullptr, "the ship should still be here once it arrives");
-	CHECK(!any(ship()->flags & sim::ElementFlags::NonSolid),
-			"an arrived ship must be solid");
+	CHECK(b.has<sim::Collider>(shipId), "an arrived ship must be solid");
 	CHECK(!b.has<sim::WarpingIn>(shipId),
 			"arrival removes the phase component");
 	CHECK(b.ship(shipId)->crew == sim::earthlingCruiser().maxCrew,

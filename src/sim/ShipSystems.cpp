@@ -32,15 +32,22 @@ deltaEnergy(ShipState &s, i32 delta) noexcept
 
 // The silhouette follows the facing: implicit in the C (process.c:159-160,
 // InitIntersectFrame reads whatever frame is displayed); explicit here,
-// since the mask lives in the simulation and there's no sprite.
+// since the mask lives in the simulation and there's no sprite. Updates the
+// Collider if one is already attached, else attaches one fresh -- a ship
+// spawned with no initial mask (nullptr, e.g. a headless test) gets its
+// first Collider exactly this way, on its own Appearing frame.
 void
-applyFacingMask(Element &e, const ShipSpec &spec) noexcept
+applyFacingMask(Battle &b, EntityId id, Element &e, const ShipSpec &spec) noexcept
 {
 	if (spec.facingMasks.empty())
 		return;
 	const usize i =
 			static_cast<usize>(e.facing.raw()) % spec.facingMasks.size();
-	e.mask = &spec.facingMasks[i];
+	const CollisionMask *mask = &spec.facingMasks[i];
+	if (Collider *c = b.find<Collider>(id))
+		c->mask = mask;
+	else
+		b.attach<Collider>(id, mask);
 }
 
 EntityId
@@ -55,9 +62,8 @@ spawnPlayerShip(Battle &b, const ShipSpec &spec,
 	e.facing = facing;
 	e.playerNr = playerNr;
 	e.mass = spec.mass;
-	e.mask = mask;
 	e.onCollision = solidCollision;
-	const EntityId id = b.spawn(Layer::Field, std::move(e));
+	const EntityId id = b.spawn(Layer::Field, std::move(e), mask);
 	b.attach<IgnoreSimilar>(id);
 	b.attach<PlayerShip>(id);
 	if (warpIn)
@@ -100,7 +106,7 @@ turnShip(Battle &b, EntityId id, Element &e, ShipState &,
 		const int delta = any(in.buttons & ShipInput::Left) ? -1 : 1;
 		e.facing += delta;
 		e.turnWait = spec.turnWait;
-		applyFacingMask(e, spec);
+		applyFacingMask(b, id, e, spec);
 	}
 }
 
@@ -185,7 +191,7 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			// nuke (16 facing cels, frameIndex = facing), different for the flame (8
 			// ANIMATION cels, frameIndex 0). colorCycle carries the frame.
 			w.colorCycle = sp.frameIndex;
-			w.mask = spec.weapon.masks.empty()
+			const CollisionMask *shotMask = spec.weapon.masks.empty()
 					? nullptr
 					: &spec.weapon.masks[static_cast<usize>(sp.frameIndex)
 							% spec.weapon.masks.size()];
@@ -228,6 +234,7 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			cmd.layer = Layer::Ordnance;
 			cmd.weaponSpec = &spec.weapon;
 			cmd.ignoreSimilar = sp.ignoreSimilar;
+			cmd.collider = shotMask;
 
 			// A guided shot starts with its tracking clock already wound:
 			// initialize_nuke seeds TRACK_WAIT (human.c:297-299), so the
@@ -316,7 +323,7 @@ shipMachinesStep(Battle &b, EntityId id) noexcept
 		s.energy = spec.maxEnergy;
 		in.buttons = ShipInput::None;
 		e->owner = id;
-		applyFacingMask(*e, spec);
+		applyFacingMask(b, id, *e, spec);
 		return;
 	}
 
@@ -445,8 +452,11 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 		// the renderer draws.
 		e->colorCycle = e->facing.raw();
 		if (!ws->masks.empty())
-			e->mask = &ws->masks[static_cast<usize>(e->facing.raw())
-					% ws->masks.size()];
+		{
+			if (Collider *c = b.find<Collider>(id))
+				c->mask = &ws->masks[static_cast<usize>(e->facing.raw())
+						% ws->masks.size()];
+		}
 	}
 
 	// Accelerates as it goes (human.c:148-157): speed climbs with life spent,
@@ -469,14 +479,15 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	// sprite's height so the exhaust leaves the hull rather than the hotspot
 	// (tactrans.c:808-812); the collision mask stands in for the frame rect.
 	const Angle angle = e->facing.angle().opposite();
-	const i32 back = e->mask != nullptr
-			? displayToWorld(static_cast<i32>(e->mask->size().h) / 2)
+	const Collider *hull = b.find<Collider>(ship);
+	const i32 back = hull != nullptr
+			? displayToWorld(static_cast<i32>(hull->mask->size().h) / 2)
 			: 0;
 
 	Element t;
 	t.kind = ElementKind::IonTrail;
 	t.playerNr = -1;  // NEUTRAL: exhaust belongs to nobody
-	t.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
+	t.flags = ElementFlags::FiniteLife;
 	t.lifeSpan = kIonTrailLife;
 	t.colorCycle = 0;
 	t.current = wrap(Vec2i{e->current.x + cosine(angle, back),
@@ -514,7 +525,14 @@ warpInStep(Battle &b, EntityId id) noexcept
 		b.find<Input>(id)->buttons = ShipInput::None;
 		e->owner = id;
 		e->lifeSpan = kWarpInFrames;
-		e->flags |= ElementFlags::NonSolid | ElementFlags::FiniteLife;
+		e->flags |= ElementFlags::FiniteLife;
+		// Stashed before detaching: applyFacingMask can't always rebuild this
+		// on arrival (a spec with no facingMasks -- a headless test or replay
+		// ship, given its mask directly at spawn -- has nothing to rebuild
+		// from), so arrival falls back to this instead.
+		if (const Collider *c = b.find<Collider>(id))
+			b.attach<StashedMask>(id, StashedMask{c->mask});
+		b.detach<Collider>(id);
 		e->velocity.zero();
 		return;
 	}
@@ -522,6 +540,8 @@ warpInStep(Battle &b, EntityId id) noexcept
 	// The trail *is* the ship teleporting in: each frame drops a stationary
 	// hull copy behind the arrival point, shrinking by TRANSITION_SPEED per
 	// frame left (tactrans.c:938-950), so images march inward to the ship.
+	// It never carries a Collider -- it was never collidable, and app/melee's
+	// Draw.cpp draws it hull-sized straight from content, not from here.
 	{
 		const Angle angle = e->facing.angle();
 		const i32 back = kTransitionSpeed * (e->lifeSpan - 1);
@@ -530,8 +550,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		shadow.kind = ElementKind::ShipShadow;
 		shadow.playerNr = e->playerNr;  // picks which ship's sprites to draw
 		shadow.facing = e->facing;
-		shadow.mask = e->mask;  // hull-sized, so it is drawn as the hull
-		shadow.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
+		shadow.flags = ElementFlags::FiniteLife;
 		shadow.lifeSpan = kIonTrailLife;
 		shadow.current = wrap(Vec2i{e->current.x - cosine(angle, back),
 				e->current.y - sine(angle, back)});
@@ -551,10 +570,21 @@ warpInStep(Battle &b, EntityId id) noexcept
 	if (e->lifeSpan <= 1)
 	{
 		// Arrived: solid, visible, under its own control (tactrans.c:868-886).
-		e->flags &= ~(ElementFlags::NonSolid | ElementFlags::FiniteLife);
+		// applyFacingMask reattaches the Collider warpInStep's Appearing
+		// branch detached, rebuilt from the spec's facingMasks; the stash
+		// covers a spec with none to rebuild from (a null-mask test ship had
+		// nothing stashed either, so still nothing re-attaches).
+		e->flags &= ~ElementFlags::FiniteLife;
 		e->velocity.zero();
 		e->lifeSpan = 1;  // NORMAL_LIFE: persistent again
-		applyFacingMask(*e, *sp->spec);
+		applyFacingMask(b, id, *e, *sp->spec);
+		if (!b.has<Collider>(id))
+		{
+			if (const StashedMask *sm = b.find<StashedMask>(id);
+					sm != nullptr && sm->mask != nullptr)
+				b.attach<Collider>(id, sm->mask);
+		}
+		b.detach<StashedMask>(id);
 		b.detach<WarpingIn>(id);
 	}
 }
@@ -572,7 +602,8 @@ sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 		if (e == nullptr || !(e->owner == id))
 			return;
 		e->lifeSpan = 0;
-		e->flags |= ElementFlags::NonSolid | ElementFlags::Disappearing;
+		e->flags |= ElementFlags::Disappearing;
+		b.detach<Collider>(other);
 	});
 }
 
@@ -594,7 +625,8 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	e->lifeSpan = kExplosionLife;
 	e->colorCycle = 0;
 	e->flags &= ~ElementFlags::Disappearing;
-	e->flags |= ElementFlags::FiniteLife | ElementFlags::NonSolid;
+	e->flags |= ElementFlags::FiniteLife;
+	b.detach<Collider>(id);
 	e->onDeath = sweepDeadShipOrdnance;
 	if (!b.has<Exploding>(id))
 		b.attach<Exploding>(id);
@@ -647,7 +679,7 @@ explosionStep(Battle &b, EntityId id) noexcept
 		Element d;
 		d.kind = ElementKind::Debris;
 		d.playerNr = -1;  // NEUTRAL: wreckage belongs to nobody
-		d.flags = ElementFlags::FiniteLife | ElementFlags::NonSolid;
+		d.flags = ElementFlags::FiniteLife;
 		d.lifeSpan = kDebrisLife;
 		d.current = wrap(Vec2i{from.x + cosine(spot, dist),
 				from.y + sine(spot, dist)});
