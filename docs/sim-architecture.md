@@ -16,21 +16,22 @@ components, ~19 one-offs and 27 tactics classes (game-rewrite-plan.md,
 charge weapons, limpet stacks, tethered satellites — is composition pressure.
 **Adopted.**
 
-**Storage** — amended on the rewrite/ecs branch by review-004's
-experiment. Adopted **as EnTT sparse-set pools, and only that**: an
-`entt::registry` stores components keyed by entity, and an explicitly-kept
-`OrderLink` spine owns traversal order. The two falsifiable reasons the
-original decision rested on, re-examined against the executed code:
+**Storage** — amended on the rewrite/ecs branch by reviews 004 and 006.
+Adopted **as EnTT sparse-set pools, and only that**: an `entt::registry`
+stores components keyed by entity; traversal order is the `Order{layer,
+seq}` component, sorted on demand by `Battle::eachOrdered` where order is
+gameplay and ignored by plain views where it is not (the OrderLink spine
+of review-004 was the transitional form; review-006 retired it). The two
+falsifiable reasons the original decision rested on, re-examined against
+the executed code:
 
 1. There is no performance problem to solve — still true, and nothing in
    the adoption was done for speed. Pools were adopted for the composition
    ergonomics (a component is a type and an `emplace`, not a hand-rolled
    sidecar), not for cache behaviour.
-2. **Traversal order is gameplay** — held completely. The order never
-   entered the library: the C's `disp_q` survives as the OrderLink
-   component plus head/tail in Battle, and every ordered pass walks it.
-   A sparse-set registry coexists with an owned spine precisely because it
-   has no opinions about order. What this reason actually rejects —
+2. **Traversal order is gameplay** — held completely, and ended as data:
+   the order never entered the library's storage, first as an owned spine,
+   finally as a sort key. What this reason actually rejects —
    archetype/SoA storage that reorders entities by composition — remains
    rejected, exactly as before.
 
