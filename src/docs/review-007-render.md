@@ -124,7 +124,7 @@ app churns them.
 
 | Stage | What | Proof |
 | --- | --- | --- |
-| W0 | The construction facade: domain spawn helpers (makeShip/makeAsteroid/makeShot/…) adopted by app, Field, the fire block and the tests — churn armor for every stage after; entt precompiled headers land, compile time measured before/after | bit-green; the facade changes no values |
+| W0 | The construction facade: domain spawn helpers (makeShip/makeAsteroid/makeShot/…) adopted by app, Field, the fire block and the tests — churn armor for every stage after | bit-green; the facade changes no values |
 | W1 | Easy flags out: Appearing and IgnoreSimilar to tags; Collided and DefyPhysics to Battle-private collision scratch | bit-green |
 | W2 | `Collider{mask}`: solidity is presence, NonSolid dies, collidable() dies | bit-green |
 | W3 | `Lifetime{remaining}` + `Doomed`: the aging/death/reap protocol on components; lifeSpan and FiniteLife die; **ElementFlags deleted** (last bits gone). The high-care stage: the died-last-frame protocol and Z4's decrement position are the subtlest pins in the sim | bit-green |
@@ -133,7 +133,7 @@ app churns them.
 | W6 | Planet + effect tags (gravityPass stops scanning by mass); SpawnEvent derives flavor from composition; `Cloaked` tag with its invariant pin, isCloaked deleted. Kind still exists, now unread by sim and sound | bit-green |
 | W7 | The semantic render pipeline (§2) on the finished tags; CelPolicy retires, Visual shrinks to data; **ElementKind deleted here** — its last consumer (visualFor's dispatch) dissolves into the passes | baseline untouched by construction; suite 8/8; driven screenshots incl. F1 overlay; stacking changes named in the commit |
 | W8 | The app-state migration (§3): Starfield entity, Mark entities + age reap, AnnouncedDead, ctx surface, Battle::destroy for app-owned entities | same gates + screenshots; Game struct visibly shrinks |
-| W9 | Specs as payloads; ShipDef-level un-composition; the general fluent builder (final vocabulary exists now); the verdict with measurements (LOC, compile time against W0's PCH baseline); sim-architecture.md amended | bit-green; the record |
+| W9 | Specs as payloads; ShipDef-level un-composition; the general fluent builder (final vocabulary exists now); the verdict with measurements (LOC, compile time as observation); sim-architecture.md amended | bit-green; the record |
 
 ## 5. Risks named
 
@@ -161,9 +161,10 @@ app churns them.
   the sim (died-last-frame, Z4's decrement position). v2 runs easy to
   hard: trivial tags, then Collider, then Lifetime with due care.
 - **Omissions repaired:** Spawn.hpp's descriptor structs (a
-  mini-Element) added to the body split; the review-004 compile-time
-  mitigation (entt PCH) added at W0 with before/after measurement; the
-  verdict got its measurement list.
+  mini-Element) added to the body split; the verdict got its
+  measurement list. (entt PCH was briefly added at W0, then dropped on
+  SiGMan's call — not a big deal at current scale; it stays a known
+  lever in review-004's ledger.)
 - **Challenged and kept:** marks as entities (taxonomy-ish, justified
   by pass + TTL uniformity); Appearing as a tag (churn on newborns
   only; nowhere better once the bitfield dies); body-split-before-hooks
