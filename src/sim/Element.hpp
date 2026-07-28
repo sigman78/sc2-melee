@@ -22,10 +22,6 @@ enum class ElementFlags : u32
 {
 	None = 0,
 
-	// Created this frame. Its `next` has not been integrated yet, so the
-	// step has to seed it from `current` rather than moving it.
-	Appearing = 1u << 0,
-
 	// Reaped at the end of this frame.
 	Disappearing = 1u << 1,
 
@@ -34,30 +30,6 @@ enum class ElementFlags : u32
 
 	// Takes part in no collisions at all.
 	NonSolid = 1u << 3,
-
-	// Does not collide with others sharing its owner -- a flame stream, so
-	// it does not eat itself (ilwrath.c:203).
-	IgnoreSimilar = 1u << 4,
-
-	// Already collided this frame; the step will not test it again.
-	Collided = 1u << 5,
-
-	// Bits 6-7 (PreProcessed, PostProcessed) retired in review-006 Z4: they
-	// distinguished elements the per-entity walk had already touched this
-	// frame from ones spawned mid-walk. The batch pipeline has no such
-	// distinction to make -- each pass visits every element once, and a
-	// spawn does not exist for any pass to touch until the sync point.
-	//
-	// Collision bookkeeping, not motion: set when two elements met with no
-	// relative motion to exchange (collide.c:84-85). DEFY_PHYSICS in the C.
-	DefyPhysics = 1u << 8,
-
-	// Bits 9-12 left this enum in review-004 X4/X5. PlayerShip,
-	// IgnoreVelocity and BeamGeometry are tag components: a trait an
-	// element has for its whole life. Cloaked became a *derived* predicate
-	// over the Cloak component (Ship.hpp isCloaked) -- stored nowhere, so
-	// it cannot disagree with the machine's state. What stays here is the
-	// step protocol: state the frame machinery toggles every frame.
 };
 
 // Traits as types: any(flags & X) became registry().all_of<X>(id), and the

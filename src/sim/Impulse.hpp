@@ -39,8 +39,10 @@ inline constexpr i32 kCollisionThrustWait = 3;  // collide.h:29
 // already been placed at their impact positions by the sweep.
 // aIsShip/bIsShip: the PlayerShip trait is a tag component now (review-004
 // X4), and pure physics takes facts as parameters rather than a registry.
-void applyImpulse(
-		Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept;
+// aScratch/bScratch: the collided/defyPhysics scratch, read and written here
+// but owned by the collision domain, not by Impulse -- no registry access.
+void applyImpulse(Element &a, bool aIsShip, CollisionScratch &aScratch,
+		Element &b, bool bIsShip, CollisionScratch &bScratch) noexcept;
 
 }  // namespace uqm::sim
 

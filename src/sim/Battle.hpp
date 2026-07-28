@@ -76,6 +76,7 @@ struct SpawnCommand
 
 	bool ignoreVelocity = false;
 	bool beamGeometry = false;
+	bool ignoreSimilar = false;
 
 	// An escape hatch for a spawn whose construction itself must happen at
 	// the sync point, in queue order, instead of at emission -- the

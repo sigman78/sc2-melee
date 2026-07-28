@@ -1024,20 +1024,20 @@ testCollisionPairsAreVisitedOnce()
 	f1.kind = ElementKind::Weapon;
 	f1.playerNr = 0;
 	f1.mass = 4;
-	f1.flags = ElementFlags::IgnoreSimilar;
 	const EntityId if1 = b2.spawn(Layer::Field, std::move(f1));
+	b2.attach<IgnoreSimilar>(if1);
 	// A synthesized EntityId{index, generation} literal no longer compiles
 	// -- entt's handle has no such constructor -- so f1 stands in as its own
 	// owner, a real spawned id the second projectile below can share.
 	b2.get(if1)->owner = if1;
 
 	Element f2 = *b2.get(if1);
-	f2.flags = ElementFlags::IgnoreSimilar;
 	// A *ship*, not another flame -- the kinds differ, which is precisely the
 	// case the old same-kind test let through.
 	f2.kind = ElementKind::Ship;
 	f2.mass = 7;
 	const EntityId if2 = b2.spawn(Layer::Field, std::move(f2));
+	b2.attach<IgnoreSimilar>(if2);
 
 	b2.step();
 	CHECK(b2.get(if1)->collidedWith == kNoEntity,
@@ -1050,13 +1050,15 @@ testCollisionPairsAreVisitedOnce()
 	g1.collidedWith = kNoEntity;
 	// Transient for the same reason as above: the target is solid, so the
 	// flame must be finite-life for a stationary overlap to be a hit.
-	g1.flags = ElementFlags::IgnoreSimilar | ElementFlags::FiniteLife;
+	g1.flags = ElementFlags::FiniteLife;
 	g1.lifeSpan = 2;
 	const EntityId ig1 = b3.spawn(Layer::Field, std::move(g1));
+	b3.attach<IgnoreSimilar>(ig1);
 
 	Element g2 = *b2.get(if2);
 	g2.collidedWith = kNoEntity;
 	const EntityId ig2 = b3.spawn(Layer::Field, std::move(g2));
+	b3.attach<IgnoreSimilar>(ig2);
 
 	// Two distinct real owners, in place of the old EntityId{7,1} /
 	// EntityId{9,1} literals: each element owning itself is enough, since
@@ -1106,7 +1108,8 @@ testHeadOnCollisionExchangesMomentum()
 
 	// The trait is a tag now; pure physics is told who is a ship.
 	const Vec2i beforeA = a.velocity.current();
-	applyImpulse(a, true, b, true);
+	CollisionScratch aScratch, bScratch;
+	applyImpulse(a, true, aScratch, b, true, bScratch);
 	const Vec2i afterA = a.velocity.current();
 
 	CHECK(afterA.x < beforeA.x,
@@ -1138,7 +1141,8 @@ testGravityMassIsNotPushed()
 	planet.next = Vec2i{200, 0};
 	planet.kind = ElementKind::Planet;
 
-	applyImpulse(ship, true, planet, false);
+	CollisionScratch shipScratch, planetScratch;
+	applyImpulse(ship, true, shipScratch, planet, false, planetScratch);
 	CHECK(planet.velocity.isZero(), "the planet must not move");
 	CHECK(!ship.velocity.isZero(), "the ship must");
 }
@@ -1158,14 +1162,15 @@ testStuckPairIsWorkedApart()
 	Element b = a;
 	b.current = b.next = Vec2i{100, 100};
 
-	applyImpulse(a, true, b, true);
-	CHECK(any(a.flags & ElementFlags::DefyPhysics),
+	CollisionScratch aScratch, bScratch;
+	applyImpulse(a, true, aScratch, b, true, bScratch);
+	CHECK(aScratch.defyPhysics,
 			"a stationary pair should defy physics rather than exchange nothing");
-	CHECK(any(b.flags & ElementFlags::DefyPhysics), "both of them");
+	CHECK(bScratch.defyPhysics, "both of them");
 
 	// Second time round, already defying: velocities are zeroed and the pair
 	// gets pushed apart along a skewed axis.
-	applyImpulse(a, true, b, true);
+	applyImpulse(a, true, aScratch, b, true, bScratch);
 	CHECK(!a.velocity.isZero() || !b.velocity.isZero(),
 			"an already-stuck pair should be given a way out");
 }
@@ -2233,10 +2238,10 @@ testDefyPhysicsExpires()
 	// the zero-velocity branch meant for genuinely stuck pairs.
 	Battle b(1);
 	Element e;
-	e.flags = ElementFlags::DefyPhysics;
 	const EntityId id = b.spawn(Layer::Field, std::move(e));
+	b.find<CollisionScratch>(id)->defyPhysics = true;
 	b.step();
-	CHECK(!any(b.get(id)->flags & ElementFlags::DefyPhysics),
+	CHECK(!b.find<CollisionScratch>(id)->defyPhysics,
 			"a frame without a collision sheds DefyPhysics");
 }
 

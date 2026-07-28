@@ -50,7 +50,6 @@ spawnPlayerShip(Battle &b, const ShipSpec &spec,
 {
 	Element e;
 	e.kind = ElementKind::Ship;
-	e.flags = ElementFlags::IgnoreSimilar;
 	e.current = at;
 	e.next = at;
 	e.facing = facing;
@@ -59,6 +58,7 @@ spawnPlayerShip(Battle &b, const ShipSpec &spec,
 	e.mask = mask;
 	e.onCollision = solidCollision;
 	const EntityId id = b.spawn(Layer::Field, std::move(e));
+	b.attach<IgnoreSimilar>(id);
 	b.attach<PlayerShip>(id);
 	if (warpIn)
 		b.attach<WarpingIn>(id);
@@ -195,8 +195,6 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			w.preProcess = sp.preProcess != nullptr ? sp.preProcess
 													: spec.weapon.preProcess;
 			w.flags = ElementFlags::FiniteLife;
-			if (sp.ignoreSimilar)
-				w.flags |= ElementFlags::IgnoreSimilar;
 			w.velocity.setVector(sp.speed, sp.facing);
 			w.owner = id;  // pParent: what IGNORE_SIMILAR is tested against
 
@@ -229,6 +227,7 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			SpawnCommand cmd;
 			cmd.layer = Layer::Ordnance;
 			cmd.weaponSpec = &spec.weapon;
+			cmd.ignoreSimilar = sp.ignoreSimilar;
 
 			// A guided shot starts with its tracking clock already wound:
 			// initialize_nuke seeds TRACK_WAIT (human.c:297-299), so the
@@ -277,7 +276,7 @@ energyRegenPass(Battle &b) noexcept
 		if (b.has<WarpingIn>(id))
 			return;
 		const Element *e = b.get(id);
-		if (e == nullptr || any(e->flags & ElementFlags::Appearing))
+		if (e == nullptr || b.has<Appearing>(id))
 			return;
 		if (s.crew == 0)
 			return;
@@ -310,7 +309,7 @@ shipMachinesStep(Battle &b, EntityId id) noexcept
 		return;
 	}
 
-	if (any(e->flags & ElementFlags::Appearing))
+	if (b.has<Appearing>(id))
 	{
 		Input &in = *b.find<Input>(id);
 		s.crew = spec.maxCrew;
@@ -335,12 +334,12 @@ shipMachinesStep(Battle &b, EntityId id) noexcept
 // The skip list every ship pass below applies: warping in, appearing, or
 // dead hulls run none of Turn/Thrust/Fire/SpecialGate.
 [[nodiscard]] bool
-shouldSkipShipFrame(Battle &b, EntityId id, const Element &e,
-		const ShipState &s, bool checkAppearing) noexcept
+shouldSkipShipFrame(Battle &b, EntityId id, const ShipState &s,
+		bool checkAppearing) noexcept
 {
 	if (b.has<WarpingIn>(id))
 		return true;
-	if (checkAppearing && any(e.flags & ElementFlags::Appearing))
+	if (checkAppearing && b.has<Appearing>(id))
 		return true;
 	return s.crew == 0;
 }
@@ -360,7 +359,7 @@ void
 turnPass(Battle &b) noexcept
 {
 	b.eachElementWith<ShipState>([&b](EntityId id, Element &e, ShipState &s) {
-		if (shouldSkipShipFrame(b, id, e, s, true))
+		if (shouldSkipShipFrame(b, id, s, true))
 			return;
 		turnShip(b, id, e, s, *s.spec);
 	});
@@ -380,7 +379,7 @@ thrustPass(Battle &b) noexcept
 		auto e = b.get(id);
 		ShipState *sp = b.ship(id);
 		if (e == nullptr || sp == nullptr
-				|| shouldSkipShipFrame(b, id, *e, *sp, true))
+				|| shouldSkipShipFrame(b, id, *sp, true))
 			return;
 		applyThrustInput(b, id, *e, *sp, *sp->spec);
 	});
@@ -398,7 +397,7 @@ fireAndSpecialGatePass(Battle &b) noexcept
 		// forces Input::None on the appearing frame, so fireWeapon/
 		// gateSpecial see nothing pressed regardless.
 		if (e == nullptr || sp == nullptr
-				|| shouldSkipShipFrame(b, id, *e, *sp, false))
+				|| shouldSkipShipFrame(b, id, *sp, false))
 			return;
 		fireWeapon(b, id, *e, *sp, *sp->spec);
 		gateSpecial(b, id, *sp, *sp->spec);
@@ -505,7 +504,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 	if (sp == nullptr)
 		return;
 
-	if (any(e->flags & ElementFlags::Appearing))
+	if (b.has<Appearing>(id))
 	{
 		// Arriving: invisible, untouchable, on a clock (tactrans.c:858-866). The
 		// ship is in the simulation the whole time -- just not hittable or drawn --

@@ -95,17 +95,19 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	auto w = b.get(id);
 	if (w == nullptr)
 		return;
+	CollisionScratch &wScratch = *b.find<CollisionScratch>(id);
 
 	// "if already did effect" (weapon.c:141-142): a weapon that has raised
 	// its own Collided this frame is done, however many partners the walk
 	// still pairs it with.
-	if (any(w->flags & ElementFlags::Collided))
+	if (wScratch.collided)
 		return;
 
 	auto target = b.get(w->collidedWith);
 	if (target == nullptr)
 		return;
 	const EntityId targetId = w->collidedWith;
+	CollisionScratch &targetScratch = *b.find<CollisionScratch>(targetId);
 
 	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
 	const i32 damage = w->mass;
@@ -129,7 +131,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 			left = ts != nullptr ? ts->crew : target->hitPoints;
 		}
 		if (left > 0)
-			w->flags |= ElementFlags::Collided;
+			wScratch.collided = true;
 	}
 
 	// Dies here against a solid target, always; against a finite one, only if
@@ -137,8 +139,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame don't).
 	if (target != nullptr
 			&& any(target->flags & ElementFlags::FiniteLife)
-			&& (any(target->flags & ElementFlags::Collided)
-					|| w->hitPoints > target->mass))
+			&& (targetScratch.collided || w->hitPoints > target->mass))
 		return;
 
 	const Vec2i at = w->next;
@@ -147,11 +148,12 @@ weaponCollision(Battle &b, EntityId id) noexcept
 
 	w->hitPoints = 0;
 	w->lifeSpan = 0;
-	// COLLISION | NONSOLID | DISAPPEARING (weapon.c:175-181): stopped, spent,
-	// reaped this frame. The flame's wrapper clears Disappearing again so the
-	// fireball lingers one frame (flameCollision, ilwrath.c:141-148).
-	w->flags |= ElementFlags::Collided | ElementFlags::NonSolid
-			| ElementFlags::Disappearing;
+	// NONSOLID | DISAPPEARING (weapon.c:175-181), Collided in scratch:
+	// stopped, spent, reaped this frame. The flame's wrapper clears
+	// Disappearing again so the fireball lingers one frame (flameCollision,
+	// ilwrath.c:141-148).
+	wScratch.collided = true;
+	w->flags |= ElementFlags::NonSolid | ElementFlags::Disappearing;
 
 	// The blast, offset along the direction of travel so it sits on the
 	// surface it hit rather than inside it (weapon.c:198-208).
@@ -192,7 +194,7 @@ solidCollision(Battle &b, EntityId id) noexcept
 	// Hitting anything solid stops this element at the impact point
 	// (ship.c:358 raises COLLISION for any non-finite other) -- which is what
 	// makes solid-on-solid exchange momentum in the step loop.
-	e->flags |= ElementFlags::Collided;
+	b.find<CollisionScratch>(id)->collided = true;
 
 	if (!isGravityMass(other->mass))
 		return;

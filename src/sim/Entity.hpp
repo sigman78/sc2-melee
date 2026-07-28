@@ -54,6 +54,16 @@ struct Order
 	u64 seq = 0;
 };
 
+// Created this frame: not yet integrated, exempt from its own collisions.
+struct Appearing
+{
+};
+
+// Skips collisions with another IgnoreSimilar entity sharing its owner.
+struct IgnoreSimilar
+{
+};
+
 }  // namespace uqm::sim
 
 #endif  // UQM2_SIM_ENTITY_HPP

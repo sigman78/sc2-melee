@@ -34,14 +34,16 @@ struct PriorSilhouette
 // stopped, when both carry IGNORE_SIMILAR and share an owner (both, not
 // either; owner, not player or kind), or when neither side has mass.
 [[nodiscard]] bool
-collisionPossible(const Element &test, const Element &elem) noexcept
+collisionPossible(const Element &test, const Element &elem, bool testCollided,
+		bool elemCollided, bool testIgnoreSimilar,
+		bool elemIgnoreSimilar) noexcept
 {
 	if (!test.collidable())
 		return false;
-	if (any(test.flags & elem.flags & ElementFlags::Collided))
+	if (testCollided && elemCollided)
 		return false;
-	if (any(test.flags & elem.flags & ElementFlags::IgnoreSimilar)
-			&& test.owner != kNoEntity && test.owner == elem.owner)
+	if (testIgnoreSimilar && elemIgnoreSimilar && test.owner != kNoEntity
+			&& test.owner == elem.owner)
 		return false;
 	if (test.mass == 0 && elem.mass == 0)
 		return false;
@@ -86,6 +88,7 @@ Battle::Battle(u32 seed) : rng_(seed)
 	reg_.storage<Element>().reserve(64);
 	reg_.storage<Order>().reserve(64);
 	reg_.storage<PriorSilhouette>().reserve(64);
+	reg_.storage<CollisionScratch>().reserve(64);
 	collideOrder_.reserve(64);
 }
 
@@ -166,7 +169,6 @@ Battle::attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec)
 EntityId
 Battle::spawn(Layer layer, Element e)
 {
-	e.flags |= ElementFlags::Appearing;
 	const EntityId id = reg_.create();
 	recordSpawn(id, e);
 
@@ -178,7 +180,9 @@ Battle::spawn(Layer layer, Element e)
 	const PriorSilhouette prior{e.mask, e.facing};
 	reg_.emplace<Element>(id, std::move(e));
 	reg_.emplace<PriorSilhouette>(id, prior);
+	reg_.emplace<CollisionScratch>(id);
 	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
+	reg_.emplace<Appearing>(id);
 	++count_;
 	return id;
 }
@@ -198,7 +202,8 @@ Battle::killOverlapSpawn(EntityId id)
 	e = get(id);
 	if (e == nullptr)
 		return;
-	e->flags |= ElementFlags::Collided | ElementFlags::Disappearing;
+	reg_.get<CollisionScratch>(id).collided = true;
+	e->flags |= ElementFlags::Disappearing;
 	if (e->onDeath != nullptr)
 		e->onDeath(*this, id);
 }
@@ -214,16 +219,24 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	if (e == nullptr)
 		return true;
 	auto t = get(testId);
-	if (t == nullptr || !collisionPossible(*t, *e))
+	if (t == nullptr)
+		return false;
+
+	// Held for the rest of this call: nothing spawns or is destroyed mid-Collide
+	// (see processCollisions), so neither pool moves under these references.
+	CollisionScratch &eScratch = reg_.get<CollisionScratch>(elemId);
+	CollisionScratch &tScratch = reg_.get<CollisionScratch>(testId);
+
+	if (!collisionPossible(*t, *e, tScratch.collided, eScratch.collided,
+			reg_.all_of<IgnoreSimilar>(testId), reg_.all_of<IgnoreSimilar>(elemId)))
 		return false;
 
 	// A transient element doesn't collide on its spawn frame (process.c:389-394)
 	// -- exempts FINITE_LIFE-with-Appearing on EITHER side, so a missile can't
 	// detonate on its own muzzle; lifeSpan > 1 still lets one-frame PD fire.
 	if (any((e->flags | t->flags) & ElementFlags::FiniteLife)
-			&& ((any(e->flags & ElementFlags::Appearing) && e->lifeSpan > 1)
-					|| (any(t->flags & ElementFlags::Appearing)
-							&& t->lifeSpan > 1)))
+			&& ((reg_.all_of<Appearing>(elemId) && e->lifeSpan > 1)
+					|| (reg_.all_of<Appearing>(testId) && t->lifeSpan > 1)))
 		return false;
 
 	const bool bothSolid =
@@ -235,7 +248,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// response, or responding again welds ships together. Weapons are exempt.
 	while (hit.time == 1 && bothSolid)
 	{
-		if (any(e->flags & ElementFlags::Collided))
+		if (eScratch.collided)
 		{
 			// The scanner already stopped this frame; the overlap is real
 			// only if it persists with the test element taken at its END
@@ -256,9 +269,9 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			// Neither silhouette changed: either a spawn wedged inside something
 			// (dies on the spot), or the tail of an already-resolved contact, skipped
 			// so the original impulse can carry the pair apart (process.c:427-451, 509-515).
-			if (any(t->flags & ElementFlags::Appearing))
+			if (reg_.all_of<Appearing>(testId))
 				killOverlapSpawn(testId);
-			if (any(e->flags & ElementFlags::Appearing))
+			if (reg_.all_of<Appearing>(elemId))
 			{
 				killOverlapSpawn(elemId);
 				return true;
@@ -296,7 +309,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	{
 		const auto earlier = static_cast<TimeValue>(hit.time - 1);
 
-		if (!any(e->flags & ElementFlags::Collided)
+		if (!eScratch.collided
 				&& processCollisions(elemId, elemIdx, testIdx + 1, earlier))
 			return false;
 		e = get(elemId);
@@ -306,14 +319,13 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		if (t == nullptr)
 			return false;
 
-		if (!any(t->flags & ElementFlags::Collided))
+		if (!tScratch.collided)
 		{
 			// The C scans the test element's earlier candidates from the
 			// scanner's successor -- or from the head when the test element
 			// is newly spawned (process.c:535-540).
-			const usize from = any(t->flags & ElementFlags::Appearing)
-					? 0
-					: elemIdx + 1;
+			const usize from =
+					reg_.all_of<Appearing>(testId) ? 0 : elemIdx + 1;
 			if (processCollisions(testId, testIdx, from, earlier))
 				return false;
 		}
@@ -328,8 +340,8 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// Resolution. The hooks decide who stops -- each raises Collided on
 	// itself, exactly as the C's collision_funcs raise COLLISION -- and run
 	// ship-side first when the TEST element is the ship (process.c:549-570).
-	const bool elemHad = any(e->flags & ElementFlags::Collided);
-	const bool testHad = any(t->flags & ElementFlags::Collided);
+	const bool elemHad = eScratch.collided;
+	const bool testHad = tScratch.collided;
 	const bool bothSolidNow =
 			!any((e->flags | t->flags) & ElementFlags::FiniteLife);
 
@@ -366,11 +378,11 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// Whoever NEWLY raised Collided stops at the impact point
 	// (process.c:572-596); a side that was already stopped keeps the
 	// position its first collision gave it.
-	if (t != nullptr && any(t->flags & ElementFlags::Collided) && !testHad)
+	if (t != nullptr && tScratch.collided && !testHad)
 		t->next = testStop;
 
 	bool impulsed = false;
-	if (e != nullptr && any(e->flags & ElementFlags::Collided) && !elemHad)
+	if (e != nullptr && eScratch.collided && !elemHad)
 	{
 		e->next = elemStop;
 
@@ -380,8 +392,8 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		{
 			// The trait left the struct, so pure physics is told who is a
 			// ship instead of reading a flag (review-004 X4's friction note).
-			applyImpulse(*e, reg_.all_of<PlayerShip>(elemId), *t,
-					reg_.all_of<PlayerShip>(testId));
+			applyImpulse(*e, reg_.all_of<PlayerShip>(elemId), eScratch, *t,
+					reg_.all_of<PlayerShip>(testId), tScratch);
 			impulsed = true;
 
 			// collide.c:104-110: an impulse invalidates the at-max bookkeeping.
@@ -411,11 +423,11 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// stopped, or no longer collidable -- a ship merely hit by a missile is
 	// neither, and can still bounce off another ship this frame.
 	e = get(elemId);
-	if (e == nullptr || any(e->flags & ElementFlags::Collided))
+	if (e == nullptr || eScratch.collided)
 		return true;
 	if (!e->collidable())
 	{
-		e->flags |= ElementFlags::Collided;
+		eScratch.collided = true;
 		return true;
 	}
 	return false;
@@ -448,7 +460,7 @@ Battle::processCollisions(
 	}
 
 	auto e = get(elemId);
-	return e == nullptr || any(e->flags & ElementFlags::Collided);
+	return e == nullptr || reg_.get<CollisionScratch>(elemId).collided;
 }
 
 // CapturePrior (pipeline slot 1): the silhouette/facing every element enters
@@ -460,12 +472,13 @@ Battle::processCollisions(
 void
 Battle::capturePriorPass() noexcept
 {
-	for (auto [id, e, prior] : reg_.view<Element, PriorSilhouette>().each())
+	for (auto [id, e, prior, scratch] :
+			reg_.view<Element, PriorSilhouette, CollisionScratch>().each())
 	{
 		(void)id;
 		prior.mask = e.mask;
 		prior.facing = e.facing;
-		e.flags &= ~ElementFlags::Collided;
+		scratch.collided = false;
 	}
 }
 
@@ -503,7 +516,7 @@ Battle::animatePass()
 		auto e = get(id);
 		if (e != nullptr && !reg_.all_of<PlayerShip>(id)
 				&& !reg_.all_of<Guided>(id) && e->preProcess != nullptr
-				&& !any(e->flags & ElementFlags::Appearing))
+				&& !reg_.all_of<Appearing>(id))
 		{
 			e->preProcess(*this, id);
 		}
@@ -524,8 +537,7 @@ Battle::integratePass() noexcept
 
 		// BeamGeometry is exempt: seeding next from current would collapse
 		// the beam to a point (its two points are the beam, not motion).
-		if (any(e.flags & ElementFlags::Appearing)
-				&& !reg_.all_of<BeamGeometry>(id))
+		if (reg_.all_of<Appearing>(id) && !reg_.all_of<BeamGeometry>(id))
 			e.next = e.current;
 
 		const Vec2i delta = e.velocity.advance(1);
@@ -555,7 +567,7 @@ Battle::collidePass()
 		const EntityId id = collideOrder_[i];
 		auto e = get(id);
 		if (e != nullptr && e->collidable()
-				&& !any(e->flags & ElementFlags::Collided))
+				&& !reg_.get<CollisionScratch>(id).collided)
 		{
 			// Successors only, so each pair is visited once per frame.
 			(void)processCollisions(id, i, i + 1, kMaxTimeValue);
@@ -647,10 +659,11 @@ Battle::flagsEndOfFramePass() noexcept
 		// A frame without a collision ends DefyPhysics (process.c:824-827):
 		// it has to expire, or the first stationary contact disables the
 		// collision stagger for good.
-		if (!any(e->flags & ElementFlags::Collided))
-			e->flags &= ~ElementFlags::DefyPhysics;
-		e->flags &= ~ElementFlags::Appearing;
+		CollisionScratch &scratch = reg_.get<CollisionScratch>(id);
+		if (!scratch.collided)
+			scratch.defyPhysics = false;
 	});
+	reg_.clear<Appearing>();
 }
 
 // Sync point, 11d: create every entity the frame's pipeline asked for, in
@@ -681,6 +694,8 @@ Battle::drainSpawnCommands()
 			attach<IgnoreVelocity>(id);
 		if (cmd.beamGeometry)
 			attach<BeamGeometry>(id);
+		if (cmd.ignoreSimilar)
+			attach<IgnoreSimilar>(id);
 	}
 	spawnCommands_.clear();
 }

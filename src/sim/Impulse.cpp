@@ -54,7 +54,8 @@ deriveSpeedState(const Velocity &v, const ThrustProfile &profile) noexcept
 }
 
 void
-applyImpulse(Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept
+applyImpulse(Element &a, bool aIsShip, CollisionScratch &aScratch, Element &b,
+		bool bIsShip, CollisionScratch &bScratch) noexcept
 {
 	// Impact axis: the line between the two at the moment they met.
 	const Vec2i rel{a.next.x - b.next.x, a.next.y - b.next.y};
@@ -85,8 +86,7 @@ applyImpulse(Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept
 	if (a.next == a.current && b.next == b.current)
 	{
 		// Neither moved, so there is no relative motion to exchange.
-		if (any(a.flags & ElementFlags::DefyPhysics)
-				&& any(b.flags & ElementFlags::DefyPhysics))
+		if (aScratch.defyPhysics && bScratch.defyPhysics)
 		{
 			// Already stuck together. Zero both and skew the impact axis by
 			// an octant, which is what eventually works them apart.
@@ -95,15 +95,18 @@ applyImpulse(Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept
 			a.velocity.zero();
 			b.velocity.zero();
 		}
-		a.flags |= ElementFlags::DefyPhysics | ElementFlags::Collided;
-		b.flags |= ElementFlags::DefyPhysics | ElementFlags::Collided;
+		aScratch.defyPhysics = true;
+		aScratch.collided = true;
+		bScratch.defyPhysics = true;
+		bScratch.collided = true;
 	}
 
 	const i32 massA = a.mass;
 	const i32 massB = b.mass;
 	const i64 scalar = i64{sine(directness, speed << 1)} * (massA * massB);
 
-	const auto push = [&](Element &self, bool selfIsShip, Element &other,
+	const auto push = [&](Element &self, bool selfIsShip,
+							  CollisionScratch &selfScratch, Element &other,
 							  int impactAngle, i32 selfMass,
 							  i32 otherMass) {
 		if (isGravityMass(self.mass + 1))
@@ -113,7 +116,7 @@ applyImpulse(Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept
 		{
 			// The turn/thrust stagger, gated on DEFY_PHYSICS
 			// (collide.c:111-116).
-			if (!any(self.flags & ElementFlags::DefyPhysics))
+			if (!selfScratch.defyPhysics)
 			{
 				if (self.turnWait < kCollisionTurnWait)
 					self.turnWait += kCollisionTurnWait;
@@ -145,8 +148,8 @@ applyImpulse(Element &a, bool aIsShip, Element &b, bool bIsShip) noexcept
 		(void)other;
 	};
 
-	push(a, aIsShip, b, impactA, massA, massB);
-	push(b, bIsShip, a, impactB, massB, massA);
+	push(a, aIsShip, aScratch, b, impactA, massA, massB);
+	push(b, bIsShip, bScratch, a, impactB, massB, massA);
 }
 
 }  // namespace uqm::sim

@@ -94,6 +94,16 @@ struct Impact
 [[nodiscard]] Impact sweptIntersect(
 		const Body &b0, const Body &b1, TimeValue maxTime = kMaxTimeValue);
 
+// Per-entity collision bookkeeping for one frame: already collided (skip
+// re-testing this frame) and defying physics (met with no relative motion to
+// exchange). Collision-domain, not Battle-private -- Impulse.cpp and
+// Damage.cpp write these directly.
+struct CollisionScratch
+{
+	bool collided = false;
+	bool defyPhysics = false;
+};
+
 }  // namespace uqm::sim
 
 #endif  // UQM2_SIM_COLLISION_HPP
