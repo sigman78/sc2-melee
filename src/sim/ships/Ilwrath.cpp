@@ -45,36 +45,6 @@ spawnAvengerPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 	return 1;
 }
 
-void
-flamePreProcess(Battle &b, EntityId id) noexcept
-{
-	AnimFrame *frame = b.find<AnimFrame>(id);
-	if (frame == nullptr)
-		return;
-
-	// flame_preprocess (ilwrath.c:126-139): the frame advances every frame it
-	// lives, and the collision silhouette follows -- why the flame GROWS as it
-	// flies (mask update = the C's CHANGING re-init, process.c:159-160).
-	++frame->n;
-	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
-	if (ws != nullptr && !ws->masks.empty())
-	{
-		if (Collider *c = b.find<Collider>(id))
-			c->mask = &ws->masks[static_cast<usize>(frame->n)
-					% ws->masks.size()];
-	}
-}
-
-void
-flameCollision(Battle &b, EntityId id) noexcept
-{
-	// The C wraps weapon_collision and clears DISAPPEARING
-	// (ilwrath.c:141-148): a flame that hit something still burns on screen
-	// for the frame it died on, where a spent missile vanishes at once.
-	weaponCollision(b, id);
-	b.detach<Doomed>(id);
-}
-
 // LOOK_AHEAD (ilwrath.c:37): how many frames of both velocities the cloaked
 // auto-aim leads the target by.
 constexpr int kCloakAimLookAhead = 4;
@@ -232,8 +202,8 @@ ilwrathAvenger() noexcept
 			.muzzleOffset = 29,  // ILWRATH_OFFSET
 			.blastOffset = 0,    // MISSILE_OFFSET
 			.spawn = spawnAvengerPrimary,
-			.preProcess = flamePreProcess,
-			.onCollision = flameCollision,
+			.frameDriven = true,
+			.lingersOnHit = true,
 		},
 		.special{
 			.wait = 13,

@@ -15,8 +15,6 @@
 
 namespace uqm::sim {
 
-class Battle;
-
 // Traits as types: any(flags & X) became registry().all_of<X>(id), and the
 // bitfield stopped filling up (review-002 called it "close to full" at 13).
 // FiniteLife and Disappearing, the last two ELEMENT_FLAGS bits, are gone the
@@ -24,13 +22,6 @@ class Battle;
 
 // A player's ship, as opposed to a projectile or a rock.
 comp struct PlayerShip
-{
-};
-
-// Skips velocity integration. IGNORE_VELOCITY in the C, and distinct from
-// DefyPhysics -- process.c:163 tests this one and nothing else when
-// deciding whether an element moves.
-comp struct IgnoreVelocity
 {
 };
 
@@ -106,6 +97,17 @@ comp struct AnimFrame
 	i32 n = 0;
 };
 
+// The Ilwrath flame's own animate-pass concept, generalised (review-007
+// W5): a shot whose AnimFrame advances every frame it lives, its collision
+// silhouette following the growth (ilwrath.c:126-139) -- unlike a
+// directional missile, whose frame follows its facing instead (Human.cpp's
+// guidedShotPreProcess). Stamped from WeaponSpec::frameDriven at fire time;
+// the mask source (WeaponGuidance) and the frame itself (AnimFrame) already
+// exist, so this is a pure marker.
+comp struct FrameDriven
+{
+};
+
 // What kind of thing this is: a real tag, not a frame-pointer comparison
 // (cyborg.c:1222-1227) or a cross-ship header include for constants
 // (shofixti.c:251-253 pulls in orz.h to recognise a turret).
@@ -139,34 +141,25 @@ enum class ElementKind : u8
 	Debris,
 };
 
-// Free functions taking the battle and the element's id: no captured state,
-// so they can't outlive it. The C mutates per-instance hooks at runtime
-// (chmmr.c:773 deletes its hook, pkunk.c:282 reinstalls one); this doesn't.
-using ElementHook = void (*)(Battle &, EntityId) noexcept;
-
 struct Element
 {
-	// Stable addresses: hooks hold a pointer to their own element across
-	// spawns (ShipSystems.cpp's weapon loop), which the old arena guaranteed
-	// and entt's default swap-and-pop storage does not.
+	// Stable addresses: Battle::get()'s raw pointer is held across nested
+	// calls (resolveAgainst's own recursion, killOverlapSpawn's doDamage),
+	// which the old arena guaranteed and entt's default swap-and-pop storage
+	// does not.
 	static constexpr auto in_place_delete = true;
 
 	ElementKind kind = ElementKind::Unknown;
 
 	// The silhouette/facing this element entered the frame with is NOT here:
 	// it is the overlap-repair protocol's own scratch (process.c:453-506),
-	// so it lives as a component private to Battle.cpp (review-004 X5) --
-	// hooks cannot even name it, let alone corrupt it.
-
-	ElementHook preProcess = nullptr;
-	ElementHook onDeath = nullptr;
-
-	// Runs after a collision has been resolved, on each side, with
-	// `collidedWith` already set. This is collision_func in the C.
-	ElementHook onCollision = nullptr;
-
-	// What this element hit, valid only inside a collision hook.
-	EntityId collidedWith = kNoEntity;
+	// so it lives as a component private to Battle.cpp (review-004 X5).
+	//
+	// Everything else Element once carried -- flags, kind-specific fields,
+	// preProcess/onDeath/onCollision hooks, collidedWith -- has moved to its
+	// own component or a dispatch keyed on component presence (review-007
+	// W3 through W5). What is left is what this file's name still means:
+	// which kind of thing this is.
 };
 
 }  // namespace uqm::sim

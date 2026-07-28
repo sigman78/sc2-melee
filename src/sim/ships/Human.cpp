@@ -83,7 +83,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 			return;
 
 		const Vec2i tNext = otherPos.next;
-		const Vec2i dv = wrapDelta(Vec2i{tNext.x - from.x, tNext.y - from.y});
+		const Vec2i dv = wrapDelta(tNext - from);
 		const i32 dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
 		const i32 dy = worldToDisplay(dv.y < 0 ? -dv.y : dv.y);
 		if (dx > range || dy > range || dx * dx + dy * dy > range * range)
@@ -156,7 +156,6 @@ earthlingCruiser() noexcept
 			.maxSpeed = 80,
 			.thrustScale = 4,
 			.spawn = spawnCruiserPrimary,
-			.preProcess = guidedShotPreProcess,
 		},
 		.special{
 			.wait = 9,

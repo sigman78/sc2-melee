@@ -35,6 +35,16 @@ comp struct Spin
 	i32 countdown = 0;
 };
 
+// Element::onDeath, split out (review-007 W5): a thin payload carrying
+// asteroidDeath/rubbleDeath, attached only where one exists -- the asteroid
+// field and its rubble, nothing else. The death path (Battle.cpp) calls
+// `emit` directly for any DeathSpawn entity instead of a per-element
+// function-pointer hook; Field still owns what death spawns.
+comp struct DeathSpawn
+{
+	void (*emit)(Battle &, EntityId) noexcept;
+};
+
 EntityId spawnPlanet(Battle &b, const CollisionMask *mask);
 
 // Places one asteroid on an arena edge (misc.c:131-201). Consumes exactly

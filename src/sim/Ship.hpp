@@ -15,6 +15,15 @@ namespace uqm::sim {
 
 class Battle;
 
+// Free functions taking the battle and the element's id: no captured state,
+// so they can't outlive it. The C mutates per-instance hooks at runtime
+// (chmmr.c:773 deletes its hook, pkunk.c:282 reinstalls one); this doesn't.
+// Spec-level only (review-007 W5): a ship's own preProcess (the Ilwrath
+// cloak machine) and a special's activation hook are what is left of
+// Element's old ElementHook once every per-element hook dissolved into a
+// component or a dispatch keyed on component presence.
+using ShipPhase = void (*)(Battle &, EntityId) noexcept;
+
 // What the player is asking for this frame.
 enum class ShipInput : u8
 {
@@ -73,13 +82,18 @@ struct WeaponSpec
 	// The primary weapon, as a pure descriptor function (Spawn.hpp).
 	SpawnFn spawn = nullptr;
 
-	// What the shot does each frame, if anything.
-	ElementHook preProcess = nullptr;
+	// Stamped onto every shot as FrameDriven (review-007 W5): true only for
+	// the flame, whose AnimFrame advances and whose Collider mask follows
+	// every frame it lives (ilwrath.c:126-139) -- the animate pass's own
+	// sub-iteration, not a per-shot hook. A guided shot's frame follows its
+	// facing instead (Human.cpp's guidedShotPreProcess, its own pass).
+	bool frameDriven = false;
 
-	// What the shot does on impact. Null means weaponCollision (damage,
-	// blast, gone); the flame wraps it to linger a frame instead of
-	// vanishing (ilwrath.c:141-148).
-	ElementHook onCollision = nullptr;
+	// Stamped onto every shot's Warhead (review-007 W5): true only for the
+	// flame, which lingers a frame on impact instead of vanishing outright
+	// (ilwrath.c:141-148) -- weaponCollision reads the bit off the shot
+	// itself now, not a per-spec response override.
+	bool lingersOnHit = false;
 
 	// A shot collides as whichever sprite frame it is drawn from, which is
 	// not always its facing -- indexing by facing instead is what squashes a
@@ -96,7 +110,7 @@ struct SpecialSpec
 	// What SPECIAL does in the post phase; the engine only ticks the
 	// counter, everything a special does is per-ship (ship.c:342-346). Null
 	// when the special lives in the ship's preProcess hook instead (Avenger).
-	ElementHook hook = nullptr;
+	ShipPhase hook = nullptr;
 
 	// LASER_RANGE (human.c:55), in display pixels. Zero for a ship without
 	// point defence.
@@ -125,7 +139,7 @@ struct ShipSpec
 	// The ship's own per-frame hook, run inside shipPreProcess after energy
 	// regen and before turning -- RACE_DESC.preprocess_func (ship.c:232-236).
 	// The Ilwrath cloak engages here, winning the energy race against the shot.
-	ElementHook preProcess = nullptr;
+	ShipPhase preProcess = nullptr;
 
 	Borrowed<const CollisionMask> hullMask = nullptr;
 
@@ -234,6 +248,15 @@ comp struct WarpingIn
 };
 
 comp struct Exploding
+{
+};
+
+// cleanup_dead_ship (tactrans.c:307-337): attached the instant a ship starts
+// exploding (startShipExplosion), replacing the old onDeath =
+// sweepDeadShipOrdnance hook -- the death path (Battle.cpp) checks this tag
+// instead of a per-element function pointer. A ship's crew, not its hull,
+// so nothing else in the census ever carries it (review-007 W5).
+comp struct SweepsOwnedOnDeath
 {
 };
 

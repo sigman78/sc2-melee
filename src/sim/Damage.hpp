@@ -35,16 +35,23 @@ comp struct DamageIncoming
 	EntityId lastFrom = kNoEntity;
 };
 
-// Element{damage, blastOffset}, split out (review-007 W4b): attached only
-// where read, which is weapons alone -- damage is a redundant copy of the
-// weapon's own mass for Sound.cpp's boom selection (the mass=damage
-// coupling that actually drives doDamage lives in Physique, untouched
-// here), and blastOffset positions the blast weaponCollision spawns on
-// impact. Nothing else in the sim reads either field.
+// Element{damage, blastOffset} (+ flame linger), split out (review-007
+// W4b/W5): attached only where read, which is weapons alone -- damage is a
+// redundant copy of the weapon's own mass for Sound.cpp's boom selection
+// (the mass=damage coupling that actually drives doDamage lives in
+// Physique, untouched here), and blastOffset positions the blast
+// weaponCollision spawns on impact. `lingersOnHit` is the flame's own bit
+// (ilwrath.c:141-148): true means weaponCollision's death mark is undone
+// on the spot, so the fireball still draws for the frame it died on
+// instead of vanishing at once -- every other weapon leaves it false.
+// Presence (Warhead's, not this field) is also the collision-response
+// dispatch's own key: has<Warhead> is what makes a collidable a weapon
+// instead of a solid (Battle.cpp's collidePass).
 comp struct Warhead
 {
 	i32 damage = 0;
 	i32 blastOffset = 0;
+	bool lingersOnHit = false;
 };
 
 // Applies a crew change and reports whether the ship survived it. False means
@@ -62,14 +69,18 @@ bool deltaCrew(ShipState &s, i32 delta) noexcept;
 void doDamage(Battle &b, EntityId id, i32 damage,
 		EntityId from = kNoEntity) noexcept;
 
-// A weapon's collision hook. `id` is the weapon; it reads its own
-// `collidedWith` for the target.
-void weaponCollision(Battle &b, EntityId id) noexcept;
+// A weapon's collision response, dispatched on has<Warhead> (review-007
+// W5, replacing the old per-element onCollision hook). `id` is the
+// weapon, `otherId` what it hit -- an argument now, not a collidedWith
+// field read off Element.
+void weaponCollision(Battle &b, EntityId id, EntityId otherId) noexcept;
 
-// A ship's, an asteroid's, and a planet's collision hook -- one function in
-// the C, and it only does anything when the *other* thing is a gravity mass.
-// Flying into a planet costs a point.
-void solidCollision(Battle &b, EntityId id) noexcept;
+// A ship's, an asteroid's, and a planet's collision response -- one
+// function in the C, and it only does anything when the *other* thing is
+// a gravity mass. Flying into a planet costs a point. The dispatch's
+// default (review-007 W5): anything collidable lacking a Warhead lands
+// here, and planet/asteroid/ship all carry what it needs.
+void solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept;
 
 }  // namespace uqm::sim
 

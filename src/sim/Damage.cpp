@@ -101,7 +101,7 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 }
 
 void
-weaponCollision(Battle &b, EntityId id) noexcept
+weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 {
 	auto w = b.get(id);
 	if (w == nullptr)
@@ -114,10 +114,9 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	if (wScratch.collided)
 		return;
 
-	auto target = b.get(w->collidedWith);
+	auto target = b.get(targetId);
 	if (target == nullptr)
 		return;
-	const EntityId targetId = w->collidedWith;
 	CollisionScratch &targetScratch = *b.find<CollisionScratch>(targetId);
 
 	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
@@ -161,17 +160,21 @@ weaponCollision(Battle &b, EntityId id) noexcept
 
 	const Vec2i at = b.find<Position>(id)->next;
 	const int angle = b.find<Motion>(id)->velocity.travelAngle();
-	const i32 blastOffset = b.find<Warhead>(id)->blastOffset;
+	const Warhead &warhead = *b.find<Warhead>(id);
 
 	wVital->hitPoints = 0;
 	// NONSOLID | DISAPPEARING (weapon.c:175-181), Collided in scratch:
-	// stopped, spent, reaped this frame. The flame's wrapper clears Doomed
-	// again so the fireball lingers one frame (flameCollision,
-	// ilwrath.c:141-148).
+	// stopped, spent, reaped this frame.
 	wScratch.collided = true;
 	b.attachOrReplace<Lifetime>(id, Lifetime{0});
 	b.attachOrReplace<Doomed>(id);
 	b.detach<Collider>(id);
+
+	// ilwrath.c:141-148: the flame's own bit undoes the death mark on the
+	// spot, so the fireball still draws for the frame it died on instead of
+	// vanishing at once.
+	if (warhead.lingersOnHit)
+		b.detach<Doomed>(id);
 
 	// The blast, offset along the direction of travel so it sits on the
 	// surface it hit rather than inside it (weapon.c:198-208). Inherits the
@@ -181,8 +184,8 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	Element blast;
 	blast.kind = ElementKind::Blast;
 	Position blastPos;
-	blastPos.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(blastOffset)),
-			at.y + sine(angle, displayToWorld(blastOffset))});
+	blastPos.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(warhead.blastOffset)),
+			at.y + sine(angle, displayToWorld(warhead.blastOffset))});
 	blastPos.next = blastPos.current;
 
 	// Queued, not spawned: it enters the world at the sync point and acts
@@ -193,24 +196,25 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	cmd.element = std::move(blast);
 	cmd.position = blastPos;
 	cmd.lifetime = Lifetime{kBlastLife};
+	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
 	cmd.allegiance = Allegiance{shooterPlayerNr, kNoEntity};
 	b.queueSpawn(std::move(cmd));
 }
 
 void
-solidCollision(Battle &b, EntityId id) noexcept
+solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept
 {
 	auto e = b.get(id);
 	if (e == nullptr)
 		return;
 
-	auto other = b.get(e->collidedWith);
+	auto other = b.get(otherId);
 	if (other == nullptr)
 		return;
 
 	// ship.c:356. A transient thing hitting you is the weapon's business, not
-	// yours -- it has its own hook and has already run.
-	if (isFiniteLife(b, e->collidedWith))
+	// yours -- it has its own response and has already run.
+	if (isFiniteLife(b, otherId))
 		return;
 
 	// Hitting anything solid stops this element at the impact point
@@ -218,7 +222,7 @@ solidCollision(Battle &b, EntityId id) noexcept
 	// makes solid-on-solid exchange momentum in the step loop.
 	b.find<CollisionScratch>(id)->collided = true;
 
-	if (!isGravityMass(b.find<Physique>(e->collidedWith)->mass))
+	if (!isGravityMass(b.find<Physique>(otherId)->mass))
 		return;
 
 	// ship.c:364-367: damage = hit_points >> 2, floored at one. For a
@@ -232,7 +236,7 @@ solidCollision(Battle &b, EntityId id) noexcept
 	i32 damage = own >> 2;
 	if (damage == 0)
 		damage = 1;
-	doDamage(b, id, damage, e->collidedWith);
+	doDamage(b, id, damage, otherId);
 }
 
 }  // namespace uqm::sim

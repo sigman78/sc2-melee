@@ -5,7 +5,6 @@
 
 #include "engine/core/Geometry.hpp"
 #include "engine/core/Types.hpp"
-#include "sim/Element.hpp"
 #include "sim/Trig.hpp"
 #include "sim/Velocity.hpp"
 
@@ -62,11 +61,6 @@ struct Spawn
 	// Ilwrath flame does this (ilwrath.c:219-222), backed off one frame so the
 	// stream trails the Avenger; the Cruiser's nuke does not.
 	bool inheritsVelocity = false;
-
-	// Per-frame behaviour, if any: a function pointer keeps the descriptor a
-	// pure value, safe to produce a hundred times for a lookahead and discard,
-	// while still letting a guided missile be guided. Null if the shot just flies.
-	ElementHook preProcess = nullptr;
 
 	friend bool operator==(const Spawn &, const Spawn &) = default;
 };

@@ -51,7 +51,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 			return;
 
 		const Vec2i to = pos.current;
-		const Vec2i d = wrapDelta(Vec2i{to.x - from.x, to.y - from.y});
+		const Vec2i d = wrapDelta(to - from);
 		const int deltaFacing = Angle(arctan(d.x, d.y)).facing() - facing;
 
 		// Nearest target, by |dx| + |dy| -- the C's own stated approximation of

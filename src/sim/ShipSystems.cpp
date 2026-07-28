@@ -57,7 +57,6 @@ spawnPlayerShip(Battle &b, const ShipSpec &spec,
 {
 	Element e;
 	e.kind = ElementKind::Ship;
-	e.onCollision = solidCollision;
 	Position pos{at, at, facing};
 	const Physique phys{spec.mass};
 	const EntityId id = b.spawn(Layer::Field, std::move(e), pos, Motion{},
@@ -195,11 +194,6 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 					? nullptr
 					: &spec.weapon.masks[static_cast<usize>(sp.frameIndex)
 							% spec.weapon.masks.size()];
-			w.onCollision = spec.weapon.onCollision != nullptr
-					? spec.weapon.onCollision
-					: weaponCollision;
-			w.preProcess = sp.preProcess != nullptr ? sp.preProcess
-													: spec.weapon.preProcess;
 			wMotion.velocity.setVector(sp.speed, sp.facing);
 			// owner = id: pParent, what IGNORE_SIMILAR is tested against.
 			const Allegiance wAllegiance{sp.playerNr, id};
@@ -237,8 +231,9 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 			cmd.collider = shotMask;
 			cmd.lifetime = Lifetime{sp.life};
 			cmd.vitality = Vitality{sp.hitPoints};
-			cmd.warhead = Warhead{sp.damage, sp.blastOffset};
+			cmd.warhead = Warhead{sp.damage, sp.blastOffset, spec.weapon.lingersOnHit};
 			cmd.animFrame = AnimFrame{sp.frameIndex};
+			cmd.frameDriven = spec.weapon.frameDriven;
 			cmd.allegiance = wAllegiance;
 
 			// A guided shot starts with its tracking clock already wound:
@@ -501,7 +496,7 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	cmd.element = std::move(t);
 	cmd.position = pos;
 	cmd.lifetime = Lifetime{kIonTrailLife};
-	cmd.ignoreVelocity = true;
+	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
 	b.queueSpawn(std::move(cmd));
 }
 
@@ -555,13 +550,13 @@ warpInStep(Battle &b, EntityId id) noexcept
 		shadowPos.current = wrap(Vec2i{shipPos.current.x - cosine(angle, back),
 				shipPos.current.y - sine(angle, back)});
 		shadowPos.next = shadowPos.current;
-		// Motion defaults to zero, matching the stationary shadow.
 
 		SpawnCommand cmd;
 		cmd.layer = Layer::Background;
 		cmd.element = std::move(shadow);
 		cmd.position = shadowPos;
 		cmd.lifetime = Lifetime{kIonTrailLife};
+		cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
 		// Picks which ship's sprites to draw; no owner of its own (never set
 		// on the old Element either).
 		cmd.allegiance = Allegiance{b.find<Allegiance>(id)->playerNr, kNoEntity};
@@ -593,9 +588,14 @@ warpInStep(Battle &b, EntityId id) noexcept
 	}
 }
 
+}  // namespace
+
 // cleanup_dead_ship (tactrans.c:307-337): when the wreck finishes burning,
 // everything the dead ship still owns -- in-flight nukes, the flame stream --
 // goes with it. The C excepts drifting crew, which does not exist yet.
+// External linkage (review-007 W5): the death path (Battle.cpp) calls this
+// directly for any SweepsOwnedOnDeath entity, replacing the old onDeath
+// function-pointer hook.
 void
 sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 {
@@ -611,8 +611,6 @@ sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 		b.detach<Collider>(other);
 	});
 }
-
-}  // namespace
 
 void
 startShipExplosion(Battle &b, EntityId id) noexcept
@@ -632,7 +630,8 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	b.detach<Doomed>(id);
 	b.attach<Lifetime>(id, Lifetime{kExplosionLife});
 	b.detach<Collider>(id);
-	e->onDeath = sweepDeadShipOrdnance;
+	if (!b.has<SweepsOwnedOnDeath>(id))
+		b.attach<SweepsOwnedOnDeath>(id);
 	if (!b.has<Exploding>(id))
 		b.attach<Exploding>(id);
 }
@@ -702,6 +701,10 @@ explosionStep(Battle &b, EntityId id) noexcept
 		cmd.position = dPos;
 		cmd.motion = dMotion;
 		cmd.lifetime = Lifetime{kDebrisLife};
+		// Never collidable, but the one decoration that drifts, so it needs
+		// Motion where the others don't (review-007 W5's diet).
+		cmd.effect = true;
+		cmd.effectMoves = true;
 		b.queueSpawn(std::move(cmd));
 	}
 }

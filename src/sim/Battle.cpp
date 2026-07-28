@@ -4,6 +4,7 @@
 
 #include "engine/core/Types.hpp"
 #include "sim/Damage.hpp"
+#include "sim/Field.hpp"
 #include "sim/Gravity.hpp"
 #include "sim/Impulse.hpp"
 #include "sim/ShipSystems.hpp"
@@ -259,9 +260,40 @@ Battle::spawnBeam(Layer layer, Element e, Beam beam, Allegiance allegiance)
 	return id;
 }
 
+EntityId
+Battle::spawnEffect(Layer layer, Element e, Position pos, Allegiance allegiance)
+{
+	const EntityId id = reg_.create();
+	recordSpawn(id, e, allegiance);
+
+	// A decorative particle (review-007 W5's diet): never solid, and its
+	// Position is set once at spawn and never touched again (the caller
+	// already computed `pos.next`), so Motion/Physique/PriorSilhouette/
+	// CollisionScratch/Collider/Appearing are all dead weight -- the same
+	// reasoning as spawnBeam's, minus the Position exemption (a decoration
+	// is drawn at a place, a beam is drawn between two).
+	reg_.emplace<Element>(id, std::move(e));
+	reg_.emplace<Position>(id, pos);
+	reg_.emplace<Allegiance>(id, allegiance);
+	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
+	++count_;
+	return id;
+}
+
+EntityId
+Battle::spawnEffect(
+		Layer layer, Element e, Position pos, Motion motion, Allegiance allegiance)
+{
+	// The one decoration that actually drifts (the explosion's debris):
+	// spawnEffect's shape plus Motion, so Integrate still advances it.
+	const EntityId id = spawnEffect(layer, std::move(e), pos, allegiance);
+	reg_.emplace<Motion>(id, motion);
+	return id;
+}
+
 // "BAD NEWS": an APPEARING element wedged inside something on spawn dies
 // on the spot (process.c:427-449) -- full damage, then DISAPPEARING with
-// its death hook run now (hit_points is crew for a ship, element.h:126-133).
+// its death response run now (hit_points is crew for a ship, element.h:126-133).
 void
 Battle::killOverlapSpawn(EntityId id)
 {
@@ -277,8 +309,20 @@ Battle::killOverlapSpawn(EntityId id)
 		return;
 	reg_.get<CollisionScratch>(id).collided = true;
 	reg_.emplace_or_replace<Doomed>(id);
-	if (e->onDeath != nullptr)
-		e->onDeath(*this, id);
+	runDeathResponses(id);
+}
+
+// The death path's two mechanisms (review-007 W5, replacing the old
+// Element::onDeath hook): a DeathSpawn payload (asteroid/rubble) or a
+// SweepsOwnedOnDeath sweep (a dying ship's own ordnance) -- mutually
+// exclusive per entity, so which runs first is never observable.
+void
+Battle::runDeathResponses(EntityId id) noexcept
+{
+	if (const DeathSpawn *ds = reg_.try_get<DeathSpawn>(id))
+		ds->emit(*this, id);
+	if (reg_.all_of<SweepsOwnedOnDeath>(id))
+		sweepDeadShipOrdnance(*this, id);
 }
 
 // One candidate pair, from first possibility to full resolution -- the body
@@ -453,16 +497,13 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			return false;
 	}
 
-	// Resolution. The hooks decide who stops -- each raises Collided on
-	// itself, exactly as the C's collision_funcs raise COLLISION -- and run
+	// Resolution. The response decides who stops -- each raises Collided on
+	// itself, exactly as the C's collision_funcs raise COLLISION -- and runs
 	// ship-side first when the TEST element is the ship (process.c:549-570).
 	const bool elemHad = eScratch.collided;
 	const bool testHad = tScratch.collided;
 	const bool bothSolidNow =
 			!(isFiniteLife(*this, elemId) || isFiniteLife(*this, testId));
-
-	e->collidedWith = testId;
-	t->collidedWith = elemId;
 
 	CollisionEvent event;
 	event.a = elemId;
@@ -471,21 +512,30 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	event.beforeA = worldVelocityOf(*eMotion);
 	event.beforeB = worldVelocityOf(*tMotion);
 
-	const ElementHook eHook = e->onCollision;
-	const ElementHook tHook = t->onCollision;
+	// Dispatch keyed on Warhead's presence (review-007 W5, replacing the old
+	// per-element onCollision hook): has<Warhead> is a shot, everything else
+	// that reaches here is solid (ship/asteroid/planet, all of which carry
+	// what solidCollision needs). Both sides' dispatch decided before either
+	// runs, same as eHook/tHook used to be captured before the branch below.
+	const bool eIsWeapon = reg_.all_of<Warhead>(elemId);
+	const bool tIsWeapon = reg_.all_of<Warhead>(testId);
+	const auto respond = [this](bool isWeapon, EntityId id, EntityId otherId) {
+		if (isWeapon)
+			weaponCollision(*this, id, otherId);
+		else
+			solidCollision(*this, id, otherId);
+	};
 	if (reg_.all_of<PlayerShip>(testId))
 	{
-		if (tHook != nullptr)
-			tHook(*this, testId);
-		if (eHook != nullptr && get(elemId) != nullptr)
-			eHook(*this, elemId);
+		respond(tIsWeapon, testId, elemId);
+		if (get(elemId) != nullptr)
+			respond(eIsWeapon, elemId, testId);
 	}
 	else
 	{
-		if (eHook != nullptr)
-			eHook(*this, elemId);
-		if (tHook != nullptr && get(testId) != nullptr)
-			tHook(*this, testId);
+		respond(eIsWeapon, elemId, testId);
+		if (get(testId) != nullptr)
+			respond(tIsWeapon, testId, elemId);
 	}
 
 	e = get(elemId);
@@ -509,7 +559,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		ePos->next = elemStop;
 
 		// Momentum exchange is solid-on-solid only (process.c:598-601). A
-		// weapon hit is resolved by damage, from the collidedWith set above.
+		// weapon hit is resolved by damage, in the dispatch above.
 		if (t != nullptr && bothSolidNow)
 		{
 			// Pure physics is told who is a ship by a ShipState pointer, null
@@ -611,10 +661,10 @@ Battle::capturePriorPass() noexcept
 // here; the matching decrement is slot 11b, at the sync point.
 //
 // Stays a find<Lifetime> test over eachOrdered's walk, not a pool view over
-// Lifetime: onDeath hooks draw RNG (the asteroid field's replacement, a
-// dying ship's debris), so which order the deaths are discovered in is
-// gameplay, not incidental -- the same reason this pass was never folded
-// into a bare view<Lifetime>.
+// Lifetime: the death responses draw RNG (the asteroid field's
+// replacement, a dying ship's debris), so which order the deaths are
+// discovered in is gameplay, not incidental -- the same reason this pass
+// was never folded into a bare view<Lifetime>.
 void
 Battle::ageAndReapMarkPass()
 {
@@ -623,32 +673,59 @@ Battle::ageAndReapMarkPass()
 		if (life == nullptr || life->remaining != 0)
 			return;
 		reg_.emplace<Doomed>(id);
-		auto e = get(id);
-		if (e != nullptr && e->onDeath != nullptr)
-			e->onDeath(*this, id);
+		runDeathResponses(id);
 	});
 }
 
 // Animate (pipeline slot 7): what is left of the per-element preProcess hook
 // dispatch once ships (ShipMachines/Turn/Thrust, ShipSystems.cpp) and Guided
-// shots (GuidedSteer) have their own passes -- the flame's frame-advance,
-// the asteroid's tumble. Appearing still suppresses the hook for one frame,
-// exactly as it always has (a weapon's hook does not run until its second
-// frame alive). eachOrdered's emission order equals the retired spine's, so
-// sim_test.cpp's testStepVisitsInListOrder (an earlier-layer element must
-// animate first) is clean under it too.
+// shots (GuidedSteer) have their own passes -- the asteroid's tumble and the
+// flame's frame-advance, each its own typed sub-iteration now (review-007
+// W5): neither reads or writes anything outside its own entity, so splitting
+// the old combined walk into two independent ones changes nothing
+// observable. Appearing still suppresses both for one frame, exactly as it
+// always has (a weapon's animation does not start until its second frame
+// alive).
 void
 Battle::animatePass()
 {
-	eachOrdered([this](EntityId id) {
-		auto e = get(id);
-		if (e != nullptr && !reg_.all_of<PlayerShip>(id)
-				&& !reg_.all_of<Guided>(id) && e->preProcess != nullptr
-				&& !reg_.all_of<Appearing>(id))
-		{
-			e->preProcess(*this, id);
-		}
-	});
+	// asteroid_preprocess (misc.c:107-128): tumbles only, by its Spin
+	// component. The C's rotation lives in the sprite frame; here, with no
+	// sprite, in `facing`. eachOrdered, not a bare view: Animate's order was
+	// proven load-bearing (Z5, sim_test.cpp's testStepVisitsInListOrder),
+	// and this keeps the same declared-order walk the retired combined pass
+	// used.
+	eachOrdered<Position, Spin>(entt::exclude<Appearing>,
+			[](EntityId, Position &pos, Spin &spin) {
+				if (spin.countdown > 0)
+				{
+					--spin.countdown;
+					return;
+				}
+				pos.facing += spin.backwards ? -1 : 1;
+				spin.countdown = spin.period;
+			});
+
+	// flame_preprocess (ilwrath.c:126-139): the frame advances every frame
+	// it lives, and the collision silhouette follows -- why the flame GROWS
+	// as it flies (mask update = the C's CHANGING re-init, process.c:159-160).
+	// Order-free: nothing here reads another entity, so each<> suffices
+	// (FrameDriven is a tag; each<>'s underlying view elides it from the
+	// callback, unlike eachOrdered's plain get<>). Collider is read through
+	// find<>, not the join: the flame's own linger frame can legitimately
+	// have none (its detonation already detached it), same as the hook it
+	// replaces always tolerated.
+	each<AnimFrame, FrameDriven>(entt::exclude<Appearing>,
+			[this](EntityId id, AnimFrame &frame) {
+				++frame.n;
+				Borrowed<const WeaponSpec> ws = weaponSpec(id);
+				if (ws != nullptr && !ws->masks.empty())
+				{
+					if (Collider *c = find<Collider>(id))
+						c->mask = &ws->masks[static_cast<usize>(frame.n)
+								% ws->masks.size()];
+				}
+			});
 }
 
 // Integrate (pipeline slot 8): SetUpElement's seeding (process.c:117-126)
@@ -663,14 +740,10 @@ Battle::integratePass() noexcept
 	// collapsed a beam to a point) is gone with it, not replaced.
 	for (auto [id, pos, mot] : reg_.view<Position, Motion>().each())
 	{
-		if (reg_.all_of<IgnoreVelocity>(id))
-			continue;
-
 		if (reg_.all_of<Appearing>(id))
 			pos.next = pos.current;
 
-		const Vec2i delta = mot.velocity.advance(1);
-		pos.next = Vec2i{pos.next.x + delta.x, pos.next.y + delta.y};
+		pos.next += mot.velocity.advance(1);
 	}
 }
 
@@ -678,8 +751,8 @@ Battle::integratePass() noexcept
 // (processCollisions/resolveAgainst), now running over a spine that is
 // already fully integrated -- no straggler preprocessing needed, and no
 // catch-up pass, because nothing spawned this frame exists yet (that is
-// slot 11d). onCollision hooks still run inline; ship crew damage they
-// cause now lands in DamageIncoming instead of applying on the spot (see
+// slot 11d). The collision response still runs inline; ship crew damage it
+// causes now lands in DamageIncoming instead of applying on the spot (see
 // Damage.cpp), applied at the sync point below.
 //
 // Z5: collideOrder_ is a snapshot of every live element, sorted ascending
@@ -822,13 +895,22 @@ Battle::drainSpawnCommands()
 
 		// A beam has no Position, so it takes its own spawn entry point
 		// entirely -- cmd.position/motion/physique are never read for one
-		// (review-007 W4a).
-		const EntityId id = cmd.beam
-				? spawnBeam(cmd.layer, std::move(cmd.element), *cmd.beam,
-						  cmd.allegiance)
-				: spawn(cmd.layer, std::move(cmd.element), cmd.position,
-						  cmd.motion, cmd.physique, cmd.collider,
-						  cmd.allegiance);
+		// (review-007 W4a). An effect (a decorative particle) takes
+		// spawnEffect instead, skipping spawn()'s collision scaffold
+		// (review-007 W5).
+		EntityId id;
+		if (cmd.beam)
+			id = spawnBeam(
+					cmd.layer, std::move(cmd.element), *cmd.beam, cmd.allegiance);
+		else if (cmd.effect)
+			id = cmd.effectMoves
+					? spawnEffect(cmd.layer, std::move(cmd.element),
+							  cmd.position, cmd.motion, cmd.allegiance)
+					: spawnEffect(cmd.layer, std::move(cmd.element),
+							  cmd.position, cmd.allegiance);
+		else
+			id = spawn(cmd.layer, std::move(cmd.element), cmd.position,
+					cmd.motion, cmd.physique, cmd.collider, cmd.allegiance);
 		if (cmd.weaponSpec != nullptr)
 			attachWeaponSpec(id, cmd.weaponSpec);
 		if (cmd.guided)
@@ -841,12 +923,14 @@ Battle::drainSpawnCommands()
 			attach<Warhead>(id, *cmd.warhead);
 		if (cmd.animFrame)
 			attach<AnimFrame>(id, *cmd.animFrame);
-		if (cmd.ignoreVelocity)
-			attach<IgnoreVelocity>(id);
+		if (cmd.frameDriven)
+			attach<FrameDriven>(id);
 		if (cmd.ignoreSimilar)
 			attach<IgnoreSimilar>(id);
 		if (cmd.rubbleMask != nullptr)
 			attach<StashedMask>(id, StashedMask{cmd.rubbleMask});
+		if (cmd.deathSpawn != nullptr)
+			attach<DeathSpawn>(id, DeathSpawn{cmd.deathSpawn});
 	}
 	spawnCommands_.clear();
 }

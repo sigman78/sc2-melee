@@ -45,7 +45,7 @@ calculateGravity(Battle &b, EntityId id)
 			return;
 
 		const Vec2i to = b.find<Position>(other)->current;
-		const Vec2i d = wrapDelta(Vec2i{from.x - to.x, from.y - to.y});
+		const Vec2i d = wrapDelta(from - to);
 
 		// The disc is measured in display pixels, and the cheap per-axis
 		// rejection comes first exactly as in the C.

@@ -15,10 +15,11 @@ class Battle;
 		const ShipView &ship, std::span<Spawn> out) noexcept;
 
 // The Avenger's flame: the animation is the projectile -- its frame (and
-// collision silhouette) grows every frame it lives (ilwrath.c:126-139), and
-// lingers one frame on impact instead of vanishing (ilwrath.c:141-148).
-void flamePreProcess(Battle &b, EntityId id) noexcept;
-void flameCollision(Battle &b, EntityId id) noexcept;
+// collision silhouette) grows every frame it lives (ilwrath.c:126-139), now
+// WeaponSpec::frameDriven and the animate pass's own sub-iteration
+// (Battle.cpp). Its impact lingering one frame instead of vanishing
+// (ilwrath.c:141-148) is Warhead::lingersOnHit, a data bit weaponCollision
+// reads itself.
 
 // The Avenger's ship hook: the whole cloak state machine, activation
 // included (ilwrath_preprocess, ilwrath.c:232-394). Runs in the pre phase

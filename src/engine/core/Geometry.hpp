@@ -36,10 +36,20 @@ struct Vec2
 	{
 		return {static_cast<T>(x - o.x), static_cast<T>(y - o.y)};
 	}
+	constexpr Vec2 operator-() const noexcept
+	{
+		return {static_cast<T>(-x), static_cast<T>(-y)};
+	}
 	constexpr Vec2 &operator+=(const Vec2 &o) noexcept
 	{
 		x = static_cast<T>(x + o.x);
 		y = static_cast<T>(y + o.y);
+		return *this;
+	}
+	constexpr Vec2 &operator-=(const Vec2 &o) noexcept
+	{
+		x = static_cast<T>(x - o.x);
+		y = static_cast<T>(y - o.y);
 		return *this;
 	}
 

@@ -51,6 +51,12 @@ void spawnIonTrail(Battle &b, EntityId ship) noexcept;
 // (StartShipExplosion, tactrans.c:703-728).
 void startShipExplosion(Battle &b, EntityId id) noexcept;
 
+// cleanup_dead_ship (tactrans.c:307-337): everything the dying ship still
+// owns -- in-flight nukes, the flame stream -- goes with it. The death
+// path (Battle.cpp) calls this directly for any SweepsOwnedOnDeath entity,
+// replacing the old onDeath = sweepDeadShipOrdnance hook (review-007 W5).
+void sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept;
+
 // The generic guided-shot step: track, then accelerate (human.c:128-158).
 void guidedShotPreProcess(Battle &b, EntityId id) noexcept;
 

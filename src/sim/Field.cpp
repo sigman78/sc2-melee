@@ -31,29 +31,6 @@ displayAlignY(u32 r) noexcept
 			(static_cast<u16>(r) % kLogSpaceHeight) & ~(kScaledOne - 1));
 }
 
-// asteroid_preprocess (misc.c:107-128): tumbles only, by its Spin
-// component. The C's rotation lives in the sprite frame; here, with no
-// sprite, in `facing`.
-void
-asteroidPreProcess(Battle &b, EntityId id) noexcept
-{
-	auto e = b.get(id);
-	if (e == nullptr)
-		return;
-	Spin *spin = b.find<Spin>(id);
-	if (spin == nullptr)
-		return;
-
-	if (spin->countdown > 0)
-	{
-		--spin->countdown;
-		return;
-	}
-
-	b.find<Position>(id)->facing += spin->backwards ? -1 : 1;
-	spin->countdown = spin->period;
-}
-
 // The rubble's own death hook: put a fresh asteroid back into the field.
 //
 // Queued as a deferred command rather than an ordinary one: spawnAsteroid
@@ -136,8 +113,7 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 		b.each<Position>([&](EntityId other, Position &pos) {
 			if (tooClose || other == id || !b.has<PlayerShip>(other))
 				return;
-			const Vec2i d = wrapDelta(
-					Vec2i{pos.current.x - selfAt.x, pos.current.y - selfAt.y});
+			const Vec2i d = wrapDelta(pos.current - selfAt);
 			if (d.x * d.x + d.y * d.y < want * want)
 				tooClose = true;
 		});
@@ -167,7 +143,6 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 {
 	Element p;
 	p.kind = ElementKind::Planet;
-	p.onCollision = solidCollision;
 	// Motion defaults to zero; the planet never moves. Allegiance defaults
 	// to NEUTRAL_PLAYER_NUM/no owner too, so spawn() below gets no explicit
 	// one.
@@ -202,9 +177,6 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	a.kind = ElementKind::Asteroid;
 	// Allegiance defaults to NEUTRAL_PLAYER_NUM/no owner, same as the planet.
 	const Physique phys{3};      // NORMAL_LIFE, persistent: no Lifetime at all
-	a.preProcess = asteroidPreProcess;
-	a.onCollision = solidCollision;
-	a.onDeath = asteroidDeath;
 
 	// Six draws, in the order misc.c:156-191 makes them -- not stylistic:
 	// getting the sequence wrong desynchronised network play there, and would
@@ -244,6 +216,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 			b.spawn(Layer::Field, std::move(a), pos, motion, phys, mask);
 	b.attach<Spin>(id, spin);
 	b.attach<Vitality>(id, Vitality{1});
+	b.attach<DeathSpawn>(id, DeathSpawn{asteroidDeath});
 
 	// A standing copy of the birth mask, independent of the Collider: a kill
 	// (doDamage) detaches the Collider on the spot so the asteroid stops
@@ -266,7 +239,6 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 
 	Element r;
 	r.kind = ElementKind::Blast;
-	r.onDeath = rubbleDeath;
 	Position rPos;
 	rPos.current = deadPos->current;
 	rPos.next = rPos.current;
@@ -282,8 +254,10 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	cmd.element = std::move(r);
 	cmd.position = rPos;
 	cmd.lifetime = Lifetime{5};
+	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
 	cmd.allegiance = Allegiance{deadAllegiance->playerNr, kNoEntity};
 	cmd.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr;
+	cmd.deathSpawn = rubbleDeath;
 	b.queueSpawn(std::move(cmd));
 }
 

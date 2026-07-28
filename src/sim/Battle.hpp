@@ -80,6 +80,17 @@ struct SpawnCommand
 	// one -- a beam has no Position at all (review-007 W4a).
 	std::optional<Beam> beam;
 
+	// Set for a decorative particle -- an ion trail, a warp-in shadow, an
+	// impact blast, rubble -- routing the drain through Battle::spawnEffect
+	// instead of Battle::spawn: none of the collision scaffold
+	// (Physique/PriorSilhouette/CollisionScratch/Collider) is ever read for
+	// one (review-007 W5's diet). `effectMoves` additionally attaches
+	// Motion, for the one decoration that actually drifts (the explosion's
+	// debris) -- every other decoration's Position is set once at spawn and
+	// never touched again.
+	bool effect = false;
+	bool effectMoves = false;
+
 	// Non-null for a weapon: attachWeaponSpec's payload.
 	Borrowed<const WeaponSpec> weaponSpec = nullptr;
 
@@ -87,7 +98,6 @@ struct SpawnCommand
 	// ShipSystems.cpp's fire block).
 	std::optional<Guided> guided;
 
-	bool ignoreVelocity = false;
 	bool ignoreSimilar = false;
 
 	// Set for a transient spawn: Lifetime attaches once the spawn lands.
@@ -108,6 +118,11 @@ struct SpawnCommand
 	// Element lost `colorCycle` the same way (review-007 W4b).
 	std::optional<AnimFrame> animFrame;
 
+	// True stamps FrameDriven onto the shot (WeaponSpec::frameDriven):
+	// true only for the flame, whose animate-pass sub-iteration this tag
+	// selects (review-007 W5).
+	bool frameDriven = false;
+
 	// Non-null attaches a Collider once the spawn lands (the fire block's
 	// shot; see Battle::spawn, which every direct spawn site goes through
 	// instead).
@@ -115,9 +130,15 @@ struct SpawnCommand
 
 	// Non-null for the asteroid field's rubble (Field.cpp's asteroidDeath):
 	// the mask it carries through its own non-solid life, so its own death
-	// hook can hand it to the next asteroid -- never a Collider, since that
+	// spawn can hand it to the next asteroid -- never a Collider, since that
 	// would make the rubble collide. See StashedMask (Collision.hpp).
 	Borrowed<const CollisionMask> rubbleMask = nullptr;
+
+	// Non-null attaches a DeathSpawn once the spawn lands (Field.hpp): the
+	// rubble's own payload (rubbleDeath), matching the asteroid's own
+	// (Field.cpp's spawnAsteroid attaches DeathSpawn directly, having no
+	// need for the queue). Same signature as DeathSpawn::emit.
+	void (*deathSpawn)(Battle &, EntityId) noexcept = nullptr;
 
 	// An escape hatch for a spawn whose construction itself must happen at
 	// the sync point, in queue order, instead of at emission -- the
@@ -198,6 +219,23 @@ public:
 	// `beam` is what a mover's `pos` is elsewhere. Still gets Order (walked
 	// and drawn like anything else) and Allegiance, same as spawn() above.
 	EntityId spawnBeam(Layer layer, Element e, Beam beam,
+			Allegiance allegiance = Allegiance{});
+
+	// A decorative particle -- an ion trail, a warp-in shadow, an impact
+	// blast, rubble -- queued via SpawnCommand's `effect` flag (review-007
+	// W5's diet): never solid and its Position is set once at spawn and
+	// never touched again, so it carries none of spawn()'s collision
+	// scaffold either (Motion/Physique/PriorSilhouette/CollisionScratch/
+	// Collider -- the collide pass gates on collidable(testId), which this
+	// never satisfies). Still gets Order and Allegiance, same as spawn()
+	// and spawnBeam above.
+	EntityId spawnEffect(Layer layer, Element e, Position pos,
+			Allegiance allegiance = Allegiance{});
+
+	// The one decoration that actually drifts (the explosion's debris):
+	// spawnEffect's shape plus Motion, so Integrate still advances it --
+	// everything spawnEffect omits stays omitted.
+	EntityId spawnEffect(Layer layer, Element e, Position pos, Motion motion,
 			Allegiance allegiance = Allegiance{});
 
 	// Registers a spawn for the sync point instead of creating it now --
@@ -406,6 +444,14 @@ private:
 			usize testIdx, TimeValue maxTime);
 	void killOverlapSpawn(EntityId id);
 	void recordSpawn(EntityId id, const Element &e, const Allegiance &allegiance);
+
+	// The death path's two mechanisms (review-007 W5, replacing
+	// Element::onDeath): DeathSpawn's payload (asteroid/rubble) and
+	// SweepsOwnedOnDeath's generic sweep (a dying ship's ordnance) --
+	// mutually exclusive per entity, called from both death call sites
+	// (killOverlapSpawn's mid-Collide kill and ageAndReapMarkPass's
+	// frame-start check).
+	void runDeathResponses(EntityId id) noexcept;
 
 	// ex-EntityList::remove (review-006 Z6): destroy plus the count, no
 	// spine to unlink.
