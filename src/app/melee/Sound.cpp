@@ -18,11 +18,11 @@ namespace {
 [[nodiscard]] std::span<const platform::Sound>
 shipSounds(Game &g, i32 playerNr)
 {
-	if (playerNr < 0 || static_cast<usize>(playerNr) >= g.roster.size()
-			|| g.roster[static_cast<usize>(playerNr)] == nullptr)
+	const auto &roster = g.battle.context<BattleConfig>().roster;
+	if (playerNr < 0 || static_cast<usize>(playerNr) >= roster.size()
+			|| roster[static_cast<usize>(playerNr)] == nullptr)
 		return {};
-	return g.content.sounds(g.audio,
-			g.roster[static_cast<usize>(playerNr)]->art.sounds);
+	return g.content.sounds(g.audio, roster[static_cast<usize>(playerNr)]->art.sounds);
 }
 
 }  // namespace
@@ -77,14 +77,15 @@ playStepSounds(Game &g)
 	// The explosion sound plays when it starts, not when the wreck is
 	// reaped: StartShipExplosion fires SHIP_EXPLODES as it starts burning
 	// (tactrans.c:722-727), 36 frames before the wreck disappears.
-	for (usize p = 0; p < g.ships.size(); ++p)
+	const auto &shipIds = g.battle.context<MatchState>().shipIds;
+	for (usize p = 0; p < shipIds.size(); ++p)
 	{
-		if (g.deathAnnounced[p])
+		if (g.battle.has<AnnouncedDead>(shipIds[p]))
 			continue;
-		auto s = g.battle.ship(g.ships[p]);
+		auto s = g.battle.ship(shipIds[p]);
 		if (s == nullptr || s->crew > 0)
 			continue;
-		g.deathAnnounced[p] = true;
+		g.battle.attach<AnnouncedDead>(shipIds[p]);
 		// shipdies.wav -- SHIP_EXPLODES (tactrans.c:723-726).
 		if (battleSnd.size() > slot(game::BattleSound::ShipExplodes))
 			g.audio.play(battleSnd[slot(game::BattleSound::ShipExplodes)],

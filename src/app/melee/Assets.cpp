@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <string_view>
+#include <utility>
 
 namespace uqm::melee {
 
@@ -74,11 +75,13 @@ loadAssets(Game &g, const std::filesystem::path &content)
 				content.string().c_str());
 	}
 
+	BattleConfig cfg;
+
 	// Today's fixed roster, by catalog key. What ships exist and what they
 	// load is game/Ships.cpp's business; only the match-up is decided here.
-	g.roster = {game::findShip("earthling.cruiser"),
+	cfg.roster = {game::findShip("earthling.cruiser"),
 			game::findShip("ilwrath.avenger")};
-	assert(g.roster[0] != nullptr && g.roster[1] != nullptr);
+	assert(cfg.roster[0] != nullptr && cfg.roster[1] != nullptr);
 
 	// Warm the cache and say what failed, now rather than mid-battle:
 	// consumers resolve lazily through Resources, so a missing id would
@@ -102,7 +105,7 @@ loadAssets(Game &g, const std::filesystem::path &content)
 				static_cast<int>(id.size()), id.data(), ok, set.size());
 	};
 
-	for (const game::ShipDef *def : g.roster)
+	for (const game::ShipDef *def : cfg.roster)
 	{
 		warm(def->art.ship);
 		warm(def->art.weapon);
@@ -119,12 +122,12 @@ loadAssets(Game &g, const std::filesystem::path &content)
 
 	// Skipping this leaves a default ShipSpec with thrust.max = 0 and
 	// turnWait = 0, a ship that cannot accelerate and spins every frame.
-	for (usize p = 0; p < g.roster.size(); ++p)
+	for (usize p = 0; p < cfg.roster.size(); ++p)
 	{
-		const game::ShipDef &def = *g.roster[p];
-		g.shipData[p] = game::materialize(def, g.content, g.window);
+		const game::ShipDef &def = *cfg.roster[p];
+		cfg.shipData[p] = game::materialize(def, g.content, g.window);
 
-		if (!g.shipData[p].valid())
+		if (!cfg.shipData[p].valid())
 		{
 			std::fprintf(stderr,
 					"ship: %.*s's descriptor was never filled in -- it will "
@@ -132,6 +135,8 @@ loadAssets(Game &g, const std::filesystem::path &content)
 					static_cast<int>(def.key.size()), def.key.data());
 		}
 	}
+
+	g.battle.setContext<BattleConfig>(std::move(cfg));
 }
 
 }  // namespace uqm::melee

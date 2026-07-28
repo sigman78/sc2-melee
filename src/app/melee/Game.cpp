@@ -63,6 +63,9 @@ namespace {
 void
 setUpBattle(Game &g)
 {
+	auto &cfg = g.battle.context<BattleConfig>();
+	auto &match = g.battle.context<MatchState>();
+
 	// Random facings and random positions, as the C does (ship.c:456, 473).
 	// The facing has to be chosen before the ship is spawned, because the
 	// collision mask is per-facing and placement tests that mask.
@@ -80,18 +83,18 @@ setUpBattle(Game &g)
 	// against a square is not per-pixel collision, so a missing mask changes
 	// how the ships actually touch.
 	const sim::Facing facing0 = randomFacing();
-	g.ships[0] = sim::spawnPlayerShip(g.battle, g.shipData[0],
-			g.content.sprites(g.window, g.roster[0]->art.ship)
+	match.shipIds[0] = sim::spawnPlayerShip(g.battle, cfg.shipData[0],
+			g.content.sprites(g.window, cfg.roster[0]->art.ship)
 					.maskFor(facing0.raw()),
 			Vec2i{0, 0}, facing0, 0, /*warpIn=*/true);
-	sim::placeShipAtRandom(g.battle, g.ships[0], kMinSeparation);
+	sim::placeShipAtRandom(g.battle, match.shipIds[0], kMinSeparation);
 
 	const sim::Facing facing1 = randomFacing();
-	g.ships[1] = sim::spawnPlayerShip(g.battle, g.shipData[1],
-			g.content.sprites(g.window, g.roster[1]->art.ship)
+	match.shipIds[1] = sim::spawnPlayerShip(g.battle, cfg.shipData[1],
+			g.content.sprites(g.window, cfg.roster[1]->art.ship)
 					.maskFor(facing1.raw()),
 			Vec2i{0, 0}, facing1, 1, /*warpIn=*/true);
-	sim::placeShipAtRandom(g.battle, g.ships[1], kMinSeparation);
+	sim::placeShipAtRandom(g.battle, match.shipIds[1], kMinSeparation);
 
 	// The field spawns after the ships: spawnPlanet rejects any position
 	// overlapping something or in a gravity well (misc.c:63-70), and can
@@ -101,10 +104,13 @@ setUpBattle(Game &g)
 	const sim::CollisionMask *rockMask =
 			g.content.sprites(g.window, game::kMeleeArt.asteroid).maskFor(0);
 
-	// Spread over the arena, in display pixels. See kStarFieldWidth.
-	for (Vec2i &s : g.stars)
+	// The starfield: one entity (review-007 §3), positions spread over the
+	// arena in display pixels (see kStarFieldWidth), populated once here.
+	Starfield sf;
+	for (Vec2i &s : sf.stars)
 		s = Vec2i{static_cast<i32>(g.battle.rng().next() % kStarFieldWidth),
 				static_cast<i32>(g.battle.rng().next() % kStarFieldHeight)};
+	g.battle.attach<Starfield>(g.battle.create(), std::move(sf));
 
 	// Asteroids first, then the planet -- init.c:228-233's order. The planet's
 	// placement loop rejects anything it would overlap, so it has to be able
@@ -119,16 +125,22 @@ setUpBattle(Game &g)
 void
 setUp(Game &g, const std::filesystem::path &content)
 {
+	g.battle.setContext<MatchState>(MatchState{});
+	g.battle.setContext<DebugToggles>(DebugToggles{});
+	g.battle.setContext<game::Camera>(game::Camera{});
+
 	loadAssets(g, content);
 	setUpBattle(g);
 
 	// The initial furniture -- both ships, the asteroids, the planet -- gets
 	// its Visual now; everything spawned later is caught in iterate(). A
-	// pure join now (review-007 W4b): both components are attached
-	// together at spawn, so requiring them replaces the get-then-null-check.
-	g.battle.eachOrdered<sim::Element, sim::Allegiance>(
-			[&g](sim::EntityId id, sim::Element &e, sim::Allegiance &a) {
-				g.battle.attach<Visual>(id, visualFor(g, e.kind, a.playerNr));
+	// pure join now (review-007 W4b): Allegiance is enough to find every
+	// spawned element (attached uniformly, same call as Order), so the
+	// join replaces the get-then-null-check without needing Element::kind
+	// (review-007 W7 -- visualFor selects art from composition instead).
+	g.battle.eachOrdered<sim::Allegiance>(
+			[&g](sim::EntityId id, sim::Allegiance &a) {
+				g.battle.attach<Visual>(id, visualFor(g, id, a.playerNr));
 			});
 }
 
@@ -140,6 +152,9 @@ iterate(Game &g)
 		g.running = false;
 		return;
 	}
+
+	auto &debug = g.battle.context<DebugToggles>();
+	auto &match = g.battle.context<MatchState>();
 
 	const int steps = g.pacer.stepsDue(g.window.now());
 	for (int i = 0; i < steps; ++i)
@@ -154,22 +169,22 @@ iterate(Game &g)
 			if (p == 0)
 			{
 				const bool debugDown = b.test(Button::Debug);
-				if (debugDown && !g.debugWasDown)
-					g.debugOverlay = !g.debugOverlay;
-				g.debugWasDown = debugDown;
+				if (debugDown && !debug.wasDown)
+					debug.overlay = !debug.overlay;
+				debug.wasDown = debugDown;
 			}
-			if (sim::Input *in = g.battle.find<sim::Input>(g.ships[p]))
+			if (sim::Input *in = g.battle.find<sim::Input>(match.shipIds[p]))
 				in->buttons = toShipInput(b);
 		}
 		g.battle.step();
 
 		// Collision events are step()'s output regardless of the overlay
-		// (design-notes.md D5); only drawing them is optional.
+		// (design-notes.md D5); only drawing them is optional. Each becomes
+		// a bare Mark entity (review-007 §3): outside the sim's element
+		// count, reaped by age below rather than through the Doomed/reap
+		// protocol a sim element would use.
 		for (const sim::CollisionEvent &c : g.battle.collisions())
-		{
-			g.marks.push_back(
-					Game::Mark{c, static_cast<i64>(g.battle.frame())});
-		}
+			g.battle.attach<Mark>(g.battle.create(), Mark{c, g.battle.frame()});
 
 		playStepSounds(g);
 
@@ -181,36 +196,42 @@ iterate(Game &g)
 		{
 			if (g.battle.alive(sp.id))
 				g.battle.attach<Visual>(
-						sp.id, visualFor(g, sp.kind, sp.playerNr));
+						sp.id, visualFor(g, sp.id, sp.playerNr));
 		}
 	}
 
-	// Drop what has aged out. Done here rather than while drawing so the list
-	// does not grow without bound when the overlay is off.
-	const i64 now = static_cast<i64>(g.battle.frame());
-	std::erase_if(g.marks, [now](const Game::Mark &m) {
-		return now - m.frame > kMarkLife;
+	// Drop what has aged out. Done here rather than while drawing so the
+	// registry does not grow without bound when the overlay is off. Marks
+	// are app-owned bare entities (Battle::create()), so ageing them out is
+	// this loop's job, not the sim's Doomed/reap protocol; collected first
+	// since destroying mid-view is not safe.
+	std::vector<sim::EntityId> agedOut;
+	g.battle.each<Mark>([&](sim::EntityId id, Mark &m) {
+		if (g.battle.frame() - m.bornFrame > kMarkLife)
+			agedOut.push_back(id);
 	});
+	for (sim::EntityId id : agedOut)
+		g.battle.destroy(id);
 
 	// A ship is gone when its element is: doDamage zeroes life_span and the
 	// step loop reaps it, so any means of destruction counts, not just one
 	// shot to death.
-	if (g.winner < 0)
+	if (match.winner < 0)
 	{
-		const bool alive0 = g.battle.get(g.ships[0]) != nullptr;
-		const bool alive1 = g.battle.get(g.ships[1]) != nullptr;
+		const bool alive0 = g.battle.get(match.shipIds[0]) != nullptr;
+		const bool alive1 = g.battle.get(match.shipIds[1]) != nullptr;
 		if (!alive0 || !alive1)
 		{
-			g.winner = alive0 ? 0 : (alive1 ? 1 : 2);
-			g.endedAtFrame = static_cast<i64>(g.battle.frame());
-			if (g.winner == 2)
+			match.winner = alive0 ? 0 : (alive1 ? 1 : 2);
+			match.endedAtFrame = static_cast<i64>(g.battle.frame());
+			if (match.winner == 2)
 				std::printf("mutual destruction\n");
 			else
-				std::printf("player %d wins\n", g.winner);
+				std::printf("player %d wins\n", match.winner);
 			std::fflush(stdout);
 		}
 	}
-	else if (static_cast<i64>(g.battle.frame()) - g.endedAtFrame
+	else if (static_cast<i64>(g.battle.frame()) - match.endedAtFrame
 			> kBattleHz * 2)
 	{
 		// Two seconds to watch the wreck, then out. A menu goes here in M2.
@@ -222,11 +243,12 @@ iterate(Game &g)
 	// the last step left behind.
 	std::array<Vec2i, 2> eyes{};
 	usize living = 0;
-	for (const sim::EntityId id : g.ships)
+	for (const sim::EntityId id : match.shipIds)
 		if (auto e = g.battle.get(id); e != nullptr)
 			eyes[living++] = g.battle.find<sim::Position>(id)->current;
 	if (living > 0)
-		g.camera.follow(std::span<const Vec2i>{eyes.data(), living});
+		g.battle.context<game::Camera>().follow(
+				std::span<const Vec2i>{eyes.data(), living});
 
 	draw(g);
 }

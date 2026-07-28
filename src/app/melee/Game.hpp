@@ -26,16 +26,14 @@
 #include <filesystem>
 #include <vector>
 
+#define comp
+
 namespace uqm::melee {
 
 // Randomness enters the simulation here or not at all: the sim never reads
 // a clock, so a battle is exactly as random as its seed. Printed so a
 // battle can be replayed from the logged value.
 [[nodiscard]] u32 battleSeed();
-
-// Total stars across all three parallax planes; see Draw.cpp for the field
-// itself.
-inline constexpr int kStarCount = 30 + 60 + 90;
 
 struct Game
 {
@@ -45,14 +43,6 @@ struct Game
 			3};
 
 	sim::Battle battle{battleSeed()};
-	game::Camera camera;
-
-	// Whether each ship's death has been announced, so it is announced once.
-	std::array<bool, 2> deathAnnounced{};
-
-	// The starfield, three planes deep (galaxy.c:37-44). Positions are in
-	// display pixels on a screen-sized torus, one per plane -- see drawStars.
-	std::array<Vec2i, kStarCount> stars{};
 	Pacer pacer;
 	std::array<input::InputAccumulator, 2> players;
 
@@ -62,56 +52,56 @@ struct Game
 	platform::Audio audio;
 	game::Resources content;
 
-	// Who is fighting, as catalog entries -- parallel to `ships`. Art and
-	// sounds resolve through the owner's definition (visualFor, Sound.cpp);
-	// no other app code names a resource id.
+	bool running = true;
+};
+
+// The app's ctx roster (review-007 §3): world-scoped state that is no
+// entity's -- no id, no lifecycle, reached through Battle::setContext<T>/
+// context<T> instead of a Game member, same as Battle's own rng/frame.
+// Device handles and frame plumbing (window, audio, content, pacer, input
+// accumulators) deliberately stay in Game above -- putting them in ctx would
+// be a service locator with extra steps.
+
+// -1 while the fight is on, then the surviving player, or 2 for a draw.
+// Held rather than acted on: the battle keeps stepping so the wreck and its
+// blast finish playing out, which is what the C does too.
+comp struct MatchState
+{
+	i32 winner = -1;
+	i64 endedAtFrame = 0;
+
+	// kNoEntity explicitly: entt's zero id is a real first entity, not null.
+	std::array<sim::EntityId, 2> shipIds{sim::kNoEntity, sim::kNoEntity};
+};
+
+comp struct DebugToggles
+{
+	// F1. Off by default; costs nothing when off.
+	bool overlay = false;
+
+	// Last step's F1 level, so the toggle fires on the edge. Toggling on the
+	// level flipped the overlay 24 times a second while the key was held.
+	bool wasDown = false;
+};
+
+// Who is fighting, as catalog entries -- parallel to `shipIds` -- plus their
+// per-battle materialized specs. Art and sounds resolve through the owner's
+// definition (visualFor, Sound.cpp); no other app code names a resource id.
+// Same lifetime as the world whose ShipStates borrow into shipData.
+comp struct BattleConfig
+{
 	std::array<Borrowed<const game::ShipDef>, 2> roster{};
 
 	// Per-battle copies, so their weapons can carry the mask cut from the
 	// projectile art. sim/'s shared descriptors stay content-free by
 	// design; wiring a mask into them would make sim/ depend on content.
 	std::array<sim::ShipSpec, 2> shipData{};
-
-	// kNoEntity explicitly: entt's zero id is a real first entity, not null.
-	std::array<sim::EntityId, 2> ships{sim::kNoEntity, sim::kNoEntity};
-	bool running = true;
-
-	// -1 while the fight is on, then the surviving player, or 2 for a draw.
-	// Held rather than acted on: the battle keeps stepping so the wreck and
-	// its blast finish playing out, which is what the C does too.
-	int winner = -1;
-	i64 endedAtFrame = 0;
-
-	// F1. Off by default; costs nothing when off.
-	bool debugOverlay = false;
-	// Last step's F1 level, so the toggle fires on the edge. Toggling on the
-	// level flipped the overlay 24 times a second while the key was held.
-	bool debugWasDown = false;
-
-	// Contact points linger, because a collision lasts one frame and one frame
-	// at 24 Hz is not long enough to see. Each entry is an event plus the
-	// frame it happened on.
-	struct Mark
-	{
-		sim::CollisionEvent event;
-		i64 frame = 0;
-	};
-	std::vector<Mark> marks;
 };
-
-// How long a contact point stays on screen, in simulation frames.
-inline constexpr i64 kMarkLife = 24;
 
 // Half level: the .wav files are mastered loud enough that a dozen
 // streams would clip. With one voice per effect (platform/Audio.hpp)
 // this level is honest, not a blanket fix for voice-count overlap.
 inline constexpr float kEffectGain = 0.35f;
-
-// How large a patch the field tiles over, in display pixels. The C
-// varies on-screen density with zoom (galaxy.c:248-259); this field is
-// zoom-independent, so it tiles over four screens for ~45 stars in view.
-inline constexpr i32 kStarFieldWidth = sim::kSpaceWidth * 2;
-inline constexpr i32 kStarFieldHeight = sim::kSpaceHeight * 2;
 
 // Fills in the Game the two-line setUp wrapper cannot do itself: content
 // loading (Assets.cpp) followed by battle setup (Game.cpp).
@@ -123,5 +113,7 @@ void setUp(Game &g, const std::filesystem::path &content);
 void iterate(Game &g);
 
 }  // namespace uqm::melee
+
+#undef comp
 
 #endif  // UQM2_APP_MELEE_GAME_HPP

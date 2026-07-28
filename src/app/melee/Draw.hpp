@@ -3,8 +3,13 @@
 #ifndef UQM2_APP_MELEE_DRAW_HPP
 #define UQM2_APP_MELEE_DRAW_HPP
 
+#include "engine/core/Geometry.hpp"
 #include "engine/core/Types.hpp"
+#include "sim/Battle.hpp"
 #include "sim/Element.hpp"
+#include "sim/World.hpp"
+
+#include <array>
 
 namespace uqm::game {
 struct SpriteSet;
@@ -21,42 +26,69 @@ struct Colour
 	u8 r, g, b;
 };
 
-// How an attached Visual becomes pixels. Chosen once at spawn (visualFor);
-// draw() only dispatches on it.
-enum class CelPolicy : u8
-{
-	ByFacing,        // ships, asteroids, planet, blasts: cel = facing.raw() % frames
-	ByFrame,         // weapons: cel = AnimFrame.n % frames
-	RampPoint,       // ion trail: 1px kIonRamp[age] dot
-	RampSilhouette,  // warp shadow: silhouette tinted kIonRamp[age]
-	DebrisFrames,    // dying-ship spark: boom frames stepped by age
-	BeamLine,        // laser: line Beam.from->to
-	Rect,            // fallback: fillRect in `fallback` colour
-};
-
-// What one element draws as. Attached once, at spawn -- see visualFor --
-// rather than deduced from ElementKind every frame.
-//
-// A component in the battle's registry, emplaced by the app: the sim never
-// names this type, ownership is by component type, not by store (review-004
-// X3). Reaping the entity reaps its Visual -- the old RenderStore and its
-// purgeDead are gone.
+// What one element draws as: a sprite set (null for a line/point effect with
+// no art) and a fallback colour for when the set failed to load or none
+// applies. The pass owns how it is drawn -- cel indexing, hotspot placement,
+// tinting -- so this carries nothing about technique any more (review-007
+// W7: CelPolicy retires, the pass IS the policy). A component in the
+// battle's registry, emplaced by the app: the sim never names this type,
+// ownership is by component type, not by store (review-004 X3).
 comp struct Visual
 {
-	const game::SpriteSet *sprites = nullptr;  // null for RampPoint/BeamLine/Rect
-	CelPolicy policy = CelPolicy::Rect;
+	const game::SpriteSet *sprites = nullptr;
 	Colour fallback{0xC0, 0xC0, 0xC0};
 };
 
-// THE attach-time dispatch: the only place left that switches on
-// ElementKind, besides the sound code. Built once per spawned element.
-// Art comes from the owner's roster entry or kMeleeArt, resolved through
-// Resources' cache -- which is why the Game is not const here.
-[[nodiscard]] Visual visualFor(
-		Game &g, sim::ElementKind kind, i32 playerNr);
+// The attach-time art selection (review-007 W7): what an element draws as,
+// chosen from what it is composed of -- a ShipState or Shadow tag means the
+// owner's ship art, a Warhead means the owner's weapon art, and so on down
+// to the plain Rect fallback. ElementKind is gone from this dispatch (the
+// last app-side read of it); ownership of "what kind of thing this is" now
+// belongs entirely to composition. Built once per spawned element, in
+// setUp() and iterate() -- Art comes from the owner's roster entry or
+// kMeleeArt, resolved through Resources' cache, which is why the Game is
+// not const here.
+[[nodiscard]] Visual visualFor(Game &g, sim::EntityId id, i32 playerNr);
 
-// Renders one frame: the starfield, every element, the HUD, and -- if
-// toggled -- the collision debug overlay.
+// Total stars across all three parallax planes; see Draw.cpp for the field
+// itself.
+inline constexpr int kStarCount = 30 + 60 + 90;
+
+// How large a patch the field tiles over, in display pixels. The C varies
+// on-screen density with zoom (galaxy.c:248-259); this field is
+// zoom-independent, so it tiles over four screens for ~45 stars in view.
+inline constexpr i32 kStarFieldWidth = sim::kSpaceWidth * 2;
+inline constexpr i32 kStarFieldHeight = sim::kSpaceHeight * 2;
+
+// The starfield, as one entity (review-007 §3): not 180 star entities --
+// component granularity follows behaviour granularity, and the field
+// scrolls as one thing. Positions are in display pixels on a screen-sized
+// torus per plane (galaxy.c:37-44); see renderStars. No Position, no
+// Order: created once via Battle::create() (a bare entity, outside the
+// sim's element count and its ordered walk), populated at battle setup,
+// read every frame by renderStars alone.
+comp struct Starfield
+{
+	std::array<Vec2i, kStarCount> stars{};
+};
+
+// A collision event, held on screen for kMarkLife frames -- one frame at
+// 24 Hz is not long enough to see (review-007 §3). An app-owned bare
+// entity (Battle::create()), drawn by the marks pass and reaped by age in
+// iterate() via Battle::destroy(); never a sim element, so it carries no
+// Order and is invisible to eachOrdered.
+comp struct Mark
+{
+	sim::CollisionEvent event;
+	u64 bornFrame = 0;
+};
+
+// How long a contact point stays on screen, in simulation frames.
+inline constexpr u64 kMarkLife = 24;
+
+// Renders one frame: the ordered pipeline of semantic passes -- stars,
+// planet, asteroids, ships, projectiles, effects, marks, the HUD and,
+// ctx-gated, the collision debug overlay.
 void draw(Game &g);
 
 }  // namespace uqm::melee
