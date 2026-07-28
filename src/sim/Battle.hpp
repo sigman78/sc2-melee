@@ -14,6 +14,7 @@
 
 #include <optional>
 #include <span>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -167,6 +168,24 @@ struct SpawnCommand
 	void (*deferred)(Battle &, Borrowed<const CollisionMask>) noexcept = nullptr;
 	Borrowed<const CollisionMask> deferredMask = nullptr;
 };
+
+namespace detail {
+
+// entt drops an empty component from the tuple a view yields -- a tag has no
+// value to bind a reference to. The ordered walk destructures by hand, so it
+// has to drop the same ones itself, or naming a tag in its type list would
+// not compile and a tag could filter each<> but never eachOrdered<>.
+template <class T, class Reg>
+[[nodiscard]] auto
+fetchOrdered([[maybe_unused]] Reg &reg, [[maybe_unused]] EntityId id)
+{
+	if constexpr (std::is_empty_v<T>)
+		return std::tuple<>{};
+	else
+		return std::forward_as_tuple(reg.template get<T>(id));
+}
+
+}  // namespace detail
 
 class Spawned;
 
@@ -447,7 +466,8 @@ public:
 	// ids; eachOrdered<Ts...> is the join -- fetch every Ts and skip the
 	// entity if any is missing (reg_.all_of first) rather than passing a
 	// null through. Ts always explicit when non-empty (it isn't deducible
-	// from Fn alone).
+	// from Fn alone). A tag among Ts filters presence without the callback
+	// taking an argument for it, same as each<Ts...> (see fetchOrdered).
 	template <class... Ts, class Fn>
 	void eachOrdered(Fn &&fn)
 	{
@@ -458,7 +478,9 @@ public:
 			if constexpr (sizeof...(Ts) == 0)
 				fn(id);
 			else if (reg_.all_of<Ts...>(id))
-				fn(id, reg_.get<Ts>(id)...);
+				std::apply(fn,
+						std::tuple_cat(std::forward_as_tuple(id),
+								detail::fetchOrdered<Ts>(reg_, id)...));
 		}
 	}
 	template <class... Ts, class Fn>
@@ -471,7 +493,9 @@ public:
 			if constexpr (sizeof...(Ts) == 0)
 				fn(id);
 			else if (reg_.all_of<Ts...>(id))
-				fn(id, reg_.get<Ts>(id)...);
+				std::apply(fn,
+						std::tuple_cat(std::forward_as_tuple(id),
+								detail::fetchOrdered<Ts>(reg_, id)...));
 		}
 	}
 	// The exclude form, matching each<Ts...>'s: an entity carrying any of
@@ -483,7 +507,9 @@ public:
 		buildOrderedIds(ids);
 		for (EntityId id : ids)
 			if (reg_.all_of<Ts...>(id) && !reg_.any_of<Xs...>(id))
-				fn(id, reg_.get<Ts>(id)...);
+				std::apply(fn,
+						std::tuple_cat(std::forward_as_tuple(id),
+								detail::fetchOrdered<Ts>(reg_, id)...));
 	}
 
 private:
