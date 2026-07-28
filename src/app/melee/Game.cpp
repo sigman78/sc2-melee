@@ -63,33 +63,6 @@ namespace {
 void
 setUpBattle(Game &g)
 {
-	const auto addShip = [&g](const sim::ShipSpec &data, Vec2i at,
-							  sim::Facing facing, int player) {
-		sim::Element e;
-		e.kind = sim::ElementKind::Ship;
-		e.flags = sim::ElementFlags::IgnoreSimilar;
-		e.current = at;
-		e.next = at;
-		e.facing = facing;
-		e.playerNr = player;
-		e.mass = data.mass;
-
-		// The real silhouette when the art loaded, Resources' placeholder
-		// block when it did not -- either way maskFor cannot miss. Per-pixel
-		// collision against a square is not per-pixel collision, so a
-		// missing mask changes how the ships actually touch.
-		const game::SpriteSet &set = g.content.sprites(g.window,
-				g.roster[static_cast<usize>(player)]->art.ship);
-		e.mask = set.maskFor(facing.raw());
-		e.onCollision = sim::solidCollision;
-		const sim::EntityId id = g.battle.spawn(sim::Layer::Field, std::move(e));
-		g.battle.attach<sim::PlayerShip>(id);
-		// Warping in, not simply present; arrival removes the component.
-		g.battle.attach<sim::WarpingIn>(id);
-		g.battle.attachShip(id, &data);
-		return id;
-	};
-
 	// Random facings and random positions, as the C does (ship.c:456, 473).
 	// The facing has to be chosen before the ship is spawned, because the
 	// collision mask is per-facing and placement tests that mask.
@@ -102,9 +75,22 @@ setUpBattle(Game &g)
 	// other, close enough for the camera to hold both.
 	constexpr i32 kMinSeparation = 1024;
 
-	g.ships[0] = addShip(g.shipData[0], Vec2i{0, 0}, randomFacing(), 0);
+	// The real silhouette when the art loaded, Resources' placeholder block
+	// when it did not -- either way maskFor cannot miss. Per-pixel collision
+	// against a square is not per-pixel collision, so a missing mask changes
+	// how the ships actually touch.
+	const sim::Facing facing0 = randomFacing();
+	g.ships[0] = sim::spawnPlayerShip(g.battle, g.shipData[0],
+			g.content.sprites(g.window, g.roster[0]->art.ship)
+					.maskFor(facing0.raw()),
+			Vec2i{0, 0}, facing0, 0, /*warpIn=*/true);
 	sim::placeShipAtRandom(g.battle, g.ships[0], kMinSeparation);
-	g.ships[1] = addShip(g.shipData[1], Vec2i{0, 0}, randomFacing(), 1);
+
+	const sim::Facing facing1 = randomFacing();
+	g.ships[1] = sim::spawnPlayerShip(g.battle, g.shipData[1],
+			g.content.sprites(g.window, g.roster[1]->art.ship)
+					.maskFor(facing1.raw()),
+			Vec2i{0, 0}, facing1, 1, /*warpIn=*/true);
 	sim::placeShipAtRandom(g.battle, g.ships[1], kMinSeparation);
 
 	// The field spawns after the ships: spawnPlanet rejects any position

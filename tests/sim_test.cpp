@@ -1192,27 +1192,12 @@ testDeriveSpeedStateFromVelocity()
 // --------------------------------------------------------------------------
 // Ships
 
-EntityId
-addShip(Battle &b, const ShipSpec &data, Vec2i at, int facing, int player)
-{
-	Element e;
-	e.kind = ElementKind::Ship;
-	e.current = at;
-	e.next = at;
-	e.facing = Facing(facing);
-	e.playerNr = player;
-	e.mass = data.mass;
-	const EntityId id = b.spawn(Layer::Field, std::move(e));
-	b.attach<PlayerShip>(id);
-	b.attachShip(id, &data);
-	return id;
-}
-
 void
 testShipInitialisesFromItsDescriptor()
 {
 	Battle b(1);
-	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{1000, 1000}, 0, 0);
+	const EntityId id = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{1000, 1000}, Facing(0), 0, /*warpIn=*/false);
 
 	b.step();
 	auto s = b.ship(id);
@@ -1227,7 +1212,8 @@ testTurningIsGatedByTurnWait()
 {
 	Battle b(1);
 	// The Avenger turns every 2 frames; the Cruiser every 1.
-	const EntityId slow = addShip(b, ilwrathAvenger(), Vec2i{1000, 1000}, 0, 0);
+	const EntityId slow = spawnPlayerShip(b, ilwrathAvenger(), nullptr,
+			Vec2i{1000, 1000}, Facing(0), 0, /*warpIn=*/false);
 
 	b.step();  // Appearing frame: input is not latched
 	b.find<Input>(slow)->buttons = ShipInput::Right;
@@ -1252,7 +1238,8 @@ void
 testFiringSpendsEnergyAndRespectsCooldown()
 {
 	Battle b(1);
-	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{2000, 2000}, 0, 0);
+	const EntityId id = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{2000, 2000}, Facing(0), 0, /*warpIn=*/false);
 
 	b.step();
 	CHECK(b.size() == 1, "just the ship so far");
@@ -1275,7 +1262,8 @@ testFiringSpendsEnergyAndRespectsCooldown()
 	// With the energy drained below the cost, it must not fire at all -- and
 	// must not start a cooldown either.
 	Battle c(1);
-	const EntityId poor = addShip(c, earthlingCruiser(), Vec2i{2000, 2000}, 0, 0);
+	const EntityId poor = spawnPlayerShip(c, earthlingCruiser(), nullptr,
+			Vec2i{2000, 2000}, Facing(0), 0, /*warpIn=*/false);
 	c.step();
 	c.ship(poor)->energy = 8;   // one short of the 9-point cost
 	c.ship(poor)->energyCounter = 5;  // ...and hold off regen, which
@@ -1293,7 +1281,8 @@ void
 testMissileFliesAndExpires()
 {
 	Battle b(1);
-	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
+	const EntityId id = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();
 
 	b.find<Input>(id)->buttons = ShipInput::Weapon;
@@ -1331,7 +1320,8 @@ testFiringPostponesEnergyRegen()
 	// re-arm its flame is close to self-sustaining instead of a 16-frame
 	// burst.
 	Battle b(1);
-	const EntityId id = addShip(b, ilwrathAvenger(), Vec2i{2000, 2000}, 0, 0);
+	const EntityId id = spawnPlayerShip(b, ilwrathAvenger(), nullptr,
+			Vec2i{2000, 2000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();  // Appearing frame
 
 	b.find<Input>(id)->buttons = ShipInput::Weapon;
@@ -1371,7 +1361,8 @@ testSpecialFiresTheFrameItsCounterExpires()
 	}();
 
 	Battle b(1);
-	const EntityId id = addShip(b, d, Vec2i{2000, 2000}, 0, 0);
+	const EntityId id = spawnPlayerShip(b, d, nullptr,
+			Vec2i{2000, 2000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();  // Appearing frame
 
 	g_specialFires = 0;
@@ -1405,8 +1396,10 @@ testOpposingMissilesDestroyEachOther()
 	Battle b(1);
 	// Far enough apart that the missiles meet in the middle long before
 	// either could reach the opposing ship.
-	const EntityId a = addShip(b, d, Vec2i{4000, 6000}, 0, 0);
-	const EntityId c = addShip(b, d, Vec2i{4000, 2000}, 8, 1);
+	const EntityId a = spawnPlayerShip(b, d, nullptr,
+			Vec2i{4000, 6000}, Facing(0), 0, /*warpIn=*/false);
+	const EntityId c = spawnPlayerShip(b, d, nullptr,
+			Vec2i{4000, 2000}, Facing(8), 1, /*warpIn=*/false);
 	b.step();  // Appearing frame
 
 	b.find<Input>(a)->buttons = ShipInput::Weapon;
@@ -1505,7 +1498,8 @@ testGravityPullsTowardTheSource()
 
 	// 100 world units to the planet's right, well inside the 1020-unit disc.
 	const EntityId ship =
-			addShip(b, earthlingCruiser(), Vec2i{4100, 4000}, 0, 0);
+			spawnPlayerShip(b, earthlingCruiser(), nullptr,
+					Vec2i{4100, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.get(ship)->mask = &m;
 	b.ship(ship)->speed = SpeedState::AtMax;
 
@@ -1541,7 +1535,8 @@ testGravityHasAHardEdge()
 		Battle b(1);
 		const EntityId planet = addPlanet(b, m, Vec2i{4000, 4000});
 		const EntityId ship =
-				addShip(b, earthlingCruiser(), Vec2i{4000 + dx, 4000}, 0, 0);
+				spawnPlayerShip(b, earthlingCruiser(), nullptr,
+						Vec2i{4000 + dx, 4000}, Facing(0), 0, /*warpIn=*/false);
 		b.get(ship)->mask = &m;
 
 		(void)calculateGravity(b, planet);
@@ -1558,7 +1553,8 @@ testFleeingShipIsImmuneToGravity()
 	Battle b(1);
 	const EntityId planet = addPlanet(b, m, Vec2i{4000, 4000});
 	const EntityId ship =
-			addShip(b, earthlingCruiser(), Vec2i{4100, 4000}, 0, 0);
+			spawnPlayerShip(b, earthlingCruiser(), nullptr,
+					Vec2i{4100, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.get(ship)->mask = &m;
 	b.get(ship)->mass = kGravityMass;  // DoRunAway, battle.c:92
 
@@ -1669,7 +1665,8 @@ testPlanetPlacementAvoidsEverything()
 	// A ship already on the field. The planet must not land in its lap, and
 	// must not land close enough that the ship starts the match in a well.
 	const EntityId ship =
-			addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
+			spawnPlayerShip(b, earthlingCruiser(), nullptr,
+					Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.get(ship)->mask = &m;
 
 	const EntityId planet = spawnPlanet(b, &m);
@@ -1689,7 +1686,8 @@ void
 testDeltaCrewReportsDeathOnTheExactHit()
 {
 	Battle b(1);
-	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{1000, 1000}, 0, 0);
+	const EntityId id = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{1000, 1000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();  // the appearing frame is what loads crew from the descriptor
 
 	CHECK(b.ship(id)->crew == 18, "the Cruiser starts with 18 crew, got %ld",
@@ -1764,7 +1762,8 @@ testMissileDamagesAndSpendsItself()
 	}();
 
 	// Two ships nose to nose, so the Cruiser's missile cannot miss.
-	const EntityId gunner = addShip(b, cruiser, Vec2i{4000, 4000}, 0, 0);
+	const EntityId gunner = spawnPlayerShip(b, cruiser, nullptr,
+			Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.get(gunner)->mask = &m;
 
 	// 400 world units away, not 100. HUMAN_OFFSET is 42 *display* pixels,
@@ -1772,7 +1771,8 @@ testMissileDamagesAndSpendsItself()
 	// the hull than a closer target would be -- it would spawn already past
 	// it and sail off having never touched anything.
 	const EntityId target =
-			addShip(b, ilwrathAvenger(), Vec2i{4000, 3600}, 8, 1);
+			spawnPlayerShip(b, ilwrathAvenger(), nullptr,
+					Vec2i{4000, 3600}, Facing(8), 1, /*warpIn=*/false);
 	b.get(target)->mask = &m;
 	b.step();
 
@@ -1834,9 +1834,9 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	// so the ship takes damage while still at zero and is destroyed on frame
 	// one. The C has the same ordering, and avoids it the same way -- by never
 	// placing a ship inside anything (misc.c:63-70, ship.c:480).
-	const EntityId ship = addShip(b, earthlingCruiser(), Vec2i{5000, 5000}, 0, 0);
+	const EntityId ship = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{5000, 5000}, Facing(0), 0, /*warpIn=*/false);
 	b.get(ship)->mask = &m;
-	b.get(ship)->onCollision = solidCollision;
 	b.step();
 
 	CHECK(b.get(ship) != nullptr, "the ship should have survived setup");
@@ -1932,6 +1932,28 @@ testOverlappingShipsSeparateInsteadOfSticking()
 			"ten frames later they are well clear of each other");
 }
 
+// A live weapon shot -- kind, FiniteLife, mass-as-damage, mask, onCollision --
+// the shape testShipShotMidFlightKeepsItsMotion and
+// testToughWeaponPiercesWeakOne both hand-built. vx/vy are already
+// velocity-space (worldToVelocity'd).
+EntityId
+spawnTestShot(Battle &b, const CollisionMask &mask, Vec2i at, i32 playerNr,
+		i32 mass, i32 hitPoints, i32 lifeSpan, i32 vx = 0, i32 vy = 0)
+{
+	Element e;
+	e.kind = ElementKind::Weapon;
+	e.flags = ElementFlags::FiniteLife;
+	e.lifeSpan = lifeSpan;
+	e.playerNr = playerNr;
+	e.hitPoints = hitPoints;
+	e.mass = mass;
+	e.mask = &mask;
+	e.current = e.next = at;
+	e.velocity.setComponents(vx, vy);
+	e.onCollision = weaponCollision;
+	return b.spawn(Layer::Field, std::move(e));
+}
+
 void
 testShipShotMidFlightKeepsItsMotion()
 {
@@ -1956,16 +1978,8 @@ testShipShotMidFlightKeepsItsMotion()
 	// motion, not crew -- and damage IS mass (weapon.c:101,144), so a
 	// zero-damage shot is a massless one. The pair still collides because
 	// the ship's own mass satisfies CollisionPossible.
-	Element shot;
-	shot.kind = ElementKind::Weapon;
-	shot.flags = ElementFlags::FiniteLife;
-	shot.lifeSpan = 20;
-	shot.playerNr = 1;
-	shot.mass = 0;
-	shot.mask = &m;
-	shot.current = shot.next = Vec2i{4200, 4000};
-	shot.onCollision = weaponCollision;
-	const EntityId iw = b.spawn(Layer::Field, std::move(shot));
+	const EntityId iw = spawnTestShot(b, m, Vec2i{4200, 4000}, 1,
+			/*mass=*/0, /*hitPoints=*/0, /*lifeSpan=*/20);
 
 	b.step();  // spawn frame: 50 display pixels apart, nothing touches
 
@@ -2010,31 +2024,11 @@ testToughWeaponPiercesWeakOne()
 	static const CollisionMask m = solid(3, 3);
 	Battle b(1);
 
-	Element tough;
-	tough.kind = ElementKind::Weapon;
-	tough.flags = ElementFlags::FiniteLife;
-	tough.lifeSpan = 30;
-	tough.playerNr = 0;
-	tough.hitPoints = 3;
-	tough.mass = 2;         // damage IS mass
-	tough.mask = &m;
-	tough.current = tough.next = Vec2i{3800, 4000};
-	tough.velocity.setComponents(worldToVelocity(40), 0);
-	tough.onCollision = weaponCollision;
-	const EntityId it = b.spawn(Layer::Field, std::move(tough));
-
-	Element weak;
-	weak.kind = ElementKind::Weapon;
-	weak.flags = ElementFlags::FiniteLife;
-	weak.lifeSpan = 30;
-	weak.playerNr = 1;
-	weak.hitPoints = 1;
-	weak.mass = 1;
-	weak.mask = &m;
-	weak.current = weak.next = Vec2i{4200, 4000};
-	weak.velocity.setComponents(-worldToVelocity(40), 0);
-	weak.onCollision = weaponCollision;
-	const EntityId iw = b.spawn(Layer::Field, std::move(weak));
+	// damage IS mass (weapon.c:101,144).
+	const EntityId it = spawnTestShot(b, m, Vec2i{3800, 4000}, 0,
+			/*mass=*/2, /*hitPoints=*/3, /*lifeSpan=*/30, worldToVelocity(40));
+	const EntityId iw = spawnTestShot(b, m, Vec2i{4200, 4000}, 1,
+			/*mass=*/1, /*hitPoints=*/1, /*lifeSpan=*/30, -worldToVelocity(40));
 
 	// They close at 80 a frame across 400 units: contact by frame 6.
 	for (int i = 0; i < 8; ++i)
@@ -2086,8 +2080,8 @@ testTurningIntoOverlapIsReverted()
 	(void)b.spawn(Layer::Field, std::move(planet));
 
 	// Adjacent at facing 0 (a 4x4 mask), overlapping at facing 1 (16x16).
-	const EntityId ship = addShip(b, d, Vec2i{4052, 4000}, 0, 0);
-	b.get(ship)->onCollision = solidCollision;
+	const EntityId ship = spawnPlayerShip(b, d, nullptr,
+			Vec2i{4052, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();
 	CHECK(b.collisions().empty(), "setup: adjacent is not touching");
 
@@ -2172,7 +2166,8 @@ testPointDefenceBurnsOwnNuke()
 	}();
 
 	Battle b(1);
-	const EntityId ship = addShip(b, d, Vec2i{4000, 4000}, 0, 0);
+	const EntityId ship = spawnPlayerShip(b, d, nullptr,
+			Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();
 
 	b.find<Input>(ship)->buttons = ShipInput::Weapon;
@@ -2212,7 +2207,8 @@ testCommittedElementsAreNotIntegratedTwice()
 	// head every post pass -- is preprocessed twice a frame: double motion,
 	// double turning, double energy clocks.
 	Battle b(1);
-	const EntityId id = addShip(b, ilwrathAvenger(), Vec2i{4000, 6000}, 0, 0);
+	const EntityId id = spawnPlayerShip(b, ilwrathAvenger(), nullptr,
+			Vec2i{4000, 6000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();
 
 	// Turn and fire together. The Avenger turns every turnWait+1 = 3 frames:
@@ -2251,7 +2247,8 @@ testPointDefenceBurnsIncomingFire()
 	Battle b(1);
 
 	const EntityId ship =
-			addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
+			spawnPlayerShip(b, earthlingCruiser(), nullptr,
+					Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.get(ship)->mask = &m;
 	b.step();
 
@@ -2290,7 +2287,8 @@ void
 testDeadShipBurnsAsAPhaseThenGoes()
 {
 	Battle b(1);
-	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
+	const EntityId id = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();
 
 	// doDamage on a crewed hull only accumulates DamageIncoming now; it
@@ -2328,18 +2326,8 @@ testShipWarpsInBeforeItIsSolid()
 	// real silhouette from, but the shadow only has to *carry* it.
 	static const sim::CollisionMask hull = solid(12, 12);
 
-	sim::Element e;
-	e.kind = sim::ElementKind::Ship;
-	e.mask = &hull;
-	e.current = Vec2i{4000, 4000};
-	e.next = e.current;
-	e.facing = sim::Facing(4);
-	e.playerNr = 0;
-	e.mass = sim::earthlingCruiser().mass;
-	const sim::EntityId shipId = b.spawn(Layer::Field, std::move(e));
-	b.attach<sim::PlayerShip>(shipId);
-	b.attach<sim::WarpingIn>(shipId);
-	b.attachShip(shipId, &sim::earthlingCruiser());
+	const sim::EntityId shipId = sim::spawnPlayerShip(b, sim::earthlingCruiser(),
+			&hull, Vec2i{4000, 4000}, sim::Facing(4), 0, /*warpIn=*/true);
 
 	const auto ship = [&b]() -> const sim::Element * {
 		const sim::Element *found = nullptr;
@@ -2465,11 +2453,13 @@ testCloakHidesFromTracking()
 {
 	Battle b(1);
 	const EntityId avenger =
-			addShip(b, ilwrathAvenger(), Vec2i{4000, 4000}, 0, 1);
+			spawnPlayerShip(b, ilwrathAvenger(), nullptr,
+					Vec2i{4000, 4000}, Facing(0), 1, /*warpIn=*/false);
 	b.step();
 
 	const EntityId hunter =
-			addShip(b, earthlingCruiser(), Vec2i{4000, 4400}, 0, 0);
+			spawnPlayerShip(b, earthlingCruiser(), nullptr,
+					Vec2i{4000, 4400}, Facing(0), 0, /*warpIn=*/false);
 	b.step();
 
 	// Facing 8 is away from the target, so a step toward it is a real change.
@@ -2550,10 +2540,12 @@ testCloakedFiringSnapAims()
 {
 	Battle b(1);
 	const EntityId avenger =
-			addShip(b, ilwrathAvenger(), Vec2i{4000, 4000}, 0, 1);
+			spawnPlayerShip(b, ilwrathAvenger(), nullptr,
+					Vec2i{4000, 4000}, Facing(0), 1, /*warpIn=*/false);
 	b.step();
 
-	(void)addShip(b, earthlingCruiser(), Vec2i{4400, 4000}, 0, 0);
+	(void)spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{4400, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();
 
 	// Cloak fully: activation plus the five-colour walk.

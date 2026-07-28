@@ -43,6 +43,29 @@ applyFacingMask(Element &e, const ShipSpec &spec) noexcept
 	e.mask = &spec.facingMasks[i];
 }
 
+EntityId
+spawnPlayerShip(Battle &b, const ShipSpec &spec,
+		Borrowed<const CollisionMask> mask, Vec2i at, Facing facing,
+		i32 playerNr, bool warpIn)
+{
+	Element e;
+	e.kind = ElementKind::Ship;
+	e.flags = ElementFlags::IgnoreSimilar;
+	e.current = at;
+	e.next = at;
+	e.facing = facing;
+	e.playerNr = playerNr;
+	e.mass = spec.mass;
+	e.mask = mask;
+	e.onCollision = solidCollision;
+	const EntityId id = b.spawn(Layer::Field, std::move(e));
+	b.attach<PlayerShip>(id);
+	if (warpIn)
+		b.attach<WarpingIn>(id);
+	b.attachShip(id, &spec);
+	return id;
+}
+
 namespace {
 
 // Energy regeneration, gated by its own counter (ship.c:225-230). The

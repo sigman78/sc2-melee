@@ -11,6 +11,16 @@ namespace uqm::sim {
 
 class Battle;
 
+// Builds and spawns a player ship element: the sequence app/melee/Game.cpp,
+// tests/sim_test.cpp and tests/replay_test.cpp each hand-rolled. Component
+// attach order is pool insertion order, and bit-exactness depends on it, so
+// this is exactly that order, not a reshuffling of it. `warpIn` selects
+// whether WarpingIn is attached (the app always warps in; a plain test spawn
+// usually does not).
+EntityId spawnPlayerShip(Battle &b, const ShipSpec &spec,
+		Borrowed<const CollisionMask> mask, Vec2i at, Facing facing,
+		i32 playerNr, bool warpIn);
+
 // Energy regeneration (ship.c:225-230), as a whole-battle pass run before
 // the other ship passes so every consumer reads its own ship's post-regen
 // energy.

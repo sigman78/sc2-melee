@@ -82,26 +82,6 @@ materializedAvenger() noexcept
 // Minimum ship separation at spawn -- see Game.cpp's setUpBattle.
 constexpr i32 kMinSeparation = 1024;
 
-EntityId
-addShip(Battle &b, const ShipSpec &spec, Facing facing, i32 player)
-{
-	Element e;
-	e.kind = ElementKind::Ship;
-	e.flags = ElementFlags::IgnoreSimilar;
-	e.current = Vec2i{0, 0};
-	e.next = e.current;
-	e.facing = facing;
-	e.playerNr = player;
-	e.mass = spec.mass;
-	e.mask = &kShipMask;
-	e.onCollision = solidCollision;
-	const EntityId id = b.spawn(Layer::Field, std::move(e));
-	b.attach<PlayerShip>(id);
-	b.attach<WarpingIn>(id);
-	b.attachShip(id, &spec);
-	return id;
-}
-
 struct Ships
 {
 	EntityId cruiser;
@@ -116,11 +96,13 @@ setUpBattle(Battle &b)
 {
 	Ships s;
 	const Facing f0 = Facing(static_cast<int>(b.rng().next() & 0xFFu));
-	s.cruiser = addShip(b, materializedCruiser(), f0, 0);
+	s.cruiser = spawnPlayerShip(b, materializedCruiser(), &kShipMask,
+			Vec2i{0, 0}, f0, 0, /*warpIn=*/true);
 	placeShipAtRandom(b, s.cruiser, kMinSeparation);
 
 	const Facing f1 = Facing(static_cast<int>(b.rng().next() & 0xFFu));
-	s.avenger = addShip(b, materializedAvenger(), f1, 1);
+	s.avenger = spawnPlayerShip(b, materializedAvenger(), &kShipMask,
+			Vec2i{0, 0}, f1, 1, /*warpIn=*/true);
 	placeShipAtRandom(b, s.avenger, kMinSeparation);
 
 	for (int i = 0; i < kNumAsteroids; ++i)
