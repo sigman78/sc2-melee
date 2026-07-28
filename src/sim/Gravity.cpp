@@ -90,12 +90,12 @@ calculateGravity(Battle &b, EntityId id)
 void
 gravityPass(Battle &b)
 {
-	b.eachOrdered([&b](EntityId id) {
-		const Element *e = b.get(id);
-		if (e == nullptr || !b.collidable(id)
-				|| !isGravitySource(b.find<Physique>(id)->mass))
-			return;
-		(void)calculateGravity(b, id);
+	// The well is whichever entity carries Planet, not whichever entity's
+	// mass happens to clear kGravityMass (review-007 W6): there is only
+	// ever one, so the tag replaces a scan of every element's Physique.
+	b.each<Planet>([&b](EntityId id) {
+		if (b.collidable(id))
+			(void)calculateGravity(b, id);
 	});
 }
 

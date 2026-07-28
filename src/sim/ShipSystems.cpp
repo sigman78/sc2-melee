@@ -59,14 +59,13 @@ spawnPlayerShip(Battle &b, const ShipSpec &spec,
 	e.kind = ElementKind::Ship;
 	Position pos{at, at, facing};
 	const Physique phys{spec.mass};
-	const EntityId id = b.spawn(Layer::Field, std::move(e), pos, Motion{},
-			phys, mask, Allegiance{playerNr, kNoEntity});
-	b.attach<IgnoreSimilar>(id);
-	b.attach<PlayerShip>(id);
+	Spawned s = b.spawn(Layer::Field, std::move(e), pos, Motion{}, phys, mask,
+			Allegiance{playerNr, kNoEntity});
+	s.with(IgnoreSimilar{}).with(PlayerShip{});
 	if (warpIn)
-		b.attach<WarpingIn>(id);
-	b.attachShip(id, &spec);
-	return id;
+		s.with(WarpingIn{});
+	b.attachShip(s.id(), &spec);
+	return s;
 }
 
 namespace {
@@ -133,7 +132,7 @@ applyThrustInput(Battle &b, EntityId id, ShipState &s,
 		// Exhaust only on frames the ship actually accelerates (ship.c:274), and
 		// not while FULLY cloaked (ship.c:271 gates on OBJECT_CLOAKED, true only at
 		// black) -- a half-faded ship still emits one (tactrans.c:792-832).
-		if (!isCloaked(b, id))
+		if (!b.has<Cloaked>(id))
 			spawnIonTrail(b, id);
 	}
 }
@@ -159,11 +158,11 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 		view.facing = shipPos.facing;
 		view.playerNr = b.find<Allegiance>(id)->playerNr;
 		view.weaponSpeed = spec.weapon.speed;
-		view.weaponLife = spec.weapon.life;
-		view.weaponDamage = spec.weapon.damage;
-		view.weaponHitPoints = spec.weapon.hitPoints;
+		view.weaponLife = spec.weapon.lifetime.remaining;
+		view.weaponDamage = spec.weapon.warhead.damage;
+		view.weaponHitPoints = spec.weapon.vitality.hitPoints;
 		view.muzzleOffset = spec.weapon.muzzleOffset;
-		view.blastOffset = spec.weapon.blastOffset;
+		view.blastOffset = spec.weapon.warhead.blastOffset;
 
 		SpawnBuffer buf{};
 		const usize n = spec.weapon.spawn != nullptr
@@ -231,21 +230,18 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 			cmd.collider = shotMask;
 			cmd.lifetime = Lifetime{sp.life};
 			cmd.vitality = Vitality{sp.hitPoints};
-			cmd.warhead = Warhead{sp.damage, sp.blastOffset, spec.weapon.lingersOnHit};
+			cmd.warhead = Warhead{sp.damage, sp.blastOffset,
+					spec.weapon.warhead.lingersOnHit};
 			cmd.animFrame = AnimFrame{sp.frameIndex};
 			cmd.frameDriven = spec.weapon.frameDriven;
 			cmd.allegiance = wAllegiance;
 
-			// A guided shot starts with its tracking clock already wound:
-			// initialize_nuke seeds TRACK_WAIT (human.c:297-299), so the
-			// first steer lands on the fourth hook frame. The spec declares
-			// guidance by having any of the numbers; the component carries
-			// them plus the shot's own clock.
-			if (spec.weapon.trackWait > 0 || spec.weapon.thrustScale > 0)
-			{
-				cmd.guided = Guided{spec.weapon.trackWait, spec.weapon.maxSpeed,
-						spec.weapon.thrustScale, spec.weapon.trackWait};
-			}
+			// Attached verbatim (review-007 W9): the spec's own literal
+			// already carries the wound clock (initialize_nuke seeds
+			// TRACK_WAIT, human.c:297-299), so there is nothing left to
+			// reassemble at fire time -- presence is std::optional's own
+			// question now, not an "any of three scalars nonzero" test.
+			cmd.guided = spec.weapon.guided;
 			cmd.element = std::move(w);
 			cmd.position = wPos;
 			cmd.motion = wMotion;
@@ -455,7 +451,8 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 	// Accelerates as it goes (human.c:148-157): speed climbs with life spent,
 	// capped -- a nuke chasing you a while is much harder to outrun than one
 	// just launched.
-	i32 speed = ws->speed + (ws->life - lifeSpanOf(b, id)) * g->thrustScale;
+	i32 speed = ws->speed
+			+ (ws->lifetime.remaining - lifeSpanOf(b, id)) * g->thrustScale;
 	if (speed > g->maxSpeed)
 		speed = g->maxSpeed;
 	b.find<Motion>(id)->velocity.setVector(speed, pos->facing);
@@ -497,6 +494,7 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	cmd.position = pos;
 	cmd.lifetime = Lifetime{kIonTrailLife};
 	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
+	cmd.trail = true;
 	b.queueSpawn(std::move(cmd));
 }
 
@@ -557,6 +555,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		cmd.position = shadowPos;
 		cmd.lifetime = Lifetime{kIonTrailLife};
 		cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
+		cmd.shadow = true;
 		// Picks which ship's sprites to draw; no owner of its own (never set
 		// on the old Element either).
 		cmd.allegiance = Allegiance{b.find<Allegiance>(id)->playerNr, kNoEntity};
@@ -705,19 +704,11 @@ explosionStep(Battle &b, EntityId id) noexcept
 		// Motion where the others don't (review-007 W5's diet).
 		cmd.effect = true;
 		cmd.effectMoves = true;
+		cmd.debris = true;
 		b.queueSpawn(std::move(cmd));
 	}
 }
 
 }  // namespace
-
-bool
-isCloaked(const Battle &b, EntityId id) noexcept
-{
-	// OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204): hidden
-	// only when fully faded, in either direction of the walk.
-	const Cloak *c = b.find<const Cloak>(id);
-	return c != nullptr && c->level == kCloakFullLevel;
-}
 
 }  // namespace uqm::sim

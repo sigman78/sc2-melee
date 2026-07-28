@@ -47,7 +47,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 		// Nor cloaked ones (weapon.c:344-348). This is the whole tactical
 		// point of the Ilwrath cloak: not that it is hard to see, but that a
 		// guided weapon has nothing to steer toward.
-		if (isCloaked(b, id))
+		if (b.has<Cloaked>(id))
 			return;
 
 		const Vec2i to = pos.current;

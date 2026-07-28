@@ -116,10 +116,10 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 
 	// ilwrath_preprocess (ilwrath.c:232-394): the Cloak component's level
 	// stands in for the prim type/colour, its walk direction derived fresh
-	// each frame -- no stored "cloaking" state to disagree with it, and
-	// OBJECT_CLOAKED is isCloaked(), derived from the same level. The
-	// machine owns its component, so only ships that run this hook ever
-	// carry one.
+	// each frame. OBJECT_CLOAKED is the Cloaked tag, kept in sync with this
+	// level by this same function at its end (review-007 W6) -- the machine
+	// owns both components, so only ships that run this hook ever carry
+	// either.
 	Cloak *c = b.find<Cloak>(id);
 	if (c == nullptr)
 		c = &b.attach<Cloak>(id);
@@ -176,6 +176,15 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 		c->level = 1;  // WHITE, the walk's first colour
 		s.specialCounter = spec.special.wait;
 	}
+
+	// The Cloaked tag is this machine's own invariant to keep (review-007
+	// W6): it is the sole writer of `level`, so it is the sole place that
+	// needs to re-check "is this full black now" -- every other reader just
+	// asks has<Cloaked> instead of re-deriving OBJECT_CLOAKED itself.
+	if (c->level == kCloakFullLevel)
+		b.attachOrReplace<Cloaked>(id);
+	else
+		b.detach<Cloaked>(id);
 }
 
 const ShipSpec &
@@ -196,14 +205,12 @@ ilwrathAvenger() noexcept
 			.wait = 0,
 			.energyCost = 1,
 			.speed = 25,  // MISSILE_SPEED == MAX_THRUST
-			.life = 8,
-			.damage = 1,
-			.hitPoints = 1,
 			.muzzleOffset = 29,  // ILWRATH_OFFSET
-			.blastOffset = 0,    // MISSILE_OFFSET
+			.lifetime{.remaining = 8},
+			.vitality{.hitPoints = 1},
+			.warhead{.damage = 1, .blastOffset = 0, .lingersOnHit = true},  // MISSILE_OFFSET
 			.spawn = spawnAvengerPrimary,
 			.frameDriven = true,
-			.lingersOnHit = true,
 		},
 		.special{
 			.wait = 13,

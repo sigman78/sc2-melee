@@ -219,3 +219,123 @@ Track briefs staged in `.claude/briefs/`.
   only; nowhere better once the bitfield dies); body-split-before-hooks
   (dissolving hooks first would avoid double-sweeping them, but the
   response system's clean expression needs Warhead/Vitality to exist).
+
+## 7. Sim-track verdict (W6 + W9) — DRAFT, main session to edit
+
+Executed in the w-sim worktree, parallel to the app track (W7+W8), off the
+skeleton commit. Both gates green throughout; no baseline re-record.
+
+**W6.** `Planet` attached at `spawnPlanet`; `gravityPass` now finds the well
+via `each<Planet>` instead of scanning every collidable's mass — the scan
+survives only inside `calculateGravity` itself (that function still answers
+"is X inside somebody else's well" for an arbitrary `X`, ship or planet
+alike, so it keeps testing mass there). `Trail`/`Shadow`/`Debris`/`Blast`
+attach through four new `SpawnCommand` bools (`trail`/`shadow`/`debris`/
+`blast`), set at each effect's own spawn site and consumed in
+`drainSpawnCommands`. `Cloaked` is maintained solely by `ilwrathPreProcess`
+(one sync point at the end of the function, checked against every level
+change made earlier in the same call); `isCloaked()` is deleted, its three
+callers (Targeting.cpp, Human.cpp, ShipSystems.cpp) read `has<Cloaked>`
+directly. `ElementKind` survivors in src/sim: zero reads outside the
+`Element::kind` field declaration and the unchanged spawn-site writes —
+`recordSpawn` no longer reads it at all, deriving `SpawnEvent::kind` from
+`has<Beam>`/`has<Warhead>` composition instead (§1's "derived from
+composition" row, made literal). `Warhead` moved into `Battle::spawn`'s own
+parameter list (attached before `recordSpawn`, mirroring `collider`) so
+that derivation is a real registry read, not a guess ahead of one.
+
+**W9.** `WeaponSpec` gained `Lifetime`/`Vitality`/`Warhead` fields and an
+`std::optional<Guided>` in place of the six scalars (`life`, `damage`,
+`hitPoints`, `blastOffset`, `trackWait`, `maxSpeed`, `thrustScale`) that
+used to be manually repacked into components at every shot; `speed` and
+`muzzleOffset` stayed scalar (geometry, resolved against the ship's own
+facing). The `Guided` case is the clean one — `cmd.guided = spec.weapon.guided;`,
+verbatim, no presence heuristic. The `Warhead`/`Vitality`/`Lifetime` cases
+are a partial win: the *spec's own storage* is now attach-shaped, but the
+fire block still reads `sp.damage`/`sp.hitPoints`/`sp.life` off the per-shot
+`Spawn` descriptor (Spawn.hpp), not off the spec directly, because those
+three are legitimately per-shot-overridable in the AI-lookahead design
+(Spawn.hpp's own stated purpose) and Spawn.hpp was out of this stage's
+scope — `earthlingCruiser()`/`ilwrathAvenger()` read as flat literals either
+way, since none of the two ships ever exercises that override today.
+`SpecialSpec` needed no change: nothing there was ever translated into a
+component (`cruiserSpecial`'s beam/damage are computed per-target, not
+spec-constant).
+
+`Battle::spawn`/`spawnBeam`/`spawnEffect` (both overloads) now build through
+`make()` internally and return `Spawned` instead of `EntityId` — a strictly
+backward-compatible signature change (`Spawned` converts implicitly), so
+every existing `const EntityId id = b.spawn(...)` callsite still compiles,
+while `spawnPlayerShip`, `spawnPlanet`, `spawnAsteroid` and
+`drainSpawnCommands` were rewritten to chain their extra attaches through
+`.with(...)` on the result instead of a further `Battle::attach<T>(id, ...)`
+call. `attachWeaponSpec` (setter half) is deleted — its one caller now does
+`.with(WeaponGuidance{spec})` directly; the getter (`weaponSpec()`) stays,
+still used by `animatePass` and `guidedShotPreProcess`. One gap found and
+fixed in the shell: `Spawned::with(T&&)` had no path for an empty (tag)
+component — entt's own `emplace` for a zero-size type takes no value
+argument, so `.with(Appearing{})`-style calls for `PlayerShip`,
+`WarpingIn`, `FrameDriven`, `Trail`, etc. did not compile until `with`
+learned to branch on `std::is_empty_v<T>`.
+
+Join-rule extinction grep (every `each<Ts...>`/`eachOrdered<Ts...>` with a
+non-empty `Ts` across src/sim): one survivor, `Battle::animatePass`'s
+`each<AnimFrame, FrameDriven>` lambda, `find<Collider>(id)`. Same-entity, not
+cross-entity — the flame's post-detonation linger frame legitimately has no
+Collider (already detached by its own death), but must keep advancing
+`AnimFrame` regardless, so folding `Collider` into the join's required set
+would silently stop that advance instead of just skipping the mask update.
+Already documented in place before this stage; left as is.
+
+**Measurements** (collected, not editorialized):
+
+| Measurement | Value |
+| --- | --- |
+| `git diff --stat` vs merge-base(main) for src/sim + sim_test.cpp | 33 files changed, 8963 insertions(+) — main predates the ECS rewrite entirely, so this is the whole subsystem, not this stage |
+| `git diff --stat` vs the pre-W6 skeleton commit (this stage's own delta) | 11 files changed, 272 insertions(+), 201 deletions(-) |
+| Cold build wall-clock (`cmake --build build/core --target clean` then `cmake --build build/core`) | 45.8s real |
+| `replay_test --compare` | all 32 battles matched exactly (both stage boundaries) |
+| `ctest` | 10/10 passed (both stage boundaries) |
+
+**Component census** (component → attach set), sim components only:
+
+| Component | Attached at |
+| --- | --- |
+| Element | every sim spawn (`spawn`/`spawnBeam`/`spawnEffect`) |
+| Position | `spawn`, `spawnEffect` (both overloads) |
+| Motion | `spawn`, `spawnEffect`'s drifting overload (debris) |
+| Physique | `spawn` only |
+| Allegiance | `spawn`, `spawnBeam`, `spawnEffect` — the one uniform attach |
+| PriorSilhouette (Battle-private) | `spawn` only |
+| CollisionScratch | `spawn` only |
+| Order | `make()`, i.e. every sim spawn transitively |
+| Appearing | `spawn` only |
+| Collider | `spawn` (iff a mask given); reattached by `applyFacingMask`, warp arrival |
+| Beam | `spawnBeam` only |
+| IgnoreSimilar | `spawnPlayerShip` (always); the Ilwrath flame shot (`sp.ignoreSimilar`) |
+| Lifetime | queued shots/effects (`cmd.lifetime`); ship warp-in and explosion clocks |
+| Doomed | `ageAndReapMarkPass`, `killOverlapSpawn`, `weaponCollision`, `sweepDeadShipOrdnance` |
+| Indestructible | `spawnPlanet` only |
+| Planet | `spawnPlanet` only (W6) |
+| Trail | `spawnIonTrail` via `cmd.trail` (W6) |
+| Shadow | `warpInStep` via `cmd.shadow` (W6) |
+| Debris | `explosionStep` via `cmd.debris` (W6) |
+| Blast | `asteroidDeath`, `weaponCollision`, via `cmd.blast` (W6) |
+| Cloaked | `ilwrathPreProcess` only (W6) |
+| PlayerShip | `spawnPlayerShip` only |
+| Vitality | `spawnPlanet`, `spawnAsteroid`, weapon shots (`cmd.vitality`) |
+| AnimFrame | weapon shots (`cmd.animFrame`) |
+| FrameDriven | the Ilwrath flame shot only (`spec.weapon.frameDriven`) |
+| Guided | guided shots only (the Cruiser nuke) |
+| ShipState | `attachShip` (via `spawnPlayerShip`) |
+| Input | `attachShip` (bundled with ShipState) |
+| WeaponGuidance | weapon shots, `.with(WeaponGuidance{...})` in `drainSpawnCommands` |
+| Cloak | `ilwrathPreProcess`, lazily on first use |
+| WarpingIn | `spawnPlayerShip` (iff warping in); detached on arrival |
+| Exploding | `startShipExplosion`; detached after the burn |
+| SweepsOwnedOnDeath | `startShipExplosion` |
+| StashedMask | `spawnAsteroid`, warp-in's Appearing branch, `asteroidDeath`'s rubble |
+| DamageIncoming | `doDamage` (ship branch); cleared every frame |
+| Warhead | `spawn`, iff a weapon (`cmd.warhead` forwarded in) |
+| Spin | `spawnAsteroid` only |
+| DeathSpawn | `spawnAsteroid`, `asteroidDeath`'s rubble (`rubbleDeath` payload) |

@@ -150,13 +150,16 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	// Mass is assigned only *after* placement (misc.c:71): while the loop runs
 	// the planet isn't yet a gravity source, so calculateGravity asks only
 	// "is this spot inside someone else's well?" -- which is what rejects it.
-	const EntityId id = b.spawn(
+	Spawned s = b.spawn(
 			Layer::Field, std::move(p), Position{}, Motion{}, Physique{}, mask);
+	const EntityId id = s.id();
 
 	// misc.c:55's lifeSpan = NORMAL_LIFE+1 encoded indestructibility as a
-	// magic countdown value; the tag says it directly (Entity.hpp).
-	b.attach<Indestructible>(id);
-	b.attach<Vitality>(id, Vitality{200});
+	// magic countdown value; the tag says it directly (Entity.hpp). The one
+	// gravity well, tagged rather than left for gravityPass to find by
+	// scanning every element's mass (review-007 W6) -- there is only ever
+	// one of these, so its identity is worth stating once, at spawn.
+	s.with(Indestructible{}).with(Planet{}).with(Vitality{200});
 
 	do
 	{
@@ -212,18 +215,15 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	spin.backwards = (b.rng().next() & (1u << 7)) != 0;
 
 	pos.next = pos.current;
-	const EntityId id =
-			b.spawn(Layer::Field, std::move(a), pos, motion, phys, mask);
-	b.attach<Spin>(id, spin);
-	b.attach<Vitality>(id, Vitality{1});
-	b.attach<DeathSpawn>(id, DeathSpawn{asteroidDeath});
+	Spawned s = b.spawn(Layer::Field, std::move(a), pos, motion, phys, mask);
+	s.with(spin).with(Vitality{1}).with(DeathSpawn{asteroidDeath});
 
 	// A standing copy of the birth mask, independent of the Collider: a kill
 	// (doDamage) detaches the Collider on the spot so the asteroid stops
 	// colliding immediately, one frame or more before asteroidDeath runs --
 	// this is what asteroidDeath still has to hand the rubble.
-	b.attach<StashedMask>(id, StashedMask{mask});
-	return id;
+	s.with(StashedMask{mask});
+	return s;
 }
 
 void
@@ -255,6 +255,7 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	cmd.position = rPos;
 	cmd.lifetime = Lifetime{5};
 	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
+	cmd.blast = true;
 	cmd.allegiance = Allegiance{deadAllegiance->playerNr, kNoEntity};
 	cmd.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr;
 	cmd.deathSpawn = rubbleDeath;
