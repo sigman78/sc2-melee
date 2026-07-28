@@ -124,6 +124,41 @@ comp struct Indestructible
 {
 };
 
+// The battlefield's one gravity well (Field.cpp's spawnPlanet): gravity.c
+// keyed on `mass + 1 > GRAVITY_MASS`, a scan that had to read every
+// Physique to find the single entity that answers yes.
+comp struct Planet
+{
+};
+
+// A single point of a ship's exhaust (tactrans.c:756-790's cycle_ion_trail).
+comp struct Trail
+{
+};
+
+// A fading ship-shaped silhouette shed while warping in (tactrans.c:893-930's
+// STAMPFILL_PRIM) -- the trail's colour ramp, not its geometry.
+comp struct Shadow
+{
+};
+
+// One spark of a dying ship: the explosion is a swarm thrown off over 26
+// frames while the hull is still there (tactrans.c:542-615).
+comp struct Debris
+{
+};
+
+// A weapon's impact flash.
+comp struct Blast
+{
+};
+
+// Invisible to the eye and to targeting: maintained by the cloak machine
+// (ships/Ilwrath.cpp) so no reader has to know what "full cloak level" means.
+comp struct Cloaked
+{
+};
+
 class Battle;
 
 // The value every lifeSpan reader used to see off Element::lifeSpan:

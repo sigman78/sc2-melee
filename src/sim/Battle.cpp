@@ -145,8 +145,11 @@ Battle::removeElement(EntityId id) noexcept
 void
 Battle::buildOrderedIds(std::vector<EntityId> &out) const noexcept
 {
+	// Keyed on Order, not Element: Order is what every sim spawn declares and
+	// what this sorts by, and it is what separates a stepped element from an
+	// app-owned entity (Battle::create) that the walk must never see.
 	out.clear();
-	for (EntityId id : reg_.view<const Element>())
+	for (EntityId id : reg_.view<const Order>())
 		out.push_back(id);
 	std::sort(out.begin(), out.end(), [this](EntityId a, EntityId b) {
 		const Order &oa = reg_.get<const Order>(a);
@@ -167,6 +170,34 @@ void
 Battle::queueSpawn(SpawnCommand cmd)
 {
 	spawnCommands_.push_back(std::move(cmd));
+}
+
+Order
+Battle::nextOrder(Layer layer) noexcept
+{
+	return Order{layer, nextSeq_++};
+}
+
+Spawned
+Battle::make(Layer layer)
+{
+	const EntityId id = reg_.create();
+	reg_.emplace<Order>(id, nextOrder(layer));
+	++count_;
+	return Spawned{*this, id};
+}
+
+EntityId
+Battle::create()
+{
+	return reg_.create();
+}
+
+void
+Battle::destroy(EntityId id) noexcept
+{
+	if (reg_.valid(id))
+		reg_.destroy(id);
 }
 
 ShipState *
@@ -228,7 +259,7 @@ Battle::spawn(Layer layer, Element e, Position pos, Motion motion,
 	reg_.emplace<Allegiance>(id, allegiance);
 	reg_.emplace<PriorSilhouette>(id, prior);
 	reg_.emplace<CollisionScratch>(id);
-	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
+	reg_.emplace<Order>(id, nextOrder(layer));
 	reg_.emplace<Appearing>(id);
 	if (collider != nullptr)
 		reg_.emplace<Collider>(id, Collider{collider});
@@ -255,7 +286,7 @@ Battle::spawnBeam(Layer layer, Element e, Beam beam, Allegiance allegiance)
 	reg_.emplace<Element>(id, std::move(e));
 	reg_.emplace<Beam>(id, beam);
 	reg_.emplace<Allegiance>(id, allegiance);
-	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
+	reg_.emplace<Order>(id, nextOrder(layer));
 	++count_;
 	return id;
 }
@@ -275,7 +306,7 @@ Battle::spawnEffect(Layer layer, Element e, Position pos, Allegiance allegiance)
 	reg_.emplace<Element>(id, std::move(e));
 	reg_.emplace<Position>(id, pos);
 	reg_.emplace<Allegiance>(id, allegiance);
-	reg_.emplace<Order>(id, Order{layer, nextSeq_++});
+	reg_.emplace<Order>(id, nextOrder(layer));
 	++count_;
 	return id;
 }
