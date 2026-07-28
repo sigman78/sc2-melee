@@ -226,6 +226,16 @@ public:
 			fn(id, s);
 	}
 
+	// eachElement, joined with a second component T -- for a pass that
+	// genuinely needs both on the same entity (Turn/Thrust want Element and
+	// ShipState together) instead of a separate find<T> per iteration.
+	template <class T, class Fn>
+	void eachElementWith(Fn &&fn)
+	{
+		for (auto [id, e, t] : reg_.view<Element, T>().each())
+			fn(id, e, t);
+	}
+
 private:
 	// The world itself, for component types the typed surface above does not
 	// cover. Private: everything outside Battle goes through attach/find/
@@ -253,13 +263,17 @@ private:
 	void drainSpawnCommands();           // 11d
 	void commitPass() noexcept;          // 12 Commit
 
-	// ProcessCollisions (process.c:361-627): walks candidates from `first`.
-	// Returns whether `elem` ended the walk stopped. No longer preprocesses
-	// stragglers (Z4: integration is a whole-spine pass before this one
-	// ever runs, so there is nothing left unintegrated to catch).
-	bool processCollisions(EntityId elem, EntityId first, TimeValue maxTime);
-	bool resolveAgainst(
-			EntityId elem, EntityId test, EntityId succ, TimeValue maxTime);
+	// ProcessCollisions (process.c:361-627): walks candidates from `fromIdx`
+	// in collideOrder_ (Z5: an index into that frame-sorted snapshot, not a
+	// spine link -- see collidePass). `elemIdx` is the scanner's own fixed
+	// position in the same snapshot. Returns whether `elem` ended the walk
+	// stopped. No longer preprocesses stragglers (Z4: integration is a
+	// whole-spine pass before this one ever runs, so there is nothing left
+	// unintegrated to catch).
+	bool processCollisions(
+			EntityId elem, usize elemIdx, usize fromIdx, TimeValue maxTime);
+	bool resolveAgainst(EntityId elem, usize elemIdx, EntityId test,
+			usize testIdx, TimeValue maxTime);
 	void killOverlapSpawn(EntityId id);
 	void recordSpawn(EntityId id, const Element &e);
 
@@ -281,6 +295,14 @@ private:
 	// Both reused across steps so a steady-state frame allocates nothing.
 	std::vector<CollisionEvent> collisions_;
 	std::vector<SpawnEvent> spawns_;
+
+	// Collide's own worklist (Z5): every live element, snapshotted and
+	// sorted ascending by (OrderLink.layer, Seq.n) at the top of collidePass
+	// -- exactly the spine's order (layers are contiguous segments in enum
+	// order, FIFO by Seq within a layer), just addressable by index instead
+	// of by link. Reused across steps like the vectors above; cleared and
+	// rebuilt every frame since Collide runs after this frame's Integrate.
+	std::vector<EntityId> collideOrder_;
 
 	// The command buffer (review-006 §2): filled in pipeline order by
 	// queueSpawn, drained in that same order at the sync point.

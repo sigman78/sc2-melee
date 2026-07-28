@@ -335,19 +335,19 @@ shipMachinesPass(Battle &b) noexcept
 void
 turnPass(Battle &b) noexcept
 {
-	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
-	{
-		if (!b.has<PlayerShip>(id))
-			continue;
-		auto e = b.get(id);
-		ShipState *sp = b.ship(id);
-		if (e == nullptr || sp == nullptr
-				|| shouldSkipShipFrame(b, id, *e, *sp, true))
-			continue;
-		turnShip(b, id, *e, *sp, *sp->spec);
-	}
+	b.eachElementWith<ShipState>([&b](EntityId id, Element &e, ShipState &s) {
+		if (shouldSkipShipFrame(b, id, e, s, true))
+			return;
+		turnShip(b, id, e, s, *s.spec);
+	});
 }
 
+// Stays a spine walk, unlike Turn: a thrusting ship queues an ion-trail
+// spawn command (spawnIonTrail), and that command's position in
+// spawnCommands_ fixes the trail's Seq/layer-FIFO slot at the sync point --
+// the ShipState view's storage order does not match the spine's, and
+// switching this one broke replay_test's --compare within the first
+// checkpoint window on 30 of 32 battles.
 void
 thrustPass(Battle &b) noexcept
 {

@@ -9,6 +9,7 @@
 #include "sim/ShipSystems.hpp"
 #include "sim/World.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <utility>
 
@@ -86,6 +87,7 @@ Battle::Battle(u32 seed) : rng_(seed)
 	reg_.storage<Element>().reserve(64);
 	reg_.storage<OrderLink>().reserve(64);
 	reg_.storage<PriorSilhouette>().reserve(64);
+	collideOrder_.reserve(64);
 }
 
 EntityId
@@ -262,8 +264,8 @@ Battle::killOverlapSpawn(EntityId id)
 // of the C's ProcessCollisions loop (process.c:382-621). Returns whether the
 // scanner is done for this walk (the C's mid-loop `return COLLISION`).
 bool
-Battle::resolveAgainst(
-		EntityId elemId, EntityId testId, EntityId succ, TimeValue maxTime)
+Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
+		usize testIdx, TimeValue maxTime)
 {
 	auto e = get(elemId);
 	if (e == nullptr)
@@ -352,7 +354,7 @@ Battle::resolveAgainst(
 		const auto earlier = static_cast<TimeValue>(hit.time - 1);
 
 		if (!any(e->flags & ElementFlags::Collided)
-				&& processCollisions(elemId, succ, earlier))
+				&& processCollisions(elemId, elemIdx, testIdx + 1, earlier))
 			return false;
 		e = get(elemId);
 		t = get(testId);
@@ -366,10 +368,10 @@ Battle::resolveAgainst(
 			// The C scans the test element's earlier candidates from the
 			// scanner's successor -- or from the head when the test element
 			// is newly spawned (process.c:535-540).
-			const EntityId from = any(t->flags & ElementFlags::Appearing)
-					? front()
-					: next(elemId);
-			if (processCollisions(testId, from, earlier))
+			const usize from = any(t->flags & ElementFlags::Appearing)
+					? 0
+					: elemIdx + 1;
+			if (processCollisions(testId, testIdx, from, earlier))
 				return false;
 		}
 		e = get(elemId);
@@ -458,8 +460,8 @@ Battle::resolveAgainst(
 		// Both participants immediately re-scan the whole list
 		// (process.c:603-606): a pile-up chains within this frame instead of
 		// resolving one pair per step.
-		processCollisions(elemId, front(), kMaxTimeValue);
-		processCollisions(testId, front(), kMaxTimeValue);
+		processCollisions(elemId, elemIdx, 0, kMaxTimeValue);
+		processCollisions(testId, testIdx, 0, kMaxTimeValue);
 	}
 
 	// Keeps scanning unless out of the game for the frame (process.c:609-618):
@@ -476,25 +478,31 @@ Battle::resolveAgainst(
 	return false;
 }
 
-// ProcessCollisions (process.c:361-627): walks candidates from `first`.
-// Returns whether `elem` ended the walk stopped. Z4 drops the straggler
-// preprocessing the C interleaved here (process.c:371-373): Integrate
-// (pipeline slot 8) already ran over the whole spine before Collide ever
-// starts, so there is nothing left unintegrated for this walk to catch up.
+// ProcessCollisions (process.c:361-627): walks candidates from `fromIdx` in
+// collideOrder_. Returns whether `elem` ended the walk stopped. Z4 drops the
+// straggler preprocessing the C interleaved here (process.c:371-373):
+// Integrate (pipeline slot 8) already ran over the whole spine before
+// Collide ever starts, so there is nothing left unintegrated for this walk
+// to catch up. Z5 drops the spine link itself: collideOrder_'s indices
+// stand in for front()/next() (see collidePass) -- nothing is destroyed
+// mid-Collide, so an index, once taken, never moves out from under this walk.
 bool
-Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime)
+Battle::processCollisions(
+		EntityId elemId, usize elemIdx, usize fromIdx, TimeValue maxTime)
 {
-	for (EntityId testId = first; testId != kNoEntity;)
+	for (usize idx = fromIdx; idx < collideOrder_.size();)
 	{
+		const EntityId testId = collideOrder_[idx];
 		if (get(testId) == nullptr)
 			break;
 
-		const EntityId succ = next(testId);
+		const usize succIdx = idx + 1;
 
-		if (!(testId == elemId) && resolveAgainst(elemId, testId, succ, maxTime))
+		if (!(testId == elemId)
+				&& resolveAgainst(elemId, elemIdx, testId, idx, maxTime))
 			return true;
 
-		testId = succ;
+		idx = succIdx;
 	}
 
 	auto e = get(elemId);
@@ -510,15 +518,12 @@ Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime)
 void
 Battle::capturePriorPass() noexcept
 {
-	for (EntityId id = front(); id != kNoEntity; id = next(id))
+	for (auto [id, e, prior] : reg_.view<Element, PriorSilhouette>().each())
 	{
-		auto e = get(id);
-		if (e == nullptr)
-			continue;
-		PriorSilhouette &prior = reg_.get<PriorSilhouette>(id);
-		prior.mask = e->mask;
-		prior.facing = e->facing;
-		e->flags &= ~ElementFlags::Collided;
+		(void)id;
+		prior.mask = e.mask;
+		prior.facing = e.facing;
+		e.flags &= ~ElementFlags::Collided;
 	}
 }
 
@@ -550,6 +555,12 @@ Battle::ageAndReapMarkPass()
 // the asteroid's tumble. Appearing still suppresses the hook for one frame,
 // exactly as it always has (a weapon's hook does not run until its second
 // frame alive).
+// Stays a spine walk: sim_test.cpp's testStepVisitsInListOrder pins Animate's
+// hook-visiting order to spine/layer order (an earlier-layer element must
+// animate first) -- a view<Element>().each() walk uses the pool's storage
+// order instead and fails that check even though replay_test's 32 battles
+// stayed bit-exact (none of them has two Animate-hooked elements whose
+// relative order is otherwise observable).
 void
 Battle::animatePass()
 {
@@ -574,20 +585,19 @@ Battle::animatePass()
 void
 Battle::integratePass() noexcept
 {
-	for (EntityId id = front(); id != kNoEntity; id = next(id))
+	for (auto [id, e] : reg_.view<Element>().each())
 	{
-		auto e = get(id);
-		if (e == nullptr || reg_.all_of<IgnoreVelocity>(id))
+		if (reg_.all_of<IgnoreVelocity>(id))
 			continue;
 
 		// BeamGeometry is exempt: seeding next from current would collapse
 		// the beam to a point (its two points are the beam, not motion).
-		if (any(e->flags & ElementFlags::Appearing)
+		if (any(e.flags & ElementFlags::Appearing)
 				&& !reg_.all_of<BeamGeometry>(id))
-			e->next = e->current;
+			e.next = e.current;
 
-		const Vec2i delta = e->velocity.advance(1);
-		e->next = Vec2i{e->next.x + delta.x, e->next.y + delta.y};
+		const Vec2i delta = e.velocity.advance(1);
+		e.next = Vec2i{e.next.x + delta.x, e.next.y + delta.y};
 	}
 }
 
@@ -598,17 +608,38 @@ Battle::integratePass() noexcept
 // slot 11d). onCollision hooks still run inline; ship crew damage they
 // cause now lands in DamageIncoming instead of applying on the spot (see
 // Damage.cpp), applied at the sync point below.
+//
+// Z5: collideOrder_ is a snapshot of every live element, sorted ascending
+// by (OrderLink.layer, Seq.n) -- exactly the spine's own order, since layers
+// are contiguous segments walked in enum order and a layer's members are
+// FIFO by Seq. Nothing is destroyed mid-Collide (the reap is a later sync
+// point), so an index into this snapshot is as stable as a spine link for
+// the rest of the pass, and processCollisions/resolveAgainst walk it by
+// index instead of by front()/next().
 void
 Battle::collidePass()
 {
-	for (EntityId id = front(); id != kNoEntity; id = next(id))
+	collideOrder_.clear();
+	for (EntityId id : reg_.view<Element>())
+		collideOrder_.push_back(id);
+	std::sort(collideOrder_.begin(), collideOrder_.end(),
+			[this](EntityId a, EntityId b) {
+				const OrderLink &la = reg_.get<OrderLink>(a);
+				const OrderLink &lb = reg_.get<OrderLink>(b);
+				if (la.layer != lb.layer)
+					return la.layer < lb.layer;
+				return reg_.get<Seq>(a).n < reg_.get<Seq>(b).n;
+			});
+
+	for (usize i = 0; i < collideOrder_.size(); ++i)
 	{
+		const EntityId id = collideOrder_[i];
 		auto e = get(id);
 		if (e != nullptr && e->collidable()
 				&& !any(e->flags & ElementFlags::Collided))
 		{
 			// Successors only, so each pair is visited once per frame.
-			(void)processCollisions(id, next(id), kMaxTimeValue);
+			(void)processCollisions(id, i, i + 1, kMaxTimeValue);
 		}
 	}
 }
@@ -653,12 +684,12 @@ Battle::applyDamageIncoming() noexcept
 void
 Battle::ageDecrementPass() noexcept
 {
-	for (EntityId id = front(); id != kNoEntity; id = next(id))
+	for (auto [id, e] : reg_.view<Element>().each())
 	{
-		auto e = get(id);
-		if (e != nullptr && any(e->flags & ElementFlags::FiniteLife)
-				&& !any(e->flags & ElementFlags::Disappearing))
-			--e->lifeSpan;
+		(void)id;
+		if (any(e.flags & ElementFlags::FiniteLife)
+				&& !any(e.flags & ElementFlags::Disappearing))
+			--e.lifeSpan;
 	}
 }
 
@@ -671,13 +702,13 @@ Battle::ageDecrementPass() noexcept
 void
 Battle::reapPass() noexcept
 {
-	for (EntityId id = front(); id != kNoEntity;)
+	// Element is in_place_delete, so removing the CURRENT entity mid-.each()
+	// is safe -- entt leaves later slots undisturbed, no separate
+	// next-before-remove capture needed the way the spine walk required.
+	for (auto [id, e] : reg_.view<Element>().each())
 	{
-		const EntityId nextId = next(id);
-		auto e = get(id);
-		if (e != nullptr && any(e->flags & ElementFlags::Disappearing))
+		if (any(e.flags & ElementFlags::Disappearing))
 			removeElement(id);
-		id = nextId;
 	}
 }
 
@@ -742,13 +773,12 @@ Battle::drainSpawnCommands()
 void
 Battle::commitPass() noexcept
 {
-	for (EntityId id = front(); id != kNoEntity; id = next(id))
+	for (auto [id, e] : reg_.view<Element>().each())
 	{
-		auto e = get(id);
-		if (e == nullptr || reg_.all_of<BeamGeometry>(id))
+		if (reg_.all_of<BeamGeometry>(id))
 			continue;
-		e->next = wrap(e->next);
-		e->current = e->next;
+		e.next = wrap(e.next);
+		e.current = e.next;
 	}
 }
 
