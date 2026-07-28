@@ -184,14 +184,14 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// Queued, not spawned: it enters the world at the sync point and acts
 	// next frame, one frame later than the C's same-step catch-up gave it
 	// (review-006 §4's accepted latency).
-	SpawnCommand cmd;
-	cmd.layer = Layer::Ordnance;
-	cmd.position = blastPos;
-	cmd.lifetime = Lifetime{kBlastLife};
-	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
-	cmd.blast = true;
-	cmd.allegiance = Allegiance{shooterPlayerNr, kNoEntity};
-	b.queueSpawn(std::move(cmd));
+	b.queueSpawn(SpawnCommand{
+			.layer = Layer::Ordnance,
+			.position = blastPos,
+			.allegiance = Allegiance{shooterPlayerNr, kNoEntity},
+			.effect = true,  // stationary: no Motion needed (review-007 W5)
+			.blast = true,
+			.lifetime = Lifetime{kBlastLife},
+	});
 }
 
 void

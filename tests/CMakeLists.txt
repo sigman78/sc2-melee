@@ -56,7 +56,11 @@ target_link_libraries(sim_test PRIVATE uqm2_content)
 if(MSVC)
 	target_compile_options(sim_test PRIVATE /W4 /utf-8)
 else()
-	target_compile_options(sim_test PRIVATE -W -Wall -Wextra)
+	# Same rationale as uqm2_content (src/CMakeLists.txt): this file builds a
+	# SpawnCommand as a partial designated-initializer literal over its
+	# meaningful defaults, not a missing-field bug.
+	target_compile_options(sim_test PRIVATE -W -Wall -Wextra
+		-Wno-missing-field-initializers)
 endif()
 if(UQM_WERROR)
 	target_compile_options(sim_test PRIVATE ${_uqm_werror})

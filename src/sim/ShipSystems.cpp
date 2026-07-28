@@ -218,29 +218,30 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 			// takes its first live frame the step after this one, one frame
 			// later than the C's same-step catch-up gave it (review-006
 			// §4's accepted latency).
-			SpawnCommand cmd;
-			cmd.layer = Layer::Ordnance;
-			cmd.weaponSpec = &spec.weapon;
-			cmd.ignoreSimilar = sp.ignoreSimilar;
-			cmd.collider = shotMask;
-			cmd.lifetime = Lifetime{sp.life};
-			cmd.vitality = Vitality{sp.hitPoints};
-			cmd.warhead = Warhead{sp.damage, sp.blastOffset,
-					spec.weapon.warhead.lingersOnHit};
-			cmd.animFrame = AnimFrame{sp.frameIndex};
-			cmd.frameDriven = spec.weapon.frameDriven;
-			cmd.allegiance = wAllegiance;
+			b.queueSpawn(SpawnCommand{
+					.layer = Layer::Ordnance,
+					.position = wPos,
+					.motion = wMotion,
+					.physique = wPhys,
+					.allegiance = wAllegiance,
+					.weaponSpec = &spec.weapon,
 
-			// Attached verbatim (review-007 W9): the spec's own literal
-			// already carries the wound clock (initialize_nuke seeds
-			// TRACK_WAIT, human.c:297-299), so there is nothing left to
-			// reassemble at fire time -- presence is std::optional's own
-			// question now, not an "any of three scalars nonzero" test.
-			cmd.guided = spec.weapon.guided;
-			cmd.position = wPos;
-			cmd.motion = wMotion;
-			cmd.physique = wPhys;
-			b.queueSpawn(std::move(cmd));
+					// Attached verbatim (review-007 W9): the spec's own literal
+					// already carries the wound clock (initialize_nuke seeds
+					// TRACK_WAIT, human.c:297-299), so there is nothing left to
+					// reassemble at fire time -- presence is std::optional's own
+					// question now, not an "any of three scalars nonzero" test.
+					.guided = spec.weapon.guided,
+
+					.ignoreSimilar = sp.ignoreSimilar,
+					.lifetime = Lifetime{sp.life},
+					.vitality = Vitality{sp.hitPoints},
+					.warhead = Warhead{sp.damage, sp.blastOffset,
+							spec.weapon.warhead.lingersOnHit},
+					.animFrame = AnimFrame{sp.frameIndex},
+					.frameDriven = spec.weapon.frameDriven,
+					.collider = shotMask,
+			});
 		}
 
 		s.weaponCounter = spec.weapon.wait;
@@ -478,13 +479,13 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 
 	// Queued, not spawned: Background layer so it draws behind everything
 	// that matters, once it exists next frame (review-006 §4).
-	SpawnCommand cmd;
-	cmd.layer = Layer::Background;
-	cmd.position = pos;
-	cmd.lifetime = Lifetime{kIonTrailLife};
-	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
-	cmd.trail = true;
-	b.queueSpawn(std::move(cmd));
+	b.queueSpawn(SpawnCommand{
+			.layer = Layer::Background,
+			.position = pos,
+			.effect = true,  // stationary: no Motion needed (review-007 W5)
+			.trail = true,
+			.lifetime = Lifetime{kIonTrailLife},
+	});
 }
 
 namespace {
@@ -532,15 +533,15 @@ warpInStep(Battle &b, EntityId id) noexcept
 				shipPos.current.y - sine(angle, back)});
 		shadowPos.next = shadowPos.current;
 
-		SpawnCommand cmd;
-		cmd.layer = Layer::Background;
-		cmd.position = shadowPos;
-		cmd.lifetime = Lifetime{kIonTrailLife};
-		cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
-		cmd.shadow = true;
-		// Picks which ship's sprites to draw; no owner of its own.
-		cmd.allegiance = Allegiance{b.find<Allegiance>(id)->playerNr, kNoEntity};
-		b.queueSpawn(std::move(cmd));
+		b.queueSpawn(SpawnCommand{
+				.layer = Layer::Background,
+				.position = shadowPos,
+				// Picks which ship's sprites to draw; no owner of its own.
+				.allegiance = Allegiance{b.find<Allegiance>(id)->playerNr, kNoEntity},
+				.effect = true,  // stationary: no Motion needed (review-007 W5)
+				.shadow = true,
+				.lifetime = Lifetime{kIonTrailLife},
+		});
 	}
 
 	if (!b.alive(id))
@@ -665,17 +666,17 @@ explosionStep(Battle &b, EntityId id) noexcept
 		dMotion.velocity.setComponents(cosine(drift, worldToVelocity(speed)),
 				sine(drift, worldToVelocity(speed)));
 
-		SpawnCommand cmd;
-		cmd.layer = Layer::Background;
-		cmd.position = dPos;
-		cmd.motion = dMotion;
-		cmd.lifetime = Lifetime{kDebrisLife};
-		// Never collidable, but the one decoration that drifts, so it needs
-		// Motion where the others don't (review-007 W5's diet).
-		cmd.effect = true;
-		cmd.effectMoves = true;
-		cmd.debris = true;
-		b.queueSpawn(std::move(cmd));
+		b.queueSpawn(SpawnCommand{
+				.layer = Layer::Background,
+				.position = dPos,
+				.motion = dMotion,
+				// Never collidable, but the one decoration that drifts, so it needs
+				// Motion where the others don't (review-007 W5's diet).
+				.effect = true,
+				.effectMoves = true,
+				.debris = true,
+				.lifetime = Lifetime{kDebrisLife},
+		});
 	}
 }
 

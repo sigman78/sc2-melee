@@ -902,11 +902,11 @@ testSpawnLandsAtSyncAndActsNextFrame()
 				Position pos;
 				pos.current = Vec2i{100, 100};
 				pos.next = pos.current;
-				SpawnCommand cmd;
-				cmd.layer = Layer::Field;
-				cmd.position = pos;
-				cmd.motion = motion;
-				bb.queueSpawn(std::move(cmd));
+				bb.queueSpawn(SpawnCommand{
+						.layer = Layer::Field,
+						.position = pos,
+						.motion = motion,
+				});
 			}});
 
 	b.step();  // the trigger's own appearing frame: lifeSpan ages to 0

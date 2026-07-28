@@ -45,12 +45,12 @@ rubbleDeath(Battle &b, EntityId id) noexcept
 	const StashedMask *rm = b.find<StashedMask>(id);
 	const CollisionMask *mask = rm != nullptr ? rm->mask : nullptr;
 
-	SpawnCommand cmd;
-	cmd.deferred = [](Battle &bb, Borrowed<const CollisionMask> m) noexcept {
-		(void)spawnAsteroid(bb, m);
-	};
-	cmd.deferredMask = mask;
-	b.queueSpawn(std::move(cmd));
+	b.queueSpawn(SpawnCommand{
+			.deferred = [](Battle &bb, Borrowed<const CollisionMask> m) noexcept {
+				(void)spawnAsteroid(bb, m);
+			},
+			.deferredMask = mask,
+	});
 }
 
 }  // namespace
@@ -241,16 +241,16 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	// rubble itself never collides -- rubbleMask just carries the asteroid's
 	// mask through its non-solid life, for rubbleDeath to hand to the
 	// replacement asteroid.
-	SpawnCommand cmd;
-	cmd.layer = Layer::Ordnance;
-	cmd.position = rPos;
-	cmd.lifetime = Lifetime{5};
-	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
-	cmd.blast = true;
-	cmd.allegiance = Allegiance{deadAllegiance.playerNr, kNoEntity};
-	cmd.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr;
-	cmd.deathSpawn = rubbleDeath;
-	b.queueSpawn(std::move(cmd));
+	b.queueSpawn(SpawnCommand{
+			.layer = Layer::Ordnance,
+			.position = rPos,
+			.allegiance = Allegiance{deadAllegiance.playerNr, kNoEntity},
+			.effect = true,  // stationary: no Motion needed (review-007 W5)
+			.blast = true,
+			.lifetime = Lifetime{5},
+			.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr,
+			.deathSpawn = rubbleDeath,
+	});
 }
 
 }  // namespace uqm::sim

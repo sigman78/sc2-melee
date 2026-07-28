@@ -113,12 +113,12 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		// draws its one frame of life the step after this one -- the PD
 		// beam is one frame later than the C's same-step catch-up gave it
 		// (review-006 §4's accepted latency).
-		SpawnCommand cmd;
-		cmd.layer = Layer::Ordnance;
-		cmd.beam = Beam{from, beamTo};
-		cmd.lifetime = Lifetime{1};
-		cmd.allegiance = Allegiance{shipAllegiance->playerNr, id};
-		b.queueSpawn(std::move(cmd));
+		b.queueSpawn(SpawnCommand{
+				.layer = Layer::Ordnance,
+				.allegiance = Allegiance{shipAllegiance->playerNr, id},
+				.beam = Beam{from, beamTo},
+				.lifetime = Lifetime{1},
+		});
 
 		shipAllegiance = b.find<Allegiance>(id);
 	});
