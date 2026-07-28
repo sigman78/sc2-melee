@@ -46,6 +46,20 @@ table above is the documentation format every system keeps.
   emission order is deterministic because the pipeline is.
 - Events (CollisionEvent, SpawnEvent) stay observational outputs.
 
+Two refinements settled at Z4 planning:
+
+1. **Snapshot reads for cross-entity aiming.** trackShip and gravity read
+   `current` unconditionally — the frame-start position. The C's
+   read-`next`-if-PreProcessed dance existed because the walk moved half
+   the world before the other half looked; with steering before Integrate
+   there is one consistent snapshot and the flag dance dies.
+2. **DamageIncoming is for crewed hulls only.** Munition-vs-munition
+   hit-point exchange (piercing — a pinned protocol) resolves pair-locally
+   inside the collide system, where the pair order makes it deterministic;
+   ship crew damage stacks in DamageIncoming and applies once at the sync
+   point, one death check per frame. Splitting by target keeps piercing
+   exact and makes multi-source ship damage explicit.
+
 ## 3. Order as data, completed
 
 With batch passes the OrderLink spine retires. What survives is `Layer`
