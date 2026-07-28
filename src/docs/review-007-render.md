@@ -56,6 +56,15 @@ get<> before a skip is the god-struct habit wearing a new coat. The PD
 beam is the worked example: Beam + Lifetime{1} + Order-until-W7 + Visual,
 nothing else. Every W4b+ extraction attaches where read, not uniformly.
 
+**The join rule (SiGMan's, from the eachElement-plus-find travesty):**
+Battle grows typed joins — each<Ts...> and eachOrdered<Ts...> yielding
+destructured refs — and a pass's component list moves into its call
+signature: the read-set as code, not documentation. Per-id find<> inside
+an iteration lambda survives only for conditional cross-entity lookups
+(another ship's optional Cloak), the legitimately rare case. Templates
+land in W4b's opener; each stage converts the passes it touches;
+grep-extinct by W9.
+
 **The X5 reversal, owned:** X5 declined the universal-core split — the
 live walk touched everything per-entity, so a split bought ceremony. Z4
 changed the ground: the pipeline's passes each read a slice, so
