@@ -64,6 +64,23 @@ endif()
 
 add_test(NAME sim COMMAND sim_test)
 
+# The replay-similarity harness: 32 seeded battles against a checked-in
+# baseline. --compare demands an exact bit-for-bit re-match; --similar (not
+# wired into ctest) tolerates drift once a stage stops being bit-exact.
+add_executable(replay_test replay_test.cpp)
+target_link_libraries(replay_test PRIVATE uqm2_content)
+if(MSVC)
+	target_compile_options(replay_test PRIVATE /W4 /utf-8)
+else()
+	target_compile_options(replay_test PRIVATE -W -Wall -Wextra)
+endif()
+if(UQM_WERROR)
+	target_compile_options(replay_test PRIVATE ${_uqm_werror})
+endif()
+
+add_test(NAME replay COMMAND replay_test --compare
+	"${CMAKE_CURRENT_SOURCE_DIR}/baselines/replay.base")
+
 # engine/. Header-only so far, and deliberately checkable without a window:
 # the input accumulator is the piece M1 changes behaviour with, so it needs
 # tests that say what the change is.
