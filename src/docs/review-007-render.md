@@ -49,6 +49,13 @@ proof.
 
 Spec-level hooks (ship machines, specials) stay — "fine for now."
 
+**The minimal-composition rule (SiGMan's, from the spawnBeam catch):**
+attach a component only where some pass reads it; a pass declares its
+component set and is structurally blind to entities lacking it — blanket
+get<> before a skip is the god-struct habit wearing a new coat. The PD
+beam is the worked example: Beam + Lifetime{1} + Order-until-W7 + Visual,
+nothing else. Every W4b+ extraction attaches where read, not uniformly.
+
 **The X5 reversal, owned:** X5 declined the universal-core split — the
 live walk touched everything per-entity, so a split bought ceremony. Z4
 changed the ground: the pipeline's passes each read a slice, so
