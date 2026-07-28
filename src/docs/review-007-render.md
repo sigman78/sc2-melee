@@ -19,7 +19,7 @@ proof.
 
 | Was | Becomes |
 | --- | --- |
-| FiniteLife + lifeSpan (NORMAL_LIFE=1, 0 = died last frame) | `Lifetime{remaining}` — absent means persistent; the C-ism dies. (W3 briefly grew an `ages` bool to preserve the planet's magic lifeSpan=2 — SiGMan's challenge exposed that as the C encoding *indestructibility* through a number; it becomes an `Indestructible` tag on the planet, the bool deletes, and the digest's constant-fold change (2→1, one entity) is the review's first justified re-record, receipted by --similar zero-drift and a trace diff showing only that column) |
+| FiniteLife + lifeSpan (NORMAL_LIFE=1, 0 = died last frame) | `Lifetime{remaining}` — absent means persistent; the C-ism dies. (W3 briefly grew an `ages` bool to preserve the planet's magic lifeSpan=2 — SiGMan's challenge exposed that as the C encoding *indestructibility* through a number; it becomes an `Indestructible` tag on the planet, the bool deletes, and the digest's constant-fold change (2→1, one entity) is the review's first justified re-record, receipted by the **compat-fold protocol** (SiGMan's): temporarily fold the old value via `has<Indestructible> ? 2 : ...`, --compare against the OLD baseline all-32-exact — a bit-exact proof the change moved nothing but the constant — then drop the fold and re-record. This is the standing protocol for any representation change that alters only what the digest folds) |
 | Disappearing flag | `Doomed` tag; the reap is a view over it |
 | NonSolid flag + mask field + collidable() | `Collider{mask}` — solidity IS having one; runtime toggles are attach/detach |
 | Collided, DefyPhysics | Battle-private collision scratch beside PriorSilhouette |
