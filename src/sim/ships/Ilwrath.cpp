@@ -72,9 +72,7 @@ flameCollision(Battle &b, EntityId id) noexcept
 	// (ilwrath.c:141-148): a flame that hit something still burns on screen
 	// for the frame it died on, where a spent missile vanishes at once.
 	weaponCollision(b, id);
-	auto e = b.get(id);
-	if (e != nullptr)
-		e->flags &= ~ElementFlags::Disappearing;
+	b.detach<Doomed>(id);
 }
 
 // LOOK_AHEAD (ilwrath.c:37): how many frames of both velocities the cloaked

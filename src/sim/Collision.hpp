@@ -106,7 +106,7 @@ struct CollisionScratch
 
 // Solidity IS having one (review-007 W2): CollidingElement (collide.h:31-33)
 // used to be NONSOLID-and-mask on Element; now it is Collider's presence,
-// checked alongside Disappearing (Battle::collidable). Attach/detach is the
+// checked alongside Doomed (Battle::collidable). Attach/detach is the
 // runtime toggle where a flag used to flip.
 struct Collider
 {

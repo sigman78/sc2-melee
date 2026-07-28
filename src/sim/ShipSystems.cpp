@@ -179,7 +179,6 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			w.current = wrap(sp.position);
 			w.next = w.current;
 			w.facing = sp.facing;
-			w.lifeSpan = sp.life;
 			w.hitPoints = sp.hitPoints;
 			w.damage = sp.damage;
 			// A weapon's mass is its damage (weapon.c:101; laser's is 1, weapon.c:58).
@@ -200,7 +199,6 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 					: weaponCollision;
 			w.preProcess = sp.preProcess != nullptr ? sp.preProcess
 													: spec.weapon.preProcess;
-			w.flags = ElementFlags::FiniteLife;
 			w.velocity.setVector(sp.speed, sp.facing);
 			w.owner = id;  // pParent: what IGNORE_SIMILAR is tested against
 
@@ -235,6 +233,7 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			cmd.weaponSpec = &spec.weapon;
 			cmd.ignoreSimilar = sp.ignoreSimilar;
 			cmd.collider = shotMask;
+			cmd.lifetime = Lifetime{sp.life};
 
 			// A guided shot starts with its tracking clock already wound:
 			// initialize_nuke seeds TRACK_WAIT (human.c:297-299), so the
@@ -462,7 +461,7 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 	// Accelerates as it goes (human.c:148-157): speed climbs with life spent,
 	// capped -- a nuke chasing you a while is much harder to outrun than one
 	// just launched.
-	i32 speed = ws->speed + (ws->life - e->lifeSpan) * g->thrustScale;
+	i32 speed = ws->speed + (ws->life - lifeSpanOf(b, id)) * g->thrustScale;
 	if (speed > g->maxSpeed)
 		speed = g->maxSpeed;
 	e->velocity.setVector(speed, e->facing);
@@ -487,8 +486,6 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	Element t;
 	t.kind = ElementKind::IonTrail;
 	t.playerNr = -1;  // NEUTRAL: exhaust belongs to nobody
-	t.flags = ElementFlags::FiniteLife;
-	t.lifeSpan = kIonTrailLife;
 	t.colorCycle = 0;
 	t.current = wrap(Vec2i{e->current.x + cosine(angle, back),
 			e->current.y + sine(angle, back)});
@@ -499,6 +496,7 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 	SpawnCommand cmd;
 	cmd.layer = Layer::Background;
 	cmd.element = std::move(t);
+	cmd.lifetime = Lifetime{kIonTrailLife};
 	cmd.ignoreVelocity = true;
 	b.queueSpawn(std::move(cmd));
 }
@@ -524,8 +522,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		sp->energy = sp->spec->maxEnergy;
 		b.find<Input>(id)->buttons = ShipInput::None;
 		e->owner = id;
-		e->lifeSpan = kWarpInFrames;
-		e->flags |= ElementFlags::FiniteLife;
+		b.attach<Lifetime>(id, Lifetime{kWarpInFrames});
 		// Stashed before detaching: applyFacingMask can't always rebuild this
 		// on arrival (a spec with no facingMasks -- a headless test or replay
 		// ship, given its mask directly at spawn -- has nothing to rebuild
@@ -544,14 +541,12 @@ warpInStep(Battle &b, EntityId id) noexcept
 	// Draw.cpp draws it hull-sized straight from content, not from here.
 	{
 		const Angle angle = e->facing.angle();
-		const i32 back = kTransitionSpeed * (e->lifeSpan - 1);
+		const i32 back = kTransitionSpeed * (lifeSpanOf(b, id) - 1);
 
 		Element shadow;
 		shadow.kind = ElementKind::ShipShadow;
 		shadow.playerNr = e->playerNr;  // picks which ship's sprites to draw
 		shadow.facing = e->facing;
-		shadow.flags = ElementFlags::FiniteLife;
-		shadow.lifeSpan = kIonTrailLife;
 		shadow.current = wrap(Vec2i{e->current.x - cosine(angle, back),
 				e->current.y - sine(angle, back)});
 		shadow.next = shadow.current;
@@ -560,6 +555,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		SpawnCommand cmd;
 		cmd.layer = Layer::Background;
 		cmd.element = std::move(shadow);
+		cmd.lifetime = Lifetime{kIonTrailLife};
 		b.queueSpawn(std::move(cmd));
 	}
 
@@ -567,16 +563,15 @@ warpInStep(Battle &b, EntityId id) noexcept
 	if (e == nullptr)
 		return;
 
-	if (e->lifeSpan <= 1)
+	if (lifeSpanOf(b, id) <= 1)
 	{
 		// Arrived: solid, visible, under its own control (tactrans.c:868-886).
 		// applyFacingMask reattaches the Collider warpInStep's Appearing
 		// branch detached, rebuilt from the spec's facingMasks; the stash
 		// covers a spec with none to rebuild from (a null-mask test ship had
 		// nothing stashed either, so still nothing re-attaches).
-		e->flags &= ~ElementFlags::FiniteLife;
+		b.detach<Lifetime>(id);  // NORMAL_LIFE: persistent again
 		e->velocity.zero();
-		e->lifeSpan = 1;  // NORMAL_LIFE: persistent again
 		applyFacingMask(b, id, *e, *sp->spec);
 		if (!b.has<Collider>(id))
 		{
@@ -601,8 +596,8 @@ sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 		auto e = b.get(other);
 		if (e == nullptr || !(e->owner == id))
 			return;
-		e->lifeSpan = 0;
-		e->flags |= ElementFlags::Disappearing;
+		b.attachOrReplace<Lifetime>(other, Lifetime{0});
+		b.attachOrReplace<Doomed>(other);
 		b.detach<Collider>(other);
 	});
 }
@@ -622,10 +617,9 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	e->velocity.zero();
 	if (ShipState *sp = b.ship(id))
 		sp->energy = 0;
-	e->lifeSpan = kExplosionLife;
 	e->colorCycle = 0;
-	e->flags &= ~ElementFlags::Disappearing;
-	e->flags |= ElementFlags::FiniteLife;
+	b.detach<Doomed>(id);
+	b.attach<Lifetime>(id, Lifetime{kExplosionLife});
 	b.detach<Collider>(id);
 	e->onDeath = sweepDeadShipOrdnance;
 	if (!b.has<Exploding>(id))
@@ -644,7 +638,7 @@ explosionStep(Battle &b, EntityId id) noexcept
 	// How many sparks this frame: the C's schedule (tactrans.c:545-575) ramps
 	// 1/3/1 over the 26 frames it spawns for, then nothing for the last ten
 	// while thrown sparks finish burning.
-	const i32 age = kExplosionLife - e->lifeSpan;
+	const i32 age = kExplosionLife - lifeSpanOf(b, id);
 	int count = 3;
 	if (age <= 2 || (age >= 20 && age <= 25))
 		count = 1;
@@ -679,8 +673,6 @@ explosionStep(Battle &b, EntityId id) noexcept
 		Element d;
 		d.kind = ElementKind::Debris;
 		d.playerNr = -1;  // NEUTRAL: wreckage belongs to nobody
-		d.flags = ElementFlags::FiniteLife;
-		d.lifeSpan = kDebrisLife;
 		d.current = wrap(Vec2i{from.x + cosine(spot, dist),
 				from.y + sine(spot, dist)});
 		d.next = d.current;
@@ -693,6 +685,7 @@ explosionStep(Battle &b, EntityId id) noexcept
 		SpawnCommand cmd;
 		cmd.layer = Layer::Background;
 		cmd.element = std::move(d);
+		cmd.lifetime = Lifetime{kDebrisLife};
 		b.queueSpawn(std::move(cmd));
 	}
 }

@@ -163,7 +163,6 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	p.kind = ElementKind::Planet;
 	p.playerNr = -1;             // NEUTRAL_PLAYER_NUM
 	p.hitPoints = 200;
-	p.lifeSpan = 2;              // NORMAL_LIFE + 1 (misc.c:55)
 	p.onCollision = solidCollision;
 	p.velocity.zero();
 
@@ -173,6 +172,11 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	p.mass = 0;
 
 	const EntityId id = b.spawn(Layer::Field, std::move(p), mask);
+
+	// NORMAL_LIFE + 1 (misc.c:55), WITHOUT FiniteLife: the one entity whose
+	// lifeSpan isn't 1 despite being persistent. `ages = false` is what
+	// AgeDecrement reads to leave this value alone forever -- see Entity.hpp.
+	b.attach<Lifetime>(id, Lifetime{2, /*ages=*/false});
 
 	do
 	{
@@ -193,8 +197,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	a.kind = ElementKind::Asteroid;
 	a.playerNr = -1;
 	a.hitPoints = 1;
-	a.mass = 3;
-	a.lifeSpan = 1;              // NORMAL_LIFE, and never decremented
+	a.mass = 3;                  // NORMAL_LIFE, persistent: no Lifetime at all
 	a.preProcess = asteroidPreProcess;
 	a.onCollision = solidCollision;
 	a.onDeath = asteroidDeath;
@@ -253,8 +256,6 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	Element r;
 	r.kind = ElementKind::Blast;
 	r.playerNr = dead->playerNr;
-	r.flags = ElementFlags::FiniteLife;
-	r.lifeSpan = 5;
 	r.current = dead->current;
 	r.next = r.current;
 	r.turnWait = 0;
@@ -269,6 +270,7 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	SpawnCommand cmd;
 	cmd.layer = Layer::Ordnance;
 	cmd.element = std::move(r);
+	cmd.lifetime = Lifetime{5};
 	cmd.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr;
 	b.queueSpawn(std::move(cmd));
 }

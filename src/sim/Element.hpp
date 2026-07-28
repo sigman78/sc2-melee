@@ -15,22 +15,10 @@ namespace uqm::sim {
 
 class Battle;
 
-// What an element is doing this frame. The C keeps these in one
-// ELEMENT_FLAGS word (element.h); the ones the step loop itself reasons about
-// are here, and the rest belong to whoever owns the element.
-enum class ElementFlags : u32
-{
-	None = 0,
-
-	// Reaped at the end of this frame.
-	Disappearing = 1u << 1,
-
-	// Counts down `lifeSpan` and disappears at zero.
-	FiniteLife = 1u << 2,
-};
-
 // Traits as types: any(flags & X) became registry().all_of<X>(id), and the
 // bitfield stopped filling up (review-002 called it "close to full" at 13).
+// FiniteLife and Disappearing, the last two ELEMENT_FLAGS bits, are gone the
+// same way (review-007 W3): Lifetime and Doomed (Entity.hpp).
 
 // A player's ship, as opposed to a projectile or a rock.
 struct PlayerShip
@@ -50,39 +38,6 @@ struct IgnoreVelocity
 struct BeamGeometry
 {
 };
-
-[[nodiscard]] constexpr ElementFlags
-operator|(ElementFlags a, ElementFlags b) noexcept
-{
-	return static_cast<ElementFlags>(
-			static_cast<u32>(a) | static_cast<u32>(b));
-}
-[[nodiscard]] constexpr ElementFlags
-operator&(ElementFlags a, ElementFlags b) noexcept
-{
-	return static_cast<ElementFlags>(
-			static_cast<u32>(a) & static_cast<u32>(b));
-}
-[[nodiscard]] constexpr ElementFlags
-operator~(ElementFlags a) noexcept
-{
-	return static_cast<ElementFlags>(~static_cast<u32>(a));
-}
-constexpr ElementFlags &
-operator|=(ElementFlags &a, ElementFlags b) noexcept
-{
-	return a = a | b;
-}
-constexpr ElementFlags &
-operator&=(ElementFlags &a, ElementFlags b) noexcept
-{
-	return a = a & b;
-}
-[[nodiscard]] constexpr bool
-any(ElementFlags f) noexcept
-{
-	return static_cast<u32>(f) != 0;
-}
 
 // GRAVITY_MASS (element.h:198) is `mass > 100`; gravity.c/collide.c ask
 // `mass + 1 > 100` instead (gravity.c:34,45, collide.c:102,139) -- exempting
@@ -155,18 +110,12 @@ struct Element
 
 	Velocity velocity;
 
-	ElementFlags flags = ElementFlags::None;
 	ElementKind kind = ElementKind::Unknown;
 
 	// -1 for things nobody owns, like asteroids.
 	i32 playerNr = -1;
 
 	Facing facing;
-
-	// NORMAL_LIFE (element.h:32), not zero. The step loop reads a zero as
-	// "died last frame" regardless of FiniteLife, so a persistent element has
-	// to start at 1 and simply never decrement.
-	i32 lifeSpan = 1;
 
 	i32 hitPoints = 0;
 	i32 mass = 0;

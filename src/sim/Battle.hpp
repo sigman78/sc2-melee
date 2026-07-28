@@ -78,6 +78,11 @@ struct SpawnCommand
 	bool beamGeometry = false;
 	bool ignoreSimilar = false;
 
+	// Set for a transient spawn: Lifetime attaches once the spawn lands.
+	// Element lost `lifeSpan` (review-007 W3), so a queued FiniteLife shot,
+	// trail, blast or spark carries its countdown here instead.
+	std::optional<Lifetime> lifetime;
+
 	// Non-null attaches a Collider once the spawn lands (the fire block's
 	// shot; see Battle::spawn, which every direct spawn site goes through
 	// instead).
@@ -118,7 +123,7 @@ public:
 	}
 	[[nodiscard]] usize size() const noexcept { return count_; }
 
-	// CollidingElement (collide.h:31-33): a Collider and not Disappearing.
+	// CollidingElement (collide.h:31-33): a Collider and not Doomed.
 	// Something dying this frame must not still be hit, and must not still
 	// pull on anything. Free-standing rather than an Element method now that
 	// solidity lives in a separate component (review-007 W2).
@@ -199,6 +204,15 @@ public:
 	decltype(auto) attach(EntityId id, Args &&...args)
 	{
 		return reg_.emplace<T>(id, std::forward<Args>(args)...);
+	}
+	// For a site that cannot promise the component is absent -- a kill-now
+	// path retargeting an entity that may already carry one (a weapon mid-
+	// flight already has a Lifetime; doDamage's non-ship branch has to
+	// overwrite it, not assert on it).
+	template <class T, class... Args>
+	decltype(auto) attachOrReplace(EntityId id, Args &&...args)
+	{
+		return reg_.emplace_or_replace<T>(id, std::forward<Args>(args)...);
 	}
 	template <class T>
 	[[nodiscard]] T *find(EntityId id) noexcept

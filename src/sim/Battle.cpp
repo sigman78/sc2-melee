@@ -90,6 +90,20 @@ worldVelocityOf(const Element &e) noexcept
 
 }  // namespace
 
+i32
+lifeSpanOf(const Battle &b, EntityId id) noexcept
+{
+	const Lifetime *l = b.find<Lifetime>(id);
+	return l != nullptr ? l->remaining : 1;
+}
+
+bool
+isFiniteLife(const Battle &b, EntityId id) noexcept
+{
+	const Lifetime *l = b.find<Lifetime>(id);
+	return l != nullptr && l->ages;
+}
+
 Battle::Battle(u32 seed) : rng_(seed)
 {
 	// One chunk was the whole battle in the old arena (EntityList's
@@ -106,7 +120,7 @@ Battle::collidable(EntityId id) const noexcept
 {
 	const Element *e = get(id);
 	return e != nullptr && reg_.all_of<Collider>(id)
-			&& !any(e->flags & ElementFlags::Disappearing);
+			&& !reg_.all_of<Doomed>(id);
 }
 
 void
@@ -225,7 +239,7 @@ Battle::killOverlapSpawn(EntityId id)
 	if (e == nullptr)
 		return;
 	reg_.get<CollisionScratch>(id).collided = true;
-	e->flags |= ElementFlags::Disappearing;
+	reg_.emplace_or_replace<Doomed>(id);
 	if (e->onDeath != nullptr)
 		e->onDeath(*this, id);
 }
@@ -257,13 +271,14 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// A transient element doesn't collide on its spawn frame (process.c:389-394)
 	// -- exempts FINITE_LIFE-with-Appearing on EITHER side, so a missile can't
 	// detonate on its own muzzle; lifeSpan > 1 still lets one-frame PD fire.
-	if (any((e->flags | t->flags) & ElementFlags::FiniteLife)
-			&& ((reg_.all_of<Appearing>(elemId) && e->lifeSpan > 1)
-					|| (reg_.all_of<Appearing>(testId) && t->lifeSpan > 1)))
+	if ((isFiniteLife(*this, elemId) || isFiniteLife(*this, testId))
+			&& ((reg_.all_of<Appearing>(elemId) && lifeSpanOf(*this, elemId) > 1)
+					|| (reg_.all_of<Appearing>(testId)
+							&& lifeSpanOf(*this, testId) > 1)))
 		return false;
 
 	const bool bothSolid =
-			!any((e->flags | t->flags) & ElementFlags::FiniteLife);
+			!(isFiniteLife(*this, elemId) || isFiniteLife(*this, testId));
 	Impact hit = sweptIntersect(
 			bodyOf(*e, maskOf(reg_, elemId)), bodyOf(*t, maskOf(reg_, testId)),
 			maxTime);
@@ -378,7 +393,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	const bool elemHad = eScratch.collided;
 	const bool testHad = tScratch.collided;
 	const bool bothSolidNow =
-			!any((e->flags | t->flags) & ElementFlags::FiniteLife);
+			!(isFiniteLife(*this, elemId) || isFiniteLife(*this, testId));
 
 	e->collidedWith = testId;
 	t->collidedWith = elemId;
@@ -521,17 +536,23 @@ Battle::capturePriorPass() noexcept
 // has no FINITE_LIFE guard: do_damage kills a non-aging asteroid by
 // assigning life_span = 0 directly, misc.c:210,221). Only the CHECK moved
 // here; the matching decrement is slot 11b, at the sync point.
+//
+// Stays a find<Lifetime> test over eachOrdered's walk, not a pool view over
+// Lifetime: onDeath hooks draw RNG (the asteroid field's replacement, a
+// dying ship's debris), so which order the deaths are discovered in is
+// gameplay, not incidental -- the same reason this pass was never folded
+// into a bare view<Lifetime>.
 void
 Battle::ageAndReapMarkPass()
 {
 	eachOrdered([this](EntityId id) {
+		const Lifetime *life = reg_.try_get<Lifetime>(id);
+		if (life == nullptr || life->remaining != 0)
+			return;
+		reg_.emplace<Doomed>(id);
 		auto e = get(id);
-		if (e != nullptr && e->lifeSpan == 0)
-		{
-			e->flags |= ElementFlags::Disappearing;
-			if (e->onDeath != nullptr)
-				e->onDeath(*this, id);
-		}
+		if (e != nullptr && e->onDeath != nullptr)
+			e->onDeath(*this, id);
 	});
 }
 
@@ -631,48 +652,55 @@ Battle::applyDamageIncoming() noexcept
 // both found by running the suite:
 //
 // - Too early (right after the slot 2 death check) double-counts a ship's
-//   own warp-in: ShipMachines is what sets FiniteLife and seeds lifeSpan =
-//   kWarpInFrames on the appearing frame, and that has to happen before a
-//   decrement can apply to it, or the first traced frame is off by one
-//   (kWarpInFrames instead of kWarpInFrames - 1, caught by replay_test's
-//   --trace diff against the pre-Z4 baseline).
+//   own warp-in: ShipMachines is what attaches Lifetime{kWarpInFrames} on
+//   the appearing frame, and that has to happen before a decrement can
+//   apply to it, or the first traced frame is off by one (kWarpInFrames
+//   instead of kWarpInFrames - 1, caught by replay_test's --trace diff
+//   against the pre-Z4 baseline).
 // - Too late (at the sync point, after Collide/Fire) lets a same-frame kill
-//   that sets lifeSpan = 0 without Disappearing -- doDamage's non-ship
-//   branch, used by a piercing pair where only one side's own
-//   weaponCollision fall-through sets Disappearing, and by the PD special
-//   killing a shot outright -- get decremented straight past zero to -1
-//   this same frame. A lifeSpan that never lands back on exactly 0 is never
-//   detected as dead next frame; testOpposingMissilesDestroyEachOther and
+//   that sets Lifetime{0} without Doomed -- doDamage's non-ship branch,
+//   used by a piercing pair where only one side's own weaponCollision
+//   fall-through sets Doomed, and by the PD special killing a shot
+//   outright -- get decremented straight past zero to -1 this same frame.
+//   A remaining that never lands back on exactly 0 is never detected as
+//   dead next frame; testOpposingMissilesDestroyEachOther and
 //   testPointDefenceBurnsOwnNuke both failed this way before landing here.
+//
+// view<Lifetime>, not view<Element>: only a Lifetime holder ages, and the
+// planet's Lifetime{2, false} is a holder that must not -- `ages` is the
+// gate that keeps it a real, readable value without a countdown.
 void
 Battle::ageDecrementPass() noexcept
 {
-	for (auto [id, e] : reg_.view<Element>().each())
+	for (auto [id, life] : reg_.view<Lifetime>().each())
 	{
-		(void)id;
-		if (any(e.flags & ElementFlags::FiniteLife)
-				&& !any(e.flags & ElementFlags::Disappearing))
-			--e.lifeSpan;
+		if (life.ages && !reg_.all_of<Doomed>(id))
+			--life.remaining;
 	}
 }
 
-// Sync point, 11c: destroy every element already Disappearing -- marked in
-// slot 2 from a death detected this frame, or mid-Collide (slot 9) by a
-// weapon's own self-spend or the overlap-repair protocol's overlap-kill.
-// Either way its onDeath already ran at the point Disappearing was set;
-// nothing runs again here, exactly as postProcessPass's reap branch never
-// called postProcess either.
+// Sync point, 11c: destroy every element already Doomed -- marked in slot 2
+// from a death detected this frame, or mid-Collide (slot 9) by a weapon's
+// own self-spend or the overlap-repair protocol's overlap-kill. Either way
+// its onDeath already ran at the point Doomed was set; nothing runs again
+// here, exactly as postProcessPass's reap branch never called postProcess
+// either.
+//
+// view<Doomed>, not view<Element> filtered by a flag: a bare tag view walks
+// its own pool order, not (layer, seq) -- a different destruction order
+// than the old Disappearing-filtered walk over Element. Nothing here reads
+// order: no hook runs (onDeath already ran), and destruction touches only
+// the destroyed entities' own slots, never a survivor's Order stamp -- so
+// which order they're destroyed in is not gameplay, only entity-id
+// recycling, and that is not folded into the replay digest either.
 void
 Battle::reapPass() noexcept
 {
-	// Element is in_place_delete, so removing the CURRENT entity mid-.each()
+	// Element is in_place_delete, so removing the CURRENT entity mid-walk
 	// is safe -- entt leaves later slots undisturbed, no separate
 	// next-before-remove capture needed the way the spine walk required.
-	for (auto [id, e] : reg_.view<Element>().each())
-	{
-		if (any(e.flags & ElementFlags::Disappearing))
-			removeElement(id);
-	}
+	for (EntityId id : reg_.view<Doomed>())
+		removeElement(id);
 }
 
 // Sync point, 11e: end-of-frame flag housekeeping over the spine as it
@@ -722,6 +750,8 @@ Battle::drainSpawnCommands()
 			attachWeaponSpec(id, cmd.weaponSpec);
 		if (cmd.guided)
 			attach<Guided>(id, *cmd.guided);
+		if (cmd.lifetime)
+			attach<Lifetime>(id, *cmd.lifetime);
 		if (cmd.ignoreVelocity)
 			attach<IgnoreVelocity>(id);
 		if (cmd.beamGeometry)

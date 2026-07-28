@@ -170,7 +170,7 @@ testSlotReuseDoesNotReorder()
 	const EntityId second = b.spawn(Layer::Field, marked(2));
 	b.spawn(Layer::Field, marked(3));
 
-	b.get(second)->lifeSpan = 0;
+	b.attach<Lifetime>(second, Lifetime{0});
 	b.step();  // reaps the middle entry, freeing its slot for reuse
 
 	b.spawn(Layer::Field, marked(4));  // which this respawn reuses
@@ -191,7 +191,7 @@ testStaleHandlesAreDetectable()
 	const EntityId id = b.spawn(Layer::Field, marked(7));
 	CHECK(b.alive(id) && b.get(id) != nullptr, "a live handle resolves");
 
-	b.get(id)->lifeSpan = 0;
+	b.attach<Lifetime>(id, Lifetime{0});
 	b.step();
 	CHECK(!b.alive(id), "a reaped handle is not alive");
 	CHECK(b.get(id) == nullptr, "and does not resolve");
@@ -212,8 +212,8 @@ testStaleHandlesAreDetectable()
 void
 testTheReapKeepsTheWalkIntact()
 {
-	// The reap -- Battle's only removal, driven by lifeSpan and run inside
-	// step() -- has to leave the survivors exactly where they were, the same
+	// The reap -- Battle's only removal, driven by Lifetime/Doomed and run
+	// inside step() -- has to leave the survivors exactly where they were, the same
 	// promise EntityList::remove made while a caller was mid-walk (a
 	// projectile expiring mid-frame is the ordinary case).
 	Battle b(1);
@@ -221,8 +221,8 @@ testTheReapKeepsTheWalkIntact()
 	for (int i = 0; i < 5; ++i)
 		ids.push_back(b.spawn(Layer::Field, marked(i)));
 
-	b.get(ids[1])->lifeSpan = 0;
-	b.get(ids[3])->lifeSpan = 0;
+	b.attach<Lifetime>(ids[1], Lifetime{0});
+	b.attach<Lifetime>(ids[3], Lifetime{0});
 	b.step();
 
 	CHECK(playerNrs(b) == std::vector<int>({0, 2, 4}),
@@ -251,7 +251,7 @@ testEntityAddressesAreStable()
 	Element *pa = b.get(A);
 	Element *pc = b.get(C);
 
-	b.get(B)->lifeSpan = 0;
+	b.attach<Lifetime>(B, Lifetime{0});
 	b.step();  // reaps B -- a tombstone, not a compaction
 
 	for (int i = 0; i < 100; ++i)
@@ -884,8 +884,6 @@ testSpawnLandsAtSyncAndActsNextFrame()
 	Battle b(1);
 
 	Element trigger;
-	trigger.flags = ElementFlags::FiniteLife;
-	trigger.lifeSpan = 1;
 	trigger.onDeath = [](Battle &bb, EntityId) noexcept {
 		Element child;
 		child.current = Vec2i{100, 100};
@@ -896,7 +894,8 @@ testSpawnLandsAtSyncAndActsNextFrame()
 		cmd.element = std::move(child);
 		bb.queueSpawn(std::move(cmd));
 	};
-	b.spawn(Layer::Field, std::move(trigger));
+	const EntityId triggerId = b.spawn(Layer::Field, std::move(trigger));
+	b.attach<Lifetime>(triggerId, Lifetime{1});
 
 	b.step();  // the trigger's own appearing frame: lifeSpan ages to 0
 	CHECK(b.size() == 1, "setup: only the trigger exists so far");
@@ -923,10 +922,9 @@ testFiniteLifeExpiresAndCallsDeath()
 	Battle b(1);
 
 	Element shot = plain(7);
-	shot.flags = ElementFlags::FiniteLife;
-	shot.lifeSpan = 3;
 	shot.onDeath = recordDeath;
-	spawnShip(b, std::move(shot));
+	const EntityId id = spawnShip(b, std::move(shot));
+	b.attach<Lifetime>(id, Lifetime{3});
 
 	// Life is spent in the pre pass and death is decided at the *start* of
 	// the frame after it reaches zero (process.c:133-141, 180-181). A
@@ -993,9 +991,8 @@ testCollisionPairsAreVisitedOnce()
 	// overlap between two *solid* bodies is the "BAD NEWS" case the step
 	// skips, so only a transient can register this stationary hit at all.
 	// Two frames of life, because the first is spent before the test runs.
-	a.flags = ElementFlags::FiniteLife;
-	a.lifeSpan = 2;
 	const EntityId ia = b.spawn(Layer::Field, std::move(a), &mask);
+	b.attach<Lifetime>(ia, Lifetime{2});
 
 	Element c;
 	c.current = Vec2i{500, 500};
@@ -1047,9 +1044,8 @@ testCollisionPairsAreVisitedOnce()
 	g1.collidedWith = kNoEntity;
 	// Transient for the same reason as above: the target is solid, so the
 	// flame must be finite-life for a stationary overlap to be a hit.
-	g1.flags = ElementFlags::FiniteLife;
-	g1.lifeSpan = 2;
 	const EntityId ig1 = b3.spawn(Layer::Field, std::move(g1), &mask);
+	b3.attach<Lifetime>(ig1, Lifetime{2});
 	b3.attach<IgnoreSimilar>(ig1);
 
 	Element g2 = *b2.get(if2);
@@ -1466,10 +1462,11 @@ addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
 	p.playerNr = -1;
 	p.hitPoints = 200;
 	p.mass = 200;
-	p.lifeSpan = 2;
 	p.current = at;
 	p.next = at;
-	return b.spawn(Layer::Field, std::move(p), &m);
+	const EntityId id = b.spawn(Layer::Field, std::move(p), &m);
+	b.attach<Lifetime>(id, Lifetime{2, /*ages=*/false});
+	return id;
 }
 
 void
@@ -1637,7 +1634,7 @@ testDestroyedAsteroidIsReplaced()
 	// do_damage's kill (misc.c:220-222).
 	b.eachOrdered([&](EntityId e) {
 		b.get(e)->hitPoints = 0;
-		b.get(e)->lifeSpan = 0;
+		b.attach<Lifetime>(e, Lifetime{0});
 		b.detach<Collider>(e);
 	});
 
@@ -1722,14 +1719,14 @@ testPlanetsTakeNoDamage()
 	planet.kind = ElementKind::Planet;
 	planet.mass = 200;
 	planet.hitPoints = 200;
-	planet.lifeSpan = 2;
 	const EntityId planetId = b.spawn(Layer::Field, std::move(planet));
+	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
 
 	doDamage(b, planetId, 50);
 	auto p = b.get(planetId);
 	CHECK(p->hitPoints == 200, "a planet is not damageable, got %ld",
 			static_cast<long>(p->hitPoints));
-	CHECK(p->lifeSpan == 2, "and is certainly not killable");
+	CHECK(lifeSpanOf(b, planetId) == 2, "and is certainly not killable");
 
 	// The same call, asked of a ship that has fled to mass 100. isGravityMass
 	// is the predicate *without* gravity.c's `+ 1`, so it stays damageable
@@ -1822,11 +1819,11 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	planet.playerNr = -1;
 	planet.mass = 200;
 	planet.hitPoints = 200;
-	planet.lifeSpan = 2;
 	planet.current = Vec2i{4000, 4000};
 	planet.next = planet.current;
 	planet.onCollision = solidCollision;
-	(void)b.spawn(Layer::Field, std::move(planet), &m);
+	const EntityId planetId = b.spawn(Layer::Field, std::move(planet), &m);
+	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
 
 	// Spawned clear of the planet, then moved into it. Starting them on top of
 	// each other is not a shortcut: the planet's collision is resolved before
@@ -1940,15 +1937,15 @@ spawnTestShot(Battle &b, const CollisionMask &mask, Vec2i at, i32 playerNr,
 {
 	Element e;
 	e.kind = ElementKind::Weapon;
-	e.flags = ElementFlags::FiniteLife;
-	e.lifeSpan = lifeSpan;
 	e.playerNr = playerNr;
 	e.hitPoints = hitPoints;
 	e.mass = mass;
 	e.current = e.next = at;
 	e.velocity.setComponents(vx, vy);
 	e.onCollision = weaponCollision;
-	return b.spawn(Layer::Field, std::move(e), &mask);
+	const EntityId id = b.spawn(Layer::Field, std::move(e), &mask);
+	b.attach<Lifetime>(id, Lifetime{lifeSpan});
+	return id;
 }
 
 void
@@ -2069,10 +2066,10 @@ testTurningIntoOverlapIsReverted()
 	planet.playerNr = -1;
 	planet.mass = 200;
 	planet.hitPoints = 200;
-	planet.lifeSpan = 2;
 	planet.current = planet.next = Vec2i{4000, 4000};
 	planet.onCollision = solidCollision;
-	(void)b.spawn(Layer::Field, std::move(planet), &wall);
+	const EntityId planetId = b.spawn(Layer::Field, std::move(planet), &wall);
+	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
 
 	// Adjacent at facing 0 (a 4x4 mask), overlapping at facing 1 (16x16).
 	const EntityId ship = spawnPlayerShip(b, d, nullptr,
@@ -2118,18 +2115,17 @@ testSpawnInsideSomethingIsExecuted()
 	planet.playerNr = -1;
 	planet.mass = 200;
 	planet.hitPoints = 200;
-	planet.lifeSpan = 2;
 	planet.current = planet.next = Vec2i{4000, 4000};
 	planet.onCollision = solidCollision;
-	(void)b.spawn(Layer::Field, std::move(planet), &m);
+	const EntityId planetId = b.spawn(Layer::Field, std::move(planet), &m);
+	b.attach<Lifetime>(planetId, Lifetime{2, /*ages=*/false});
 	b.step();  // established
 
 	Element rock;
 	rock.kind = ElementKind::Asteroid;
 	rock.playerNr = -1;
 	rock.hitPoints = 1;
-	rock.mass = 3;
-	rock.lifeSpan = 1;
+	rock.mass = 3;              // NORMAL_LIFE, persistent: no Lifetime at all
 	rock.current = rock.next = Vec2i{4004, 4000};  // inside the planet
 	rock.onCollision = solidCollision;
 	rock.onDeath = countOverlapDeath;
@@ -2250,13 +2246,12 @@ testPointDefenceBurnsIncomingFire()
 	Element shot;
 	shot.kind = ElementKind::Weapon;
 	shot.playerNr = 1;
-	shot.flags = ElementFlags::FiniteLife;
-	shot.lifeSpan = 20;
 	shot.hitPoints = 1;
 	shot.damage = 1;
 	shot.mass = 1;
 	shot.current = shot.next = Vec2i{4000, 4200};
 	const EntityId incoming = b.spawn(Layer::Field, std::move(shot), &m);
+	b.attach<Lifetime>(incoming, Lifetime{20});
 
 	b.find<Input>(ship)->buttons = ShipInput::Special;
 	b.step();
@@ -2360,9 +2355,10 @@ testShipWarpsInBeforeItIsSolid()
 			auto p = b.get(id);
 			if (p == nullptr || p->kind != sim::ElementKind::ShipShadow)
 				return;
-			if (p->lifeSpan <= best)
+			const i32 life = sim::lifeSpanOf(b, id);
+			if (life <= best)
 				return;
-			best = p->lifeSpan;
+			best = life;
 			const Vec2i d = sim::wrapDelta(Vec2i{p->current.x - arrival.x,
 					p->current.y - arrival.y});
 			dist = static_cast<i64>(d.x) * d.x

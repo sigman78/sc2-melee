@@ -328,11 +328,11 @@ draw(Game &g)
 		}
 
 		// Exhaust: a single point stepping through the colour ramp as it
-		// ages. lifeSpan counts down, so the ramp index counts up.
+		// ages. Lifetime::remaining counts down, so the ramp index counts up.
 		if (v->policy == CelPolicy::RampPoint)
 		{
 			const usize step = static_cast<usize>(
-					sim::kIonTrailLife - e->lifeSpan);
+					sim::kIonTrailLife - sim::lifeSpanOf(g.battle, id));
 			if (step >= kIonRamp.size())
 				return;
 			const Colour c = kIonRamp[step];
@@ -353,7 +353,7 @@ draw(Game &g)
 				return;
 			}
 			const usize frames = set->frames.size();
-			const i32 age = sim::kDebrisLife - e->lifeSpan;
+			const i32 age = sim::kDebrisLife - sim::lifeSpanOf(g.battle, id);
 			const usize i = std::min(frames - 1,
 					static_cast<usize>(std::max(0, age))
 							* frames / static_cast<usize>(
@@ -435,7 +435,8 @@ draw(Game &g)
 			// then stops drawing (tactrans.c:569-571); the explosion itself
 			// is the swarm of sparks explosionPreProcess spawns as Debris.
 			if (crew == 0
-					&& sim::kExplosionLife - e->lifeSpan >= sim::kHullVanishAge)
+					&& sim::kExplosionLife - sim::lifeSpanOf(g.battle, id)
+							>= sim::kHullVanishAge)
 				return;
 		}
 
@@ -461,7 +462,7 @@ draw(Game &g)
 			if (v->policy == CelPolicy::RampSilhouette)
 			{
 				const usize step = static_cast<usize>(
-						sim::kIonTrailLife - e->lifeSpan);
+						sim::kIonTrailLife - sim::lifeSpanOf(g.battle, id));
 				if (step >= kIonRamp.size() || cel >= set->silhouettes.size())
 					return;
 				const Colour c = kIonRamp[step];

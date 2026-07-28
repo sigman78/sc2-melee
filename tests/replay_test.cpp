@@ -256,7 +256,10 @@ simulateBattle(u32 seed, std::ostream *trace)
 			const Element *e = b.get(id);
 			foldI32(frameDigest, e->current.x);
 			foldI32(frameDigest, e->current.y);
-			foldI32(frameDigest, e->lifeSpan);
+			// find<Lifetime> ? remaining : 1 -- the literal persistent value
+			// Lifetime replaces, so every digest matches bit-for-bit against
+			// the pre-Lifetime baseline (review-007 W3).
+			foldI32(frameDigest, lifeSpanOf(b, id));
 			const ShipState *ss = b.ship(id);
 			if (ss != nullptr)
 			{
@@ -267,7 +270,7 @@ simulateBattle(u32 seed, std::ostream *trace)
 			{
 				*trace << b.frame() << ' ' << walkIndex << ' '
 						<< static_cast<int>(e->kind) << ' ' << e->current.x
-						<< ' ' << e->current.y << ' ' << e->lifeSpan;
+						<< ' ' << e->current.y << ' ' << lifeSpanOf(b, id);
 				if (ss != nullptr)
 					*trace << ' ' << ss->crew << ' ' << ss->energy;
 				*trace << '\n';

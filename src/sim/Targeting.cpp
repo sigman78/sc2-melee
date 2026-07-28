@@ -37,7 +37,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 			return;
 		// Dead ships are not targets (weapon.c:352-353).
 		const ShipState *ts = b.ship(id);
-		if (t->lifeSpan == 0 || ts == nullptr || ts->crew == 0)
+		if (lifeSpanOf(b, id) == 0 || ts == nullptr || ts->crew == 0)
 			return;
 		// Nor cloaked ones (weapon.c:344-348). This is the whole tactical
 		// point of the Ilwrath cloak: not that it is hard to see, but that a

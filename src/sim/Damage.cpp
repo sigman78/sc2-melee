@@ -85,7 +85,10 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 		return;
 	}
 	e->hitPoints = 0;
-	e->lifeSpan = 0;
+	// Death detected next frame (ageAndReapMarkPass), not this one -- no
+	// Doomed here, matching lifeSpan = 0 without Disappearing (misc.c:210,221
+	// has no FINITE_LIFE guard: this kills a non-aging asteroid the same way).
+	b.attachOrReplace<Lifetime>(id, Lifetime{0});
 	b.detach<Collider>(id);
 }
 
@@ -116,8 +119,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	// something already dying). A target that SURVIVES marks the weapon
 	// Collided ("did effect"), which also stops it at the impact point.
 	if (damage > 0
-			&& (any(target->flags & ElementFlags::FiniteLife)
-					|| target->lifeSpan == 1))
+			&& (isFiniteLife(b, targetId) || lifeSpanOf(b, targetId) == 1))
 	{
 		doDamage(b, targetId, damage, w->owner);
 		w = b.get(id);
@@ -138,7 +140,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	// it hasn't already stopped and isn't tough enough to pierce -- hit points
 	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame don't).
 	if (target != nullptr
-			&& any(target->flags & ElementFlags::FiniteLife)
+			&& isFiniteLife(b, targetId)
 			&& (targetScratch.collided || w->hitPoints > target->mass))
 		return;
 
@@ -147,13 +149,13 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	const i32 blastOffset = w->blastOffset;
 
 	w->hitPoints = 0;
-	w->lifeSpan = 0;
 	// NONSOLID | DISAPPEARING (weapon.c:175-181), Collided in scratch:
-	// stopped, spent, reaped this frame. The flame's wrapper clears
-	// Disappearing again so the fireball lingers one frame (flameCollision,
+	// stopped, spent, reaped this frame. The flame's wrapper clears Doomed
+	// again so the fireball lingers one frame (flameCollision,
 	// ilwrath.c:141-148).
 	wScratch.collided = true;
-	w->flags |= ElementFlags::Disappearing;
+	b.attachOrReplace<Lifetime>(id, Lifetime{0});
+	b.attachOrReplace<Doomed>(id);
 	b.detach<Collider>(id);
 
 	// The blast, offset along the direction of travel so it sits on the
@@ -161,8 +163,6 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	Element blast;
 	blast.kind = ElementKind::Blast;
 	blast.playerNr = w->playerNr;
-	blast.flags = ElementFlags::FiniteLife;
-	blast.lifeSpan = kBlastLife;
 	blast.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(blastOffset)),
 			at.y + sine(angle, displayToWorld(blastOffset))});
 	blast.next = blast.current;
@@ -173,6 +173,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	SpawnCommand cmd;
 	cmd.layer = Layer::Ordnance;
 	cmd.element = std::move(blast);
+	cmd.lifetime = Lifetime{kBlastLife};
 	b.queueSpawn(std::move(cmd));
 }
 
@@ -189,7 +190,7 @@ solidCollision(Battle &b, EntityId id) noexcept
 
 	// ship.c:356. A transient thing hitting you is the weapon's business, not
 	// yours -- it has its own hook and has already run.
-	if (any(other->flags & ElementFlags::FiniteLife))
+	if (isFiniteLife(b, e->collidedWith))
 		return;
 
 	// Hitting anything solid stops this element at the impact point

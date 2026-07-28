@@ -106,8 +106,6 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		beam.kind = ElementKind::Laser;
 		beam.playerNr = ship->playerNr;
 		beam.owner = id;
-		beam.flags = ElementFlags::FiniteLife;
-		beam.lifeSpan = 1;
 		beam.current = from;
 		beam.next = beamTo;
 
@@ -118,6 +116,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		SpawnCommand cmd;
 		cmd.layer = Layer::Ordnance;
 		cmd.element = std::move(beam);
+		cmd.lifetime = Lifetime{1};
 		cmd.ignoreVelocity = true;
 		cmd.beamGeometry = true;
 		b.queueSpawn(std::move(cmd));
