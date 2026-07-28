@@ -11,30 +11,42 @@ proof of behavior.
 
 ## 1. The design
 
-**Rendering becomes a declared pipeline**, symmetric to step():
+**Rendering becomes a declared pipeline of semantic passes**, each keyed
+by the components/tags that identify its content (SiGMan's final call,
+after two rejected drafts — by layer, then by technique):
 
-    clear → Starfield → RampPoints → RampSilhouettes → DebrisFrames
-          → Sprites(+Rect fallback) → Beams → Marks → Hud
-          → Overlay(ctx-gated) → present
+    clear → renderStars → renderPlanet → renderAsteroids → renderShips
+          → renderProjectiles → renderEffects → marks → hud
+          → overlay(ctx-gated) → present
 
-One pass per drawing *technique*, each walking eachOrdered filtered by
-Visual.policy — so the effective z-order is the declared triple
-**(technique, layer, seq)**. The first draft decomposed by layer to
-preserve within-layer cross-technique interleaving; SiGMan's challenge
-("where does that actually matter?") survived the accounting: every
-load-bearing ordering in current content is *within* one technique
-(flame self-overlap, ship-over-ship), which the filtered eachOrdered
-preserves, and the only cross-technique overlaps are cosmetically
-negligible decorations — with beams-over-projectiles arguably an
-improvement. Pass order encodes the surviving cross-technique intent:
-decorations under hulls, beams on top. The Rect fallback folds into the
-sprite pass (a no-art stand-in, not a technique).
+- renderStars: view<Starfield> (the W2 singleton).
+- renderPlanet: a Planet tag — owed anyway: gravityPass currently finds
+  the well by scanning for mass > 100; the tag cleans sim and render at
+  once.
+- renderAsteroids: Spin already identifies them; the tag exists in all
+  but name.
+- renderShips: ShipState/PlayerShip — the pass owns the whole ship look
+  (facing sprite, cloak tint, warp gating, any future shield glow), so
+  the multi-technique-per-entity edge dissolves: hull-then-glow is one
+  pass's internal order.
+- renderProjectiles: weapons and beams (Guided/BeamGeometry/
+  WeaponGuidance cover them).
+- renderEffects: trails, shadows, debris, blasts — kind-filtered until a
+  tag earns its keep.
 
-Recorded edge for M2: an entity drawn by two techniques (a shield glow
-over its own hull) splits across passes and can sandwich wrong against
-another entity's sprite; the fix, when it is needed, is declarable — a
-technique priority or a dedicated layer — not a return to interleaved
-per-entity dispatch.
+Consequences, both simplifications:
+
+1. **CelPolicy retires.** The pass IS the policy; Visual shrinks to pure
+   data (sprite set, fallback colour) and visualFor reduces to art
+   selection. The enum existed to smuggle per-category draw logic
+   through one generic loop; there is no generic loop.
+2. **Draw order decouples from sim order.** The C's disp_q conflated
+   processing order and z-order in one list, and Layer inherited both
+   roles. Now z-order is **(pass, seq)**, declared entirely in the
+   render pipeline; Layer remains a purely sim-side ordering concept.
+   Two orders, two declarations, no coupling — and stacking choices the
+   old code made by spawn accident (planet over ships) become explicit
+   declarations (ships over planet, per the pass order above).
 
 **True singletons go to entt's context**, not a magic entity: ctx state
 has no id, never appears in a view, cannot be reaped. Candidates:
@@ -68,6 +80,6 @@ the app churns them.
 
 | Stage | What | Proof |
 | --- | --- | --- |
-| W1 | draw() decomposes into the declared pass list; per-layer element passes; hud/overlay/marks/starfield as named passes (marks/starfield still reading today's Game members — state moves in W2) | build clean; suite 8/8 untouched; replay baseline untouched; driven screenshots incl. the F1 overlay |
+| W1 | The semantic pass pipeline: draw() becomes the declared sequence above; Planet tag lands (gravityPass stops scanning by mass); CelPolicy retires, Visual shrinks to data; starfield/marks passes still read today's Game members (state moves in W2) | build clean; suite 8/8 untouched; replay baseline untouched (the Planet tag touches sim — gate hard); driven screenshots incl. the F1 overlay; deliberate stacking changes (ships over planet) named in the commit |
 | W2 | The state migration: Starfield entity, Mark entities + age reap, AnnouncedDead tag, MatchState/debug/roster to Battle's typed ctx surface; Battle::destroy for app-owned entities | same gates + screenshots; Game struct visibly shrinks |
 | W3 | Verdict; sim-architecture.md's app paragraph | the record |
