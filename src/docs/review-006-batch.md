@@ -102,8 +102,41 @@ bit-identical; the harness carries what does not.
 | Z2 | The replay net: 32 seeded battles, per-frame FNV-64 digests, 64-frame divergence checkpoints, --trace for two-build diffs | **done** — demoted from approval oracle to regression instrument on SiGMan's challenge: --compare (bit-exact) is the ctest gate, re-recorded only at intentional semantic changes; --similar gates nothing. Stage find: bare spec literals carry empty weapon masks, so harness shots collided with nothing until the specs were materialized test-side |
 | Z3 | `Seq` component; EnergyRegen becomes the first true batch pass — **done**, proven the hard way: all 32 replay battles bit-identical against the unchanged baseline | **bit-green required** — and the corrected claim is that regen is nearly the *only* pass that can be: aging, animation, steering and integration are all observable through walk position (batch-aging shifts death frames, batch-animate re-masks the flame mid-walk, batch-integrate changes what collision pairs see). The §1 table stands as the destination; the bit-green on-ramp is far narrower than first drafted |
 | Z4 | The semantic flip: the twelve-slot pipeline, commands, DamageIncoming, the sync point; Element::postProcess and the catch-up machinery deleted; ships take no hook assignments | **done**, two phases with an adjudicated checkpoint between. Corrections the execution forced: AgeDecrement lives between Integrate and Collide, not at sync (a sync-time decrement stepped dead munitions to -1 past the death check — the harness caught it); spawn seeds PriorSilhouette from the element (a mid-frame spawn carried a null prior into the revert protocol); the rubble respawn defers so its RNG draws happen at sync in queue order. Divergences all landed in the declared classes — the trace's first divergent line is a warp shadow at lifeSpan 11 vs 12, the one-frame latency itself. Baseline re-recorded (the first legal re-record); the aggregate held: identical winner histogram, ranges within a few percent |
-| Z5 | Collide as the pair-worklist algorithm-system with (Layer, Seq) pair order | harness-green |
-| Z6 | Spine retirement: OrderLink deleted, draw sorts by (Layer, Seq); the verdict, measurements, and sim-architecture.md amended again | the report card |
+| Z5 | Six order-free passes to views; collide to a worklist over a sorted (layer, seq) index | **done, bit-green throughout** — and two findings paid for the stage: Thrust is NOT order-free (its trail-command emission order fixes Seq slots; pool-order iteration diverged 30/32 battles), and Animate's earlier-layer-first order is load-bearing per a unit pin the 32-battle net was blind to. The two nets cover each other's blind spots; that is why there are two |
+| Z6 | Spine retirement | **done, bit-green throughout** — eachOrdered is the one declared-order iteration; Order{layer, seq} replaces OrderLink+Seq; the linked list, its bookkeeping and front/next/prev/back are deleted (net −93 lines); Thrust and Animate converted clean under eachOrdered, closing both Z5 findings as predicted; the baseline never moved |
+
+## 8. The verdict
+
+The destination was reached with the game intact. The frame is a declared
+pipeline; components communicate by effect components and commands; order
+is a component (`Order{layer, seq}`) consumed by exactly one iteration
+(`eachOrdered`) where it matters and by no one where it does not. The C's
+disp_q — a linked list whose insertion positions encoded draw order,
+processing order and same-frame reactivity all at once — ends as a sort
+key.
+
+What the stages taught, condensed:
+
+- **"Order-free" is an empirical claim, not a syntactic one.** Two of
+  eight provably-safe-looking passes were not safe: one because command
+  *emission order* is itself gameplay state (Thrust), one because a unit
+  pin guarded an order the integration net could not observe (Animate).
+  Every future pass conversion inherits the rule: gate each one alone.
+- **The two-net structure is load-bearing.** The bit-exact whole-battle
+  net catches what unit pins cannot (Thrust); unit pins catch what 32
+  random battles cannot (Animate). Neither substitutes for the other.
+- **Checkpointed adjudication worked.** Z4's convert-report-stop shape
+  caught a spec error (AgeDecrement at sync) and two would-be-enshrined
+  defects (null PriorSilhouette on mid-frame spawns, emission-time RNG in
+  the rubble respawn) before the baseline could absorb them.
+- **The flip's cost matched its budget.** One frame of spawn latency,
+  snapshot aiming, deferred crew damage — and the 32-battle aggregate held
+  an identical winner histogram with ranges within a few percent.
+
+Answering the question that drove the stage ordering: no explicit entity
+loop remains. Views iterate where order is irrelevant; `eachOrdered`
+iterates where it is declared; `b.front()/b.next()` no longer exists to
+be asked about.
 
 ## 7. Declined up front
 

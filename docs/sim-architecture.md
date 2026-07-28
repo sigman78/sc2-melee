@@ -61,10 +61,17 @@ Spin, Cloak), optional phases are component presence (WarpingIn,
 Exploding — the C's per-instance hook mutation has no successor), and the
 ship phases themselves are named systems called in pinned order.
 
-Traversal order is *declared*, not computed: the spine is segmented by
-`Layer{Background, Field, Ordnance}` and every spawn names its stratum,
-FIFO within it. What the C encoded by head/tail insertion tricks
-(pkunk.c:498-512's head-inserted phoenix) is a layer declaration here.
+Traversal order is *data*, all the way down (review-006): every spawn
+names its stratum, and `Order{layer, seq}` on the entity is the whole
+story — there is no list. `Battle::eachOrdered` sorts and walks where
+order is gameplay (RNG-drawing passes, targeting tie-breaks, pair order,
+draw); plain views iterate everywhere else. The frame itself is a declared
+pipeline of batch systems with one sync point; cross-entity reads see the
+frame-start snapshot, structural effects travel as commands, and ship
+damage stacks in an effect component applied once per hull. What the C
+encoded by head/tail insertion tricks (pkunk.c:498-512's head-inserted
+phoenix) is a layer declaration here; what it encoded by hook
+self-mutation is component presence.
 
 ## Migration plan
 
