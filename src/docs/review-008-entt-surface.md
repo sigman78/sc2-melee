@@ -139,23 +139,30 @@ Two things fell out of the implementation that the plan had not:
 
 SiGMan doubts it, and the doubt is recorded here unresolved rather than
 argued away: bit-exactness obviously depends on walk order, but that is a
-property of the harness, not of the game. The claim that *gameplay* depends
-on it rests on `resolveAgainst` (`Battle.cpp:554`), where collision
-response is sequential and asymmetric —
+property of the harness, not of the game.
 
-    if (all_of<ShipState>(testId)) { respond(testId, elemId);
-                                     if (alive(elemId)) respond(elemId, testId); }
-    else                           { respond(elemId, testId);
-                                     if (alive(testId)) respond(testId, elemId); }
+The first version of this section overstated the case, and the correction
+runs in SiGMan's favour. It claimed `resolveAgainst`'s second collision
+response was conditional on surviving the first — that a kill could
+suppress the other side's response, so who came first decided who lived.
+That guard could never fire: nothing is destroyed during Collide, since
+`removeElement`'s only caller is the reap at a later sync point. Both
+responses always ran. The guard is gone now, along with every other
+unreachable liveness test in that path.
 
-— so the second response is conditional on surviving the first, and which
-entity is the scanner is decided purely by walk position. Two missiles
-meeting head-on resolve differently depending on which came first.
-`testOpposingMissilesDestroyEachOther` is the existing pin.
+What order actually decides is narrower. Walk position fixes which entity
+is the scanner and which the test, and that feeds the
+`all_of<ShipState>(testId)` branch which picks *response sequence* — and
+sequence matters because a response mutates state the next one reads
+(hit points, the Collided flag, a detached Collider). Separately, each
+pair's resolution mutates positions and velocities that later pairs in the
+same frame read. So outcomes are order-dependent, but through accumulated
+sequencing rather than through one decisive kill.
 
-The counter-argument is that this is a narrow case: most frames resolve no
-collisions at all, the Pkunk phoenix is one unbuilt ship, and "different"
-may not mean "worse" or even "noticeable".
+That is a weaker claim than the one this section opened with, and it makes
+the counter-argument stronger: most frames resolve no collisions at all,
+the Pkunk phoenix is one unbuilt ship, and "different" may not mean "worse"
+or even "noticeable".
 
 **This is measurable, and should be measured rather than debated.** The
 replay harness already records per battle: winner, end frame, crew lost per
