@@ -117,8 +117,8 @@ applyThrustInput(Battle &b, EntityId id, ShipState &s,
 	}
 	else if (any(in.buttons & ShipInput::Thrust))
 	{
-		const Facing facing = b.find<Position>(id)->facing;
-		Motion &motion = *b.find<Motion>(id);
+		auto [pos, motion] = b.get<Position, Motion>(id);
+		const Facing facing = pos.facing;
 		s.speed = thrust(motion.velocity, facing, spec.thrust,
 				ThrustState{s.speed, s.inGravityWell});
 		// ship.c:263-267 clears the whole speed/gravity group and ORs in the
@@ -148,8 +148,7 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 	else if (any(in.buttons & ShipInput::Weapon)
 			&& deltaEnergy(s, -spec.weapon.energyCost))
 	{
-		const Position &shipPos = *b.find<Position>(id);
-		const Motion &shipMotion = *b.find<Motion>(id);
+		auto [shipPos, shipMotion] = b.get<Position, Motion>(id);
 		ShipView view;
 		view.position = shipPos.next;
 		view.velocity = shipMotion.velocity;
@@ -314,8 +313,9 @@ shipMachinesStep(Battle &b, EntityId id) noexcept
 		s.crew = spec.maxCrew;
 		s.energy = spec.maxEnergy;
 		in.buttons = ShipInput::None;
-		b.find<Allegiance>(id)->owner = id;
-		applyFacingMask(b, id, b.find<Position>(id)->facing, spec);
+		auto [allegiance, pos] = b.get<Allegiance, Position>(id);
+		allegiance.owner = id;
+		applyFacingMask(b, id, pos.facing, spec);
 		return;
 	}
 
@@ -508,8 +508,9 @@ warpInStep(Battle &b, EntityId id) noexcept
 		// on arrival.
 		sp->crew = sp->spec->maxCrew;
 		sp->energy = sp->spec->maxEnergy;
-		b.find<Input>(id)->buttons = ShipInput::None;
-		b.find<Allegiance>(id)->owner = id;
+		auto [in, allegiance] = b.get<Input, Allegiance>(id);
+		in.buttons = ShipInput::None;
+		allegiance.owner = id;
 		b.attach<Lifetime>(id, Lifetime{kWarpInFrames});
 		b.find<Motion>(id)->velocity.zero();
 		return;
@@ -554,8 +555,9 @@ warpInStep(Battle &b, EntityId id) noexcept
 		// mask directly at spawn) simply leaves the Collider's mask as it
 		// already was.
 		b.detach<Lifetime>(id);  // NORMAL_LIFE: persistent again
-		b.find<Motion>(id)->velocity.zero();
-		applyFacingMask(b, id, b.find<Position>(id)->facing, *sp->spec);
+		auto [motion, pos] = b.get<Motion, Position>(id);
+		motion.velocity.zero();
+		applyFacingMask(b, id, pos.facing, *sp->spec);
 		b.detach<WarpingIn>(id);
 	}
 }

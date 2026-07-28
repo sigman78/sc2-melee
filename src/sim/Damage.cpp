@@ -153,9 +153,9 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 					|| wVital->hitPoints > b.find<Physique>(targetId)->mass))
 		return;
 
-	const Vec2i at = b.find<Position>(id)->next;
-	const int angle = b.find<Motion>(id)->velocity.travelAngle();
-	const Warhead &warhead = *b.find<Warhead>(id);
+	auto [pos, motion, warhead] = b.get<Position, Motion, Warhead>(id);
+	const Vec2i at = pos.next;
+	const int angle = motion.velocity.travelAngle();
 
 	wVital->hitPoints = 0;
 	// NONSOLID | DISAPPEARING (weapon.c:175-181), Collided in scratch:

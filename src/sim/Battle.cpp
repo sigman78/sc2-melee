@@ -10,6 +10,7 @@
 #include "sim/ShipSystems.hpp"
 #include "sim/World.hpp"
 
+#include <tuple>
 #include <utility>
 
 namespace uqm::sim {
@@ -388,12 +389,10 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// (see processCollisions), so neither pool moves under these references.
 	CollisionScratch &eScratch = reg_.get<CollisionScratch>(elemId);
 	CollisionScratch &tScratch = reg_.get<CollisionScratch>(testId);
-	Position *ePos = reg_.try_get<Position>(elemId);
-	Position *tPos = reg_.try_get<Position>(testId);
-	Motion *eMotion = reg_.try_get<Motion>(elemId);
-	Motion *tMotion = reg_.try_get<Motion>(testId);
-	Physique *ePhys = reg_.try_get<Physique>(elemId);
-	Physique *tPhys = reg_.try_get<Physique>(testId);
+	auto [ePos, eMotion, ePhys] =
+			reg_.try_get<Position, Motion, Physique>(elemId);
+	auto [tPos, tMotion, tPhys] =
+			reg_.try_get<Position, Motion, Physique>(testId);
 
 	if (!collisionPossible(reg_.get<Allegiance>(testId).owner, *tPhys,
 			reg_.get<Allegiance>(elemId).owner, *ePhys, tScratch.collided,
@@ -494,12 +493,10 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		if (!eScratch.collided
 				&& processCollisions(elemId, elemIdx, testIdx + 1, earlier))
 			return false;
-		ePos = reg_.try_get<Position>(elemId);
-		tPos = reg_.try_get<Position>(testId);
-		eMotion = reg_.try_get<Motion>(elemId);
-		tMotion = reg_.try_get<Motion>(testId);
-		ePhys = reg_.try_get<Physique>(elemId);
-		tPhys = reg_.try_get<Physique>(testId);
+		std::tie(ePos, eMotion, ePhys) =
+				reg_.try_get<Position, Motion, Physique>(elemId);
+		std::tie(tPos, tMotion, tPhys) =
+				reg_.try_get<Position, Motion, Physique>(testId);
 		if (!alive(elemId))
 			return true;
 		if (!alive(testId))
@@ -515,12 +512,10 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			if (processCollisions(testId, testIdx, from, earlier))
 				return false;
 		}
-		ePos = reg_.try_get<Position>(elemId);
-		tPos = reg_.try_get<Position>(testId);
-		eMotion = reg_.try_get<Motion>(elemId);
-		tMotion = reg_.try_get<Motion>(testId);
-		ePhys = reg_.try_get<Physique>(elemId);
-		tPhys = reg_.try_get<Physique>(testId);
+		std::tie(ePos, eMotion, ePhys) =
+				reg_.try_get<Position, Motion, Physique>(elemId);
+		std::tie(tPos, tMotion, tPhys) =
+				reg_.try_get<Position, Motion, Physique>(testId);
 		if (!alive(elemId))
 			return true;
 		if (!alive(testId))
@@ -568,12 +563,10 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			respond(tIsWeapon, testId, elemId);
 	}
 
-	ePos = reg_.try_get<Position>(elemId);
-	tPos = reg_.try_get<Position>(testId);
-	eMotion = reg_.try_get<Motion>(elemId);
-	tMotion = reg_.try_get<Motion>(testId);
-	ePhys = reg_.try_get<Physique>(elemId);
-	tPhys = reg_.try_get<Physique>(testId);
+	std::tie(ePos, eMotion, ePhys) =
+			reg_.try_get<Position, Motion, Physique>(elemId);
+	std::tie(tPos, tMotion, tPhys) =
+			reg_.try_get<Position, Motion, Physique>(testId);
 
 	// Whoever NEWLY raised Collided stops at the impact point
 	// (process.c:572-596); a side that was already stopped keeps the

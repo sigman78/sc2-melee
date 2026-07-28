@@ -229,11 +229,10 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 		return;
 
 	const StashedMask *deadMask = b.find<StashedMask>(id);
-	const Position *deadPos = b.find<Position>(id);
-	const Allegiance *deadAllegiance = b.find<Allegiance>(id);
+	auto [deadPos, deadAllegiance] = b.get<Position, Allegiance>(id);
 
 	Position rPos;
-	rPos.current = deadPos->current;
+	rPos.current = deadPos.current;
 	rPos.next = rPos.current;
 
 	// Queued, not spawned: it enters the world at the sync point and acts
@@ -248,7 +247,7 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	cmd.lifetime = Lifetime{5};
 	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
 	cmd.blast = true;
-	cmd.allegiance = Allegiance{deadAllegiance->playerNr, kNoEntity};
+	cmd.allegiance = Allegiance{deadAllegiance.playerNr, kNoEntity};
 	cmd.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr;
 	cmd.deathSpawn = rubbleDeath;
 	b.queueSpawn(std::move(cmd));

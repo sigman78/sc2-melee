@@ -354,6 +354,16 @@ public:
 	{
 		return reg_.valid(id) ? reg_.try_get<T>(id) : nullptr;
 	}
+	// Asserts every one of Ts is attached to id and hands back references to
+	// them (a tuple of references for several) -- for a site where a gate or
+	// the construction already guarantees presence, so the fetch should fail
+	// loudly instead of silently reading through a null. find<T> stays the
+	// null-returning form for a site that must still ask.
+	template <class... Ts>
+	[[nodiscard]] decltype(auto) get(EntityId id)
+	{
+		return reg_.get<Ts...>(id);
+	}
 	template <class T>
 	[[nodiscard]] bool has(EntityId id) const noexcept
 	{
