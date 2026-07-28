@@ -61,12 +61,31 @@ stays out of the walk entirely.
 `DeathSpawn` and `SweepsOwnedOnDeath` are mutually exclusive per entity —
 together they are what the C's `onDeath` hook became.
 
+### `Lifetime` and `Doomed` are orthogonal — do not merge them
+
+They sit next to each other and both smell like "about to die", so the
+merge gets proposed. It does not work: `Doomed` is not a shorter countdown,
+it is **"the death response already ran"**, which no counter can express.
+All four states are live.
+
+| State | Meaning |
+| --- | --- |
+| `Lifetime{n>0}`, no `Doomed` | a normal transient, counting down |
+| `Lifetime{0}`, no `Doomed` | killed this frame by a path that deliberately did *not* mark it — doDamage's non-ship branch, a piercing pair where only one side's `weaponCollision` falls through, the PD special killing a shot. It must be detected as dead *next* frame |
+| `Lifetime{0}` + `Doomed` | spent, reaped at this frame's sync point, response already run |
+| `Doomed` detached again | the Ilwrath flame's `lingersOnHit` undoes its own death mark (`ilwrath.c:141-148`) so the fireball still draws for the frame it died on |
+
+Rows two and three both hold `remaining == 0` and differ only by the tag.
+`ageDecrementPass` excludes `Doomed` in the query for exactly this reason —
+a row-two entity must land on 0 and stay there, because "a remaining that
+never lands back on exactly 0 is never detected as dead next frame"
+(`Battle.cpp`, which names the two tests that failed that way).
+
 ## Allegiance and identity
 
 | Component | Answers | Carried by |
 | --- | --- | --- |
 | `Allegiance{playerNr, owner}` | whose it is, and what fired it | **everything** — the one uniform attach |
-| `PlayerShip` | is this a player's ship | ships (see overlap note) |
 | `IgnoreSimilar` | skip collisions with things sharing my owner | ships, the flame |
 
 ## Damage
@@ -98,7 +117,7 @@ per-instance hook.
 
 | Component | Answers | Carried by |
 | --- | --- | --- |
-| `WeaponGuidance{spec}` | the `WeaponSpec` this shot came from | every weapon shot (see naming note) |
+| `FromWeapon{spec}` | the `WeaponSpec` this shot came from -- read for masks and cels as much as for steering | every weapon shot |
 | `Guided{trackWait, maxSpeed, thrustScale, clock}` | it steers, and here is its tracking clock | guided shots only — the Cruiser's nuke |
 | `AnimFrame{n}` | which cel to draw | shots |
 | `FrameDriven` | advance `AnimFrame` every frame I live | the Ilwrath flame alone |
@@ -141,7 +160,7 @@ Read these as the answer to "what *is* a shot", now that no struct says so.
 
 **A player's ship**
 `Order Position Motion Physique Allegiance CollisionScratch PriorSilhouette
-Appearing Collider IgnoreSimilar PlayerShip ShipState Input` + `Visual`
+Appearing Collider IgnoreSimilar ShipState Input` + `Visual`
 — plus `WarpingIn Lifetime StashedMask` while arriving (its `Collider` is
 detached for the duration), `Cloak`/`Cloaked` if it is the Ilwrath, and
 `Exploding SweepsOwnedOnDeath` when it dies.
@@ -159,7 +178,7 @@ planet answering about itself.
 
 **A weapon shot**
 `Order Position Motion Physique Allegiance CollisionScratch PriorSilhouette
-Appearing Collider Warhead Vitality Lifetime AnimFrame WeaponGuidance` +
+Appearing Collider Warhead Vitality Lifetime AnimFrame FromWeapon` +
 `Visual` — plus `Guided` if it steers, `FrameDriven` if it grows,
 `IgnoreSimilar` if it must not burn its own hull.
 
@@ -179,21 +198,16 @@ spark, which is the one decoration that drifts and so adds it.
 
 ## Overlaps found
 
-A pass over the finished model for duplication. Four things are worth
-knowing; two are worth changing.
+A pass over the finished model for duplication, and what came of each.
 
-**1. `PlayerShip` and `ShipState` are the same predicate.** In production
-they are attached together (`spawnPlayerShip` → `attachShip`) and never
-apart, and the code already relies on it — `ShipSystems.cpp` and
-`Targeting.cpp` both carry comments saying `PlayerShip` need not be checked
-separately because only a ship carries a `ShipState`. So the model states
-"is a ship" twice. They are read for different reasons — `PlayerShip` by
-collision, gravity, damage routing and field placement, `ShipState` by the
-ship systems — but that is a difference in *caller*, not in meaning. Either
-`PlayerShip` goes and those sites ask `has<ShipState>`, or it stays as the
-cheap tag for hot paths and the equivalence gets stated once as an
-invariant instead of twice as an aside. Worth a decision; it is the
-clearest redundancy left.
+**1. `PlayerShip` and `ShipState` were the same predicate — resolved.**
+They were attached together by `spawnPlayerShip` → `attachShip` and never
+apart, with two comments already relying on it. The tag is deleted; every
+reader asks `has<ShipState>`. Worth knowing what the tag had been hiding:
+three `sim_test` entities carried a bare `PlayerShip`, or a `ShipState`
+with a null `spec`, and only survived because the machines pass gated on
+the tag. Moving the gate walked them for the first time and one of them
+dereferenced the null spec. They carry an inert spec now.
 
 **2. `StashedMask` means two different things.** On an asteroid it is a
 durable copy of the birth mask that deliberately coexists with the
@@ -205,12 +219,11 @@ component, opposite lifetimes and opposite relationships to `Collider`, so
 (`BirthMask` for the asteroid's, `ParkedMask` for the ship's) would make
 each site's invariant checkable.
 
-**3. `WeaponGuidance` does not guide anything.** It holds the shot's
-`WeaponSpec` borrow, and is read for collision masks and cel lookup as much
-as for steering; the component that actually steers is `Guided`. Two
-near-identical names for unrelated jobs, which is a reading tax every time.
-A rename (`FromWeapon`, or fold it behind the existing `weaponSpec()`
-accessor) costs nothing semantically.
+**3. `WeaponGuidance` did not guide anything — resolved.** It holds the
+shot's `WeaponSpec` borrow and is read for collision masks and cel lookup
+as much as for steering, while sitting one letter away from `Guided`, which
+does steer. It is `FromWeapon` now. `Battle::weaponSpec()` keeps its name —
+most readers go through the accessor and never name the component.
 
 **4. Three clocks drive animation, and that is correct.** `AnimFrame{n}`
 for shots, `Spin{countdown, period}` for the asteroid tumble, and
@@ -225,11 +238,13 @@ respectively — the split exists precisely because the old code abused one
 for the other. `Collider{mask}` and `StashedMask{mask}` share a shape for
 the reason in (2).
 
-**One inconsistency:** `MatchState`, `DebugToggles` and `BattleConfig` are
-marked `comp`, but they are context singletons and never attach to an
-entity. The marker's own definition says it means "an
-`entt::registry`-attached type", so it is claiming something untrue of all
-three. `game::Camera` sits beside them in the context unmarked — for the
-different reason that it is a class with behaviour, reused as-is rather
-than written as context state. Either the three lose the marker or the
-context gets a marker of its own.
+**5. The `comp` marker on three context types — resolved.** `MatchState`,
+`DebugToggles` and `BattleConfig` carried a marker whose own definition
+says "an `entt::registry`-attached type", which was untrue of all three:
+they are context singletons and never attach to an entity. Unmarked now.
+`game::Camera` sits beside them unmarked for a different reason — it is a
+class with behaviour, reused as-is rather than written as context state.
+
+**6. `Lifetime` and `Doomed` are not a duplication.** Proposed as one and
+rejected on evidence; see the state table above. Recorded here because the
+two sit adjacent in every listing and the merge will look obvious again.
