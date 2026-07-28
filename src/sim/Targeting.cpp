@@ -17,11 +17,12 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 	if (self == nullptr)
 		return -1;
 
-	// The C reads `next` once the tracker has been preprocessed and `current`
-	// before it (weapon.c:356-368), which is the same distinction gravity.c
-	// makes -- and for the same reason: half the list has already moved.
-	const bool useNext = any(self->flags & ElementFlags::PreProcessed);
-	const Vec2i from = useNext ? self->next : self->current;
+	// Doc §2 refinement 1: GuidedSteer runs before Integrate now, so
+	// `current` is the frame's one consistent snapshot for every tracker and
+	// every target alike -- the old read-`next`-if-already-preprocessed
+	// dance existed only because the interleaved walk moved half the list
+	// before the other half looked.
+	const Vec2i from = self->current;
 
 	int bestDelta = 0;
 	i32 bestDistance = 0;
@@ -46,7 +47,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 		if (isCloaked(b, id))
 			continue;
 
-		const Vec2i to = useNext ? t->next : t->current;
+		const Vec2i to = t->current;
 		const Vec2i d = wrapDelta(Vec2i{to.x - from.x, to.y - from.y});
 		const int deltaFacing = Angle(arctan(d.x, d.y)).facing() - facing;
 

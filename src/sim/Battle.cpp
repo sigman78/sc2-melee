@@ -4,6 +4,7 @@
 
 #include "engine/core/Types.hpp"
 #include "sim/Damage.hpp"
+#include "sim/Gravity.hpp"
 #include "sim/Impulse.hpp"
 #include "sim/ShipSystems.hpp"
 #include "sim/World.hpp"
@@ -174,6 +175,12 @@ Battle::recordSpawn(EntityId id, const Element &e)
 	spawns_.push_back(SpawnEvent{id, e.kind, e.playerNr});
 }
 
+void
+Battle::queueSpawn(SpawnCommand cmd)
+{
+	spawnCommands_.push_back(std::move(cmd));
+}
+
 ShipState *
 Battle::ship(EntityId id) noexcept
 {
@@ -215,96 +222,20 @@ Battle::spawn(Layer layer, Element e)
 	e.flags |= ElementFlags::Appearing;
 	const EntityId id = reg_.create();
 	recordSpawn(id, e);
+
+	// Seeded from the element being spawned, not left null: a mid-pipeline
+	// spawn (a death hook's replacement asteroid) reaches Collide with no
+	// CapturePrior pass of its own to have filled this in, and a null mask
+	// reads as "turned" against anything it overlaps, letting the
+	// overlap-repair protocol assign that null mask onto a live element.
+	const PriorSilhouette prior{e.mask, e.facing};
 	reg_.emplace<Element>(id, std::move(e));
 	reg_.emplace<OrderLink>(id);
-	reg_.emplace<PriorSilhouette>(id);
+	reg_.emplace<PriorSilhouette>(id, prior);
 	reg_.emplace<Seq>(id, Seq{nextSeq_++});
 	linkAtLayerTail(layer, id);
 	++count_;
 	return id;
-}
-
-// PreProcess (process.c:128-186): a spawned element is seeded with next =
-// current (process.c:117-126) but still moves -- gated on IGNORE_VELOCITY
-// alone (process.c:163), not Appearing, which suppresses only the hook.
-
-// Appearing is cleared here only for player ships (process.c:150-151, "want
-// to preprocess ship"). A weapon keeps it through its first frame, so its
-// hook does not run until the second.
-void
-Battle::preProcessOne(EntityId id) noexcept
-{
-	auto e = get(id);
-	if (e == nullptr)
-		return;
-
-	// Death is `life_span == 0` and nothing else -- process.c:133 has no
-	// FINITE_LIFE guard, so do_damage kills a non-aging asteroid by assigning
-	// life_span = 0 (misc.c:210,221); a persistent element is born at 1, not 0.
-	if (e->lifeSpan == 0)
-	{
-		e->flags |= ElementFlags::Disappearing;
-		if (e->onDeath != nullptr)
-		{
-			e->onDeath(*this, id);
-			e = get(id);
-			if (e == nullptr)
-				return;
-		}
-	}
-
-	// The C works on a *local copy* of the flags (process.c:143), writing back
-	// only after the hook runs -- how APPEARING survives a player ship's own
-	// preprocess. Not cleared on the element itself until PostProcess (process.c:202).
-	ElementFlags flags = e->flags;
-
-	if (!any(flags & ElementFlags::Disappearing))
-	{
-		// What this element entered the frame as (the C's current.image), captured
-		// before the hook -- the overlap-repair protocol reverts a turn made this
-		// frame by putting these back (process.c:453-506).
-		PriorSilhouette &prior = reg_.get<PriorSilhouette>(id);
-		prior.mask = e->mask;
-		prior.facing = e->facing;
-
-		if (any(flags & ElementFlags::Appearing))
-		{
-			// SetUpElement (process.c:117-126). BeamGeometry is exempt:
-			// seeding next from current would collapse the beam to a point.
-			if (!reg_.all_of<BeamGeometry>(id))
-				e->next = e->current;
-			if (reg_.all_of<PlayerShip>(id))
-				flags &= ~ElementFlags::Appearing;  // the local, not the element
-		}
-
-		if (e->preProcess != nullptr && !any(flags & ElementFlags::Appearing))
-		{
-			e->preProcess(*this, id);
-			e = get(id);
-			if (e == nullptr)
-				return;
-			flags = e->flags;
-		}
-
-		// Motion gates on IGNORE_VELOCITY alone (process.c:163), so a spawned
-		// element still moves its first frame. Integration ADDS to `next`
-		// (process.c:172-173); the wrap happens at commit, not here -- design-notes D4.
-		if (!reg_.all_of<IgnoreVelocity>(id))
-		{
-			const Vec2i delta = e->velocity.advance(1);
-			e->next = Vec2i{e->next.x + delta.x, e->next.y + delta.y};
-		}
-
-		// Unconditional once FINITE_LIFE is set (process.c:180-181): it cannot
-		// underflow, because reaching zero routes through the death branch
-		// above and skips this whole block.
-		if (any(flags & ElementFlags::FiniteLife))
-			--e->lifeSpan;
-	}
-
-	e->flags = (flags
-					   & ~(ElementFlags::PostProcessed | ElementFlags::Collided))
-			| ElementFlags::PreProcessed;
 }
 
 // "BAD NEWS": an APPEARING element wedged inside something on spawn dies
@@ -331,8 +262,8 @@ Battle::killOverlapSpawn(EntityId id)
 // of the C's ProcessCollisions loop (process.c:382-621). Returns whether the
 // scanner is done for this walk (the C's mid-loop `return COLLISION`).
 bool
-Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
-		TimeValue maxTime, ElementFlags processedMask)
+Battle::resolveAgainst(
+		EntityId elemId, EntityId testId, EntityId succ, TimeValue maxTime)
 {
 	auto e = get(elemId);
 	if (e == nullptr)
@@ -421,7 +352,7 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 		const auto earlier = static_cast<TimeValue>(hit.time - 1);
 
 		if (!any(e->flags & ElementFlags::Collided)
-				&& processCollisions(elemId, succ, earlier, processedMask))
+				&& processCollisions(elemId, succ, earlier))
 			return false;
 		e = get(elemId);
 		t = get(testId);
@@ -438,7 +369,7 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 			const EntityId from = any(t->flags & ElementFlags::Appearing)
 					? front()
 					: next(elemId);
-			if (processCollisions(testId, from, earlier, processedMask))
+			if (processCollisions(testId, from, earlier))
 				return false;
 		}
 		e = get(elemId);
@@ -527,10 +458,8 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 		// Both participants immediately re-scan the whole list
 		// (process.c:603-606): a pile-up chains within this frame instead of
 		// resolving one pair per step.
-		processCollisions(elemId, front(), kMaxTimeValue,
-				processedMask);
-		processCollisions(testId, front(), kMaxTimeValue,
-				processedMask);
+		processCollisions(elemId, front(), kMaxTimeValue);
+		processCollisions(testId, front(), kMaxTimeValue);
 	}
 
 	// Keeps scanning unless out of the game for the frame (process.c:609-618):
@@ -547,32 +476,22 @@ Battle::resolveAgainst(EntityId elemId, EntityId testId, EntityId succ,
 	return false;
 }
 
-// ProcessCollisions (process.c:361-627): walks candidates from `first`,
-// preprocessing stragglers via processedMask (process_flags) -- see
-// design-notes D1. Returns whether `elem` ended the walk stopped.
+// ProcessCollisions (process.c:361-627): walks candidates from `first`.
+// Returns whether `elem` ended the walk stopped. Z4 drops the straggler
+// preprocessing the C interleaved here (process.c:371-373): Integrate
+// (pipeline slot 8) already ran over the whole spine before Collide ever
+// starts, so there is nothing left unintegrated for this walk to catch up.
 bool
-Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime,
-		ElementFlags processedMask)
+Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime)
 {
 	for (EntityId testId = first; testId != kNoEntity;)
 	{
-		{
-			// The walk preprocesses each element before testing the pair
-			// (process.c:371-373): otherwise `next` is still last frame's
-			// position and the sweep hits a ghost.
-			auto t = get(testId);
-			if (t == nullptr)
-				break;
-			if (!any(t->flags & processedMask))
-				preProcessOne(testId);
-		}
+		if (get(testId) == nullptr)
+			break;
 
-		// Fetched after the preprocess, as the C fetches hSuccElement after
-		// PreProcess (process.c:374), so a spawn made there is walked into.
 		const EntityId succ = next(testId);
 
-		if (!(testId == elemId)
-				&& resolveAgainst(elemId, testId, succ, maxTime, processedMask))
+		if (!(testId == elemId) && resolveAgainst(elemId, testId, succ, maxTime))
 			return true;
 
 		testId = succ;
@@ -582,125 +501,254 @@ Battle::processCollisions(EntityId elemId, EntityId first, TimeValue maxTime,
 	return e == nullptr || any(e->flags & ElementFlags::Collided);
 }
 
+// CapturePrior (pipeline slot 1): the silhouette/facing every element enters
+// the frame with, batched at frame start -- the same meaning the per-entity
+// capture had (it ran right before that entity's own hook), since nothing
+// before Collide (slot 9) can change a mask or a facing anyway. Collided is
+// cleared here too: cheapest done alongside a pass that already visits
+// everyone, and it must read false before Collide sets it fresh this frame.
 void
-Battle::preProcessPass()
+Battle::capturePriorPass() noexcept
 {
-	// A LIVE walk, not a snapshot (process.c:630-746) -- see design-notes D1.
-	// Safe because nothing removes an element mid-frame: death only marks
-	// Disappearing, and the reap happens in the post pass.
-	for (EntityId id = front(); id != kNoEntity;)
+	for (EntityId id = front(); id != kNoEntity; id = next(id))
 	{
 		auto e = get(id);
-		if (e != nullptr && !any(e->flags & ElementFlags::PreProcessed))
-			preProcessOne(id);
+		if (e == nullptr)
+			continue;
+		PriorSilhouette &prior = reg_.get<PriorSilhouette>(id);
+		prior.mask = e->mask;
+		prior.facing = e->facing;
+		e->flags &= ~ElementFlags::Collided;
+	}
+}
 
-		e = get(id);
+// AgeAndReap-mark (pipeline slot 2): the death check stays exactly where it
+// was -- frame start, before anything else touches the element (process.c
+// has no FINITE_LIFE guard: do_damage kills a non-aging asteroid by
+// assigning life_span = 0 directly, misc.c:210,221). Only the CHECK moved
+// here; the matching decrement is slot 11b, at the sync point.
+void
+Battle::ageAndReapMarkPass()
+{
+	for (EntityId id = front(); id != kNoEntity;)
+	{
+		const EntityId nextId = next(id);
+		auto e = get(id);
+		if (e != nullptr && e->lifeSpan == 0)
+		{
+			e->flags |= ElementFlags::Disappearing;
+			if (e->onDeath != nullptr)
+				e->onDeath(*this, id);
+		}
+		id = nextId;
+	}
+}
+
+// Animate (pipeline slot 7): what is left of the per-element preProcess hook
+// dispatch once ships (ShipMachines/Turn/Thrust, ShipSystems.cpp) and Guided
+// shots (GuidedSteer) have their own passes -- the flame's frame-advance,
+// the asteroid's tumble. Appearing still suppresses the hook for one frame,
+// exactly as it always has (a weapon's hook does not run until its second
+// frame alive).
+void
+Battle::animatePass()
+{
+	for (EntityId id = front(); id != kNoEntity;)
+	{
+		const EntityId nextId = next(id);
+		auto e = get(id);
+		if (e != nullptr && !reg_.all_of<PlayerShip>(id)
+				&& !reg_.all_of<Guided>(id) && e->preProcess != nullptr
+				&& !any(e->flags & ElementFlags::Appearing))
+		{
+			e->preProcess(*this, id);
+		}
+		id = nextId;
+	}
+}
+
+// Integrate (pipeline slot 8): SetUpElement's seeding (process.c:117-126)
+// plus the motion add (process.c:163,172-173), batched over the whole spine
+// instead of interleaved per entity. The wrap still happens at Commit
+// (slot 12), not here -- design-notes D4.
+void
+Battle::integratePass() noexcept
+{
+	for (EntityId id = front(); id != kNoEntity; id = next(id))
+	{
+		auto e = get(id);
+		if (e == nullptr || reg_.all_of<IgnoreVelocity>(id))
+			continue;
+
+		// BeamGeometry is exempt: seeding next from current would collapse
+		// the beam to a point (its two points are the beam, not motion).
+		if (any(e->flags & ElementFlags::Appearing)
+				&& !reg_.all_of<BeamGeometry>(id))
+			e->next = e->current;
+
+		const Vec2i delta = e->velocity.advance(1);
+		e->next = Vec2i{e->next.x + delta.x, e->next.y + delta.y};
+	}
+}
+
+// Collide (pipeline slot 9): the same pair-walk machinery as always
+// (processCollisions/resolveAgainst), now running over a spine that is
+// already fully integrated -- no straggler preprocessing needed, and no
+// catch-up pass, because nothing spawned this frame exists yet (that is
+// slot 11d). onCollision hooks still run inline; ship crew damage they
+// cause now lands in DamageIncoming instead of applying on the spot (see
+// Damage.cpp), applied at the sync point below.
+void
+Battle::collidePass()
+{
+	for (EntityId id = front(); id != kNoEntity; id = next(id))
+	{
+		auto e = get(id);
 		if (e != nullptr && e->collidable()
 				&& !any(e->flags & ElementFlags::Collided))
 		{
-			// Successors only, so each pair is visited once per frame -- the
-			// C passes GetSuccElement for exactly this reason (process.c:667).
-			(void)processCollisions(id, next(id), kMaxTimeValue,
-					ElementFlags::PreProcessed);
+			// Successors only, so each pair is visited once per frame.
+			(void)processCollisions(id, next(id), kMaxTimeValue);
 		}
-
-		// Fetched after the hooks so a tail insertion is walked into.
-		id = next(id);
 	}
 }
 
+// Sync point, 11a: one summed deltaCrew and one death check per victim,
+// same semantics as today's doDamage on a crewed hull (review-006 §2's
+// second Z4 refinement) -- just applied once here instead of on whichever
+// hit landed first.
 void
-Battle::catchUpFrom(EntityId first)
+Battle::applyDamageIncoming() noexcept
 {
-	// The mid-frame-spawn catch-up (process.c:843-862): integrates and tests
-	// new elements against the WHOLE list, live like the outer walk -- see
-	// design-notes D1. Gated on PreProcessed|PostProcessed (process.c:859).
-	constexpr ElementFlags kDone =
-			ElementFlags::PreProcessed | ElementFlags::PostProcessed;
-
-	for (EntityId p = first; p != kNoEntity;)
-	{
-		auto pe = get(p);
-		if (pe != nullptr && !any(pe->flags & kDone))
-			preProcessOne(p);
-
-		pe = get(p);
-		if (pe != nullptr && pe->collidable()
-				&& !any(pe->flags & ElementFlags::Collided))
-			(void)processCollisions(p, front(), kMaxTimeValue, kDone);
-
-		p = next(p);
-	}
+	reg_.view<DamageIncoming, ShipState>().each(
+			[this](EntityId id, DamageIncoming &di, ShipState &s) {
+				if (!deltaCrew(s, -di.amount))
+					startShipExplosion(*this, id);
+			});
+	reg_.clear<DamageIncoming>();
 }
 
+// AgeDecrement: today's per-entity decrement runs inside preProcessOne,
+// after that entity's own hook (ShipMachines/Turn/Thrust for a ship,
+// Animate/GuidedSteer for anything else) and after its own integration, but
+// before ANY collision testing touches it -- called from step() at exactly
+// that seam, between Integrate and Collide, rather than batched in at the
+// sync point the doc's slot list groups it with. Two things pin it there,
+// both found by running the suite:
+//
+// - Too early (right after the slot 2 death check) double-counts a ship's
+//   own warp-in: ShipMachines is what sets FiniteLife and seeds lifeSpan =
+//   kWarpInFrames on the appearing frame, and that has to happen before a
+//   decrement can apply to it, or the first traced frame is off by one
+//   (kWarpInFrames instead of kWarpInFrames - 1, caught by replay_test's
+//   --trace diff against the pre-Z4 baseline).
+// - Too late (at the sync point, after Collide/Fire) lets a same-frame kill
+//   that sets lifeSpan = 0 without Disappearing -- doDamage's non-ship
+//   branch, used by a piercing pair where only one side's own
+//   weaponCollision fall-through sets Disappearing, and by the PD special
+//   killing a shot outright -- get decremented straight past zero to -1
+//   this same frame. A lifeSpan that never lands back on exactly 0 is never
+//   detected as dead next frame; testOpposingMissilesDestroyEachOther and
+//   testPointDefenceBurnsOwnNuke both failed this way before landing here.
 void
-Battle::postProcessPass()
+Battle::ageDecrementPass() noexcept
 {
-	// The C's PostProcessQueue (process.c:798-983), drawing removed, a LIVE
-	// walk like PreProcessQueue -- see design-notes D1. A weapon fired by a
-	// postprocess hook is appended, reached, and committed this same walk.
-	for (EntityId id = front(); id != kNoEntity;)
+	for (EntityId id = front(); id != kNoEntity; id = next(id))
 	{
 		auto e = get(id);
-		EntityId nextId = kNoEntity;
+		if (e != nullptr && any(e->flags & ElementFlags::FiniteLife)
+				&& !any(e->flags & ElementFlags::Disappearing))
+			--e->lifeSpan;
+	}
+}
 
-		if (!any(e->flags & ElementFlags::PreProcessed))
-		{
-			catchUpFrom(id);
-			e = get(id);
-		}
-		else if (!any(e->flags & ElementFlags::Collided))
-		{
-			// A frame without a collision ends DefyPhysics (process.c:824-827): it
-			// has to expire, or the first stationary contact disables the collision
-			// stagger for good, and later contacts fall into the stuck-pair branch.
-			e->flags &= ~ElementFlags::DefyPhysics;
-		}
-
-		if (any(e->flags & ElementFlags::Disappearing))
-		{
-			// Removed with no postprocess and no commit (process.c:873-879).
-			// The death hook already ran in the pre pass, while the element
-			// could still be looked at. destroy() reaps every component with
-			// the entity -- ShipState, guidance, the app's Visual.
-			nextId = next(id);
+// Sync point, 11c: destroy every element already Disappearing -- marked in
+// slot 2 from a death detected this frame, or mid-Collide (slot 9) by a
+// weapon's own self-spend or the overlap-repair protocol's overlap-kill.
+// Either way its onDeath already ran at the point Disappearing was set;
+// nothing runs again here, exactly as postProcessPass's reap branch never
+// called postProcess either.
+void
+Battle::reapPass() noexcept
+{
+	for (EntityId id = front(); id != kNoEntity;)
+	{
+		const EntityId nextId = next(id);
+		auto e = get(id);
+		if (e != nullptr && any(e->flags & ElementFlags::Disappearing))
 			removeElement(id);
-		}
-		else
-		{
-			// PostProcess (process.c:188-204): the hook, then the commit.
-			if (e->postProcess != nullptr
-					&& !any(e->flags & ElementFlags::PostProcessed))
-			{
-				e->postProcess(*this, id);
-				e = get(id);
-			}
-
-			if (e != nullptr)
-			{
-				// The wrap lives here, at the commit (process.c:899-916) -- see
-				// design-notes D4. BeamGeometry is exempt: its two points are
-				// the beam, not motion.
-				if (!reg_.all_of<BeamGeometry>(id))
-				{
-					e->next = wrap(e->next);
-					e->current = e->next;
-				}
-
-				// PostProcessed is POST_PROCESS: marks "had its frame" so whole-list
-				// walks don't integrate it twice (design-notes D1). Ageing/death die
-				// at frame start after life hits zero (process.c:133-141, 180-181).
-				e->flags = (e->flags
-								   & ~(ElementFlags::Appearing
-										   | ElementFlags::PreProcessed))
-						| ElementFlags::PostProcessed;
-			}
-
-			// Fetched after the hook, so a tail spawn is walked into.
-			nextId = next(id);
-		}
-
 		id = nextId;
+	}
+}
+
+// Sync point, 11e: end-of-frame flag housekeeping over the spine as it
+// stands BEFORE 11d creates this frame's spawns (run first here for
+// exactly that reason -- see drainSpawnCommands). A newborn must keep
+// Appearing through its own first live frame, which under Z4 is next
+// frame's pipeline, not a same-frame catch-up; clearing it now would be one
+// frame early.
+void
+Battle::flagsEndOfFramePass() noexcept
+{
+	for (EntityId id = front(); id != kNoEntity; id = next(id))
+	{
+		auto e = get(id);
+		if (e == nullptr)
+			continue;
+		// A frame without a collision ends DefyPhysics (process.c:824-827):
+		// it has to expire, or the first stationary contact disables the
+		// collision stagger for good.
+		if (!any(e->flags & ElementFlags::Collided))
+			e->flags &= ~ElementFlags::DefyPhysics;
+		e->flags &= ~ElementFlags::Appearing;
+	}
+}
+
+// Sync point, 11d: create every entity the frame's pipeline asked for, in
+// emission order -- deterministic because the pipeline that filled the
+// buffer is. Run after 11e (see above) so a fresh spawn's own Appearing
+// survives to its first real frame instead of being stripped the instant
+// it is born.
+void
+Battle::drainSpawnCommands()
+{
+	for (SpawnCommand &cmd : spawnCommands_)
+	{
+		if (cmd.deferred != nullptr)
+		{
+			// Its own RNG draws happen here, in queue order -- not at
+			// emission, which would put them out of step with this same
+			// sync point's other draws.
+			cmd.deferred(*this, cmd.deferredMask);
+			continue;
+		}
+
+		const EntityId id = spawn(cmd.layer, std::move(cmd.element));
+		if (cmd.weaponSpec != nullptr)
+			attachWeaponSpec(id, cmd.weaponSpec);
+		if (cmd.guided)
+			attach<Guided>(id, *cmd.guided);
+		if (cmd.ignoreVelocity)
+			attach<IgnoreVelocity>(id);
+		if (cmd.beamGeometry)
+			attach<BeamGeometry>(id);
+	}
+	spawnCommands_.clear();
+}
+
+// Commit (pipeline slot 12): the wrap and the publish, unchanged from
+// today's postProcess commit (process.c:899-916) except that it now runs as
+// its own whole-spine pass instead of once per entity inline with its hook.
+void
+Battle::commitPass() noexcept
+{
+	for (EntityId id = front(); id != kNoEntity; id = next(id))
+	{
+		auto e = get(id);
+		if (e == nullptr || reg_.all_of<BeamGeometry>(id))
+			continue;
+		e->next = wrap(e->next);
+		e->current = e->next;
 	}
 }
 
@@ -709,9 +757,28 @@ Battle::step()
 {
 	collisions_.clear();
 	spawns_.clear();
+
+	capturePriorPass();
+	ageAndReapMarkPass();
 	energyRegenPass(*this);
-	preProcessPass();
-	postProcessPass();
+	shipMachinesPass(*this);
+	turnPass(*this);
+	thrustPass(*this);
+	guidedSteerPass(*this);
+	gravityPass(*this);
+	animatePass();
+	integratePass();
+	ageDecrementPass();
+	collidePass();
+	fireAndSpecialGatePass(*this);
+
+	applyDamageIncoming();
+	reapPass();
+	flagsEndOfFramePass();
+	drainSpawnCommands();
+
+	commitPass();
+
 	++frame_;
 }
 

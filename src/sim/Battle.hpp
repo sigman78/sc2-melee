@@ -12,6 +12,7 @@
 #include <entt/entity/registry.hpp>
 
 #include <array>
+#include <optional>
 #include <span>
 #include <utility>
 #include <vector>
@@ -51,6 +52,43 @@ struct SpawnEvent
 	EntityId id = kNoEntity;
 	ElementKind kind = ElementKind::Unknown;
 	i32 playerNr = -1;
+};
+
+// A spawn requested mid-frame: enters the world at Battle::step's sync
+// point, not the instant a pipeline pass asks for it (review-006 §2's
+// command buffer) -- so a shot fired, a blast lit, or a trail dropped this
+// frame does not exist for anything else this same frame to see, collide
+// with, or steer toward (review-006 §4's accepted one-frame latency).
+//
+// Deliberately not a generic attach-anything mechanism: just the handful of
+// tag/optional components a queued spawn actually needs today (review-006
+// §7 declines a general dispatch mechanism for the same reason).
+struct SpawnCommand
+{
+	Layer layer = Layer::Field;
+	Element element;
+
+	// Non-null for a weapon: attachWeaponSpec's payload.
+	Borrowed<const WeaponSpec> weaponSpec = nullptr;
+
+	// Set for a guided weapon; the clock inside is already wound (see
+	// ShipSystems.cpp's fire block).
+	std::optional<Guided> guided;
+
+	bool ignoreVelocity = false;
+	bool beamGeometry = false;
+
+	// An escape hatch for a spawn whose construction itself must happen at
+	// the sync point, in queue order, instead of at emission -- the
+	// asteroid field's recycle (Field.cpp's rubbleDeath) draws RNG building
+	// its Element and attaches a Spin component; drawing that RNG at
+	// emission (its trigger's onDeath, mid-pipeline) would put it out of
+	// step with everything else the sync point still has to draw or
+	// build. When set, every field above is ignored: `deferred` gets a
+	// full Battle& and `deferredMask` and does its own spawn() (and
+	// whatever else it needs).
+	void (*deferred)(Battle &, Borrowed<const CollisionMask>) noexcept = nullptr;
+	Borrowed<const CollisionMask> deferredMask = nullptr;
 };
 
 class Battle
@@ -93,6 +131,10 @@ public:
 	// head-inserts the phoenix to preprocess before the death hook) become
 	// a Layer declaration when that ship arrives.
 	EntityId spawn(Layer layer, Element e);
+
+	// Registers a spawn for the sync point instead of creating it now --
+	// what a pipeline pass calls in place of spawn() (see SpawnCommand).
+	void queueSpawn(SpawnCommand cmd);
 
 	// One simulation step, 1/24 second of game time.
 	void step();
@@ -194,18 +236,30 @@ private:
 		return reg_;
 	}
 
-	void preProcessPass();
-	void postProcessPass();
-	void catchUpFrom(EntityId first);
-	void preProcessOne(EntityId id) noexcept;
+	// The batch pipeline (review-006-batch.md §1, §6 Z4): one function per
+	// slot, run in this fixed order from step(). Later passes see earlier
+	// writes -- the sequence itself is the ordering contract.
+	void capturePriorPass() noexcept;    // 1 CapturePrior
+	void ageAndReapMarkPass();           // 2 AgeAndReap-mark (the check)
+	void animatePass();                  // 7 Animate
+	void integratePass() noexcept;       // 8 Integrate
+	void ageDecrementPass() noexcept;    // the decrement half of aging --
+	                                      // runs after Integrate, before
+	                                      // Collide; see the .cpp for why
+	void collidePass();                  // 9 Collide
+	void applyDamageIncoming() noexcept; // 11a
+	void reapPass() noexcept;            // 11c
+	void flagsEndOfFramePass() noexcept; // 11e (run before 11d -- see .cpp)
+	void drainSpawnCommands();           // 11d
+	void commitPass() noexcept;          // 12 Commit
 
-	// ProcessCollisions (process.c:361-627): walks candidates from `first`,
-	// preprocessing stragglers via processedMask (process_flags) -- see
-	// design-notes D1. Returns whether `elem` ended the walk stopped.
-	bool processCollisions(EntityId elem, EntityId first, TimeValue maxTime,
-			ElementFlags processedMask);
-	bool resolveAgainst(EntityId elem, EntityId test, EntityId succ,
-			TimeValue maxTime, ElementFlags processedMask);
+	// ProcessCollisions (process.c:361-627): walks candidates from `first`.
+	// Returns whether `elem` ended the walk stopped. No longer preprocesses
+	// stragglers (Z4: integration is a whole-spine pass before this one
+	// ever runs, so there is nothing left unintegrated to catch).
+	bool processCollisions(EntityId elem, EntityId first, TimeValue maxTime);
+	bool resolveAgainst(
+			EntityId elem, EntityId test, EntityId succ, TimeValue maxTime);
 	void killOverlapSpawn(EntityId id);
 	void recordSpawn(EntityId id, const Element &e);
 
@@ -227,6 +281,10 @@ private:
 	// Both reused across steps so a steady-state frame allocates nothing.
 	std::vector<CollisionEvent> collisions_;
 	std::vector<SpawnEvent> spawns_;
+
+	// The command buffer (review-006 §2): filled in pipeline order by
+	// queueSpawn, drained in that same order at the sync point.
+	std::vector<SpawnCommand> spawnCommands_;
 };
 
 }  // namespace uqm::sim

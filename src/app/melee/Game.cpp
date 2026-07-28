@@ -81,8 +81,6 @@ setUpBattle(Game &g)
 		const game::SpriteSet &set = g.content.sprites(g.window,
 				g.roster[static_cast<usize>(player)]->art.ship);
 		e.mask = set.maskFor(facing.raw());
-		e.preProcess = sim::shipPreProcess;
-		e.postProcess = sim::shipPostProcess;
 		e.onCollision = sim::solidCollision;
 		const sim::EntityId id = g.battle.spawn(sim::Layer::Field, std::move(e));
 		g.battle.attach<sim::PlayerShip>(id);

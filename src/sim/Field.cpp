@@ -55,12 +55,25 @@ asteroidPreProcess(Battle &b, EntityId id) noexcept
 }
 
 // The rubble's own death hook: put a fresh asteroid back into the field.
+//
+// Queued as a deferred command rather than an ordinary one: spawnAsteroid
+// draws its own RNG sequence building the Element and attaching Spin, and
+// that draw has to happen at the sync point, in queue order, not here at
+// emission (mid-pipeline, slot 2) -- drawing early would put the field's
+// stream out of step with whatever else the sync point still draws or
+// builds this frame.
 void
 rubbleDeath(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
 	const CollisionMask *mask = (e != nullptr) ? e->mask : nullptr;
-	(void)spawnAsteroid(b, mask);
+
+	SpawnCommand cmd;
+	cmd.deferred = [](Battle &bb, Borrowed<const CollisionMask> m) noexcept {
+		(void)spawnAsteroid(bb, m);
+	};
+	cmd.deferredMask = mask;
+	b.queueSpawn(std::move(cmd));
 }
 
 }  // namespace
@@ -148,7 +161,6 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	p.hitPoints = 200;
 	p.lifeSpan = 2;              // NORMAL_LIFE + 1 (misc.c:55)
 	p.mask = mask;
-	p.postProcess = planetPostProcess;
 	p.onCollision = solidCollision;
 	p.velocity.zero();
 
@@ -239,9 +251,13 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	r.onDeath = rubbleDeath;
 	r.mask = dead->mask;
 
-	// Tail insertion: PutElement is PutQueue, which appends at the TAIL
-	// (displist.c:142-165). The pre pass's live walk still reaches it this frame.
-	(void)b.spawn(Layer::Ordnance, std::move(r));
+	// Queued, not spawned: it enters the world at the sync point and acts
+	// next frame (review-006 §4's accepted one-frame latency), where the C's
+	// tail insertion let the same frame's live walk still reach it.
+	SpawnCommand cmd;
+	cmd.layer = Layer::Ordnance;
+	cmd.element = std::move(r);
+	b.queueSpawn(std::move(cmd));
 }
 
 }  // namespace uqm::sim

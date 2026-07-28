@@ -42,14 +42,12 @@ enum class ElementFlags : u32
 	// Already collided this frame; the step will not test it again.
 	Collided = 1u << 5,
 
-	// Already preprocessed this frame: distinguishes elements present at
-	// the frame's start from ones spawned during it -- load-bearing, see
-	// design-notes D1.
-	PreProcessed = 1u << 6,
-
-	// Already postprocessed this frame.
-	PostProcessed = 1u << 7,
-
+	// Bits 6-7 (PreProcessed, PostProcessed) retired in review-006 Z4: they
+	// distinguished elements the per-entity walk had already touched this
+	// frame from ones spawned mid-walk. The batch pipeline has no such
+	// distinction to make -- each pass visits every element once, and a
+	// spawn does not exist for any pass to touch until the sync point.
+	//
 	// Collision bookkeeping, not motion: set when two elements met with no
 	// relative motion to exchange (collide.c:84-85). DEFY_PHYSICS in the C.
 	DefyPhysics = 1u << 8,
@@ -230,7 +228,6 @@ struct Element
 	// hooks cannot even name it, let alone corrupt it.
 
 	ElementHook preProcess = nullptr;
-	ElementHook postProcess = nullptr;
 	ElementHook onDeath = nullptr;
 
 	// Runs after a collision has been resolved, on each side, with

@@ -94,7 +94,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 			paid = true;
 		}
 
-		doDamage(b, other, 1);
+		doDamage(b, other, 1, id);
 
 		// The beam is decorative -- only the damage above is real -- deterministic
 		// geometry, not the renderer's (design-notes V3). LASER_LIFE is 1
@@ -108,13 +108,17 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		beam.lifeSpan = 1;
 		beam.current = from;
 		beam.next = beamTo;
-		// Tail insertion: the post walk's catch-up reaches it this frame, so
-		// its one frame of life is spent -- and drawn -- on the frame it was
-		// fired, not the one after. BeamGeometry must be tagged before that
-		// catch-up runs, which this statement order guarantees.
-		const EntityId beamId = b.spawn(Layer::Ordnance, std::move(beam));
-		b.attach<IgnoreVelocity>(beamId);
-		b.attach<BeamGeometry>(beamId);
+
+		// Queued, not spawned: it enters the world at the sync point and
+		// draws its one frame of life the step after this one -- the PD
+		// beam is one frame later than the C's same-step catch-up gave it
+		// (review-006 §4's accepted latency).
+		SpawnCommand cmd;
+		cmd.layer = Layer::Ordnance;
+		cmd.element = std::move(beam);
+		cmd.ignoreVelocity = true;
+		cmd.beamGeometry = true;
+		b.queueSpawn(std::move(cmd));
 
 		ship = b.get(id);
 		if (ship == nullptr)

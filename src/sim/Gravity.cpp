@@ -19,11 +19,12 @@ calculateGravity(Battle &b, EntityId id)
 	const bool selfHasGravity =
 			self->collidable() && isGravitySource(self->mass);
 
-	// Which endpoint to measure from: the C decides once, from self's
-	// PRE_PROCESS flag, applied to both sides of every pair (gravity.c:50-63)
-	// -- reproduced as-is, since it decides which frame the pull lands on.
-	const bool useNext = any(self->flags & ElementFlags::PreProcessed);
-	const Vec2i from = useNext ? self->next : self->current;
+	// Doc §2 refinement 1: gravity now runs as its own pipeline pass right
+	// after GuidedSteer, before Integrate has touched anyone's `next` this
+	// frame -- `current` is the one consistent snapshot every entity shares
+	// at that point, so there is no more "which half of the walk already
+	// moved" flag to consult.
+	const Vec2i from = self->current;
 
 	const i32 pull = worldToVelocity(1);
 
@@ -43,7 +44,7 @@ calculateGravity(Battle &b, EntityId id)
 		if (testHasGravity == selfHasGravity)
 			continue;
 
-		const Vec2i to = useNext ? t->next : t->current;
+		const Vec2i to = t->current;
 		const Vec2i d = wrapDelta(Vec2i{from.x - to.x, from.y - to.y});
 
 		// The disc is measured in display pixels, and the cheap per-axis
@@ -85,9 +86,15 @@ calculateGravity(Battle &b, EntityId id)
 }
 
 void
-planetPostProcess(Battle &b, EntityId id) noexcept
+gravityPass(Battle &b)
 {
-	(void)calculateGravity(b, id);
+	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
+	{
+		const Element *e = b.get(id);
+		if (e == nullptr || !e->collidable() || !isGravitySource(e->mass))
+			continue;
+		(void)calculateGravity(b, id);
+	}
 }
 
 }  // namespace uqm::sim

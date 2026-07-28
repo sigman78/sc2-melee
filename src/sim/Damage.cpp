@@ -5,7 +5,6 @@
 #include "engine/core/Types.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Ship.hpp"
-#include "sim/ShipSystems.hpp"
 #include "sim/Trig.hpp"
 #include "sim/World.hpp"
 
@@ -36,8 +35,29 @@ deltaCrew(ShipState &s, i32 delta) noexcept
 	return false;
 }
 
+namespace {
+
+// emplace_or_accumulate (review-006 §2): the first hit this frame attaches
+// the component, every later one just adds to it, so several sources
+// stack into one summed application at the sync point.
 void
-doDamage(Battle &b, EntityId id, i32 damage) noexcept
+accumulateDamage(Battle &b, EntityId id, i32 amount, EntityId from) noexcept
+{
+	if (DamageIncoming *di = b.find<DamageIncoming>(id))
+	{
+		di->amount += amount;
+		di->lastFrom = from;
+	}
+	else
+	{
+		b.attach<DamageIncoming>(id, DamageIncoming{amount, from});
+	}
+}
+
+}  // namespace
+
+void
+doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 {
 	auto e = b.get(id);
 	if (e == nullptr)
@@ -45,16 +65,12 @@ doDamage(Battle &b, EntityId id, i32 damage) noexcept
 
 	if (b.has<PlayerShip>(id))
 	{
-		ShipState *s = b.ship(id);
-		if (s == nullptr)
+		if (b.ship(id) == nullptr)
 			return;
-		if (!deltaCrew(*s, -damage))
-		{
-			// Out of crew: the ship becomes its own explosion and burns for
-			// three dozen frames (ship_death -> StartShipExplosion,
-			// tactrans.c:730-750), rather than vanishing.
-			startShipExplosion(b, id);
-		}
+		// Z4: a crewed hull no longer loses crew here -- it stacks in
+		// DamageIncoming and Battle::step's sync point sums every source
+		// this frame into one deltaCrew call and one death check.
+		accumulateDamage(b, id, damage, from);
 		return;
 	}
 
@@ -101,7 +117,7 @@ weaponCollision(Battle &b, EntityId id) noexcept
 			&& (any(target->flags & ElementFlags::FiniteLife)
 					|| target->lifeSpan == 1))
 	{
-		doDamage(b, targetId, damage);
+		doDamage(b, targetId, damage, w->owner);
 		w = b.get(id);
 		target = b.get(targetId);
 		if (w == nullptr)
@@ -147,9 +163,14 @@ weaponCollision(Battle &b, EntityId id) noexcept
 	blast.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(blastOffset)),
 			at.y + sine(angle, displayToWorld(blastOffset))});
 	blast.next = blast.current;
-	// Tail, like every PutElement in the C: the post walk's catch-up ages it
-	// this frame, so its five frames start now rather than next step.
-	b.spawn(Layer::Ordnance, std::move(blast));
+
+	// Queued, not spawned: it enters the world at the sync point and acts
+	// next frame, one frame later than the C's same-step catch-up gave it
+	// (review-006 §4's accepted latency).
+	SpawnCommand cmd;
+	cmd.layer = Layer::Ordnance;
+	cmd.element = std::move(blast);
+	b.queueSpawn(std::move(cmd));
 }
 
 void
@@ -184,7 +205,7 @@ solidCollision(Battle &b, EntityId id) noexcept
 	i32 damage = own >> 2;
 	if (damage == 0)
 		damage = 1;
-	doDamage(b, id, damage);
+	doDamage(b, id, damage, e->collidedWith);
 }
 
 }  // namespace uqm::sim

@@ -94,8 +94,6 @@ addShip(Battle &b, const ShipSpec &spec, Facing facing, i32 player)
 	e.playerNr = player;
 	e.mass = spec.mass;
 	e.mask = &kShipMask;
-	e.preProcess = shipPreProcess;
-	e.postProcess = shipPostProcess;
 	e.onCollision = solidCollision;
 	const EntityId id = b.spawn(Layer::Field, std::move(e));
 	b.attach<PlayerShip>(id);

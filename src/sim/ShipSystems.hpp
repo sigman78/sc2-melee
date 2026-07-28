@@ -12,14 +12,27 @@ namespace uqm::sim {
 class Battle;
 
 // Energy regeneration (ship.c:225-230), as a whole-battle pass run before
-// shipPreProcess so every consumer reads its own ship's post-regen energy.
+// the other ship passes so every consumer reads its own ship's post-regen
+// energy.
 void energyRegenPass(Battle &b) noexcept;
 
-// The two halves of a ship's frame (ship.c:149-280, 282-347): turning and
-// thrusting in the pre pass, firing in the post pass so a spawned weapon is
-// caught up by the step loop this frame -- see design-notes D1.
-void shipPreProcess(Battle &b, EntityId id) noexcept;
-void shipPostProcess(Battle &b, EntityId id) noexcept;
+// ShipMachines (pipeline slot 4): WarpingIn/Appearing/dead-hull dispatch,
+// plus the ship's own preProcess hook (the Ilwrath cloak) for everything
+// else. Turn and Thrust are their own passes below.
+void shipMachinesPass(Battle &b) noexcept;
+
+// Turn then Thrust (pipeline slot 5, two passes). Same skip list as
+// ShipMachines: WarpingIn, Appearing, dead.
+void turnPass(Battle &b) noexcept;
+void thrustPass(Battle &b) noexcept;
+
+// GuidedSteer (pipeline slot 6): guidedShotPreProcess over every Guided
+// entity.
+void guidedSteerPass(Battle &b) noexcept;
+
+// Fire/SpecialGate (pipeline slot 10): weapon fire, then the special gate,
+// per ship.
+void fireAndSpecialGatePass(Battle &b) noexcept;
 
 // One point of exhaust, dropped behind a thrusting ship (tactrans.c:792-840).
 void spawnIonTrail(Battle &b, EntityId ship) noexcept;

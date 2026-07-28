@@ -808,9 +808,6 @@ struct Trace
 {
 	std::vector<int> preOrder;
 	std::vector<int> deaths;
-	EntityId spawnFrom;
-	Layer spawnLayer = Layer::Ordnance;
-	bool spawned = false;
 };
 Trace g_trace;
 
@@ -830,28 +827,6 @@ recordDeath(Battle &b, EntityId id) noexcept
 	g_trace.deaths.push_back(static_cast<int>(e->mass));
 }
 
-// A hook that spawns another element the first time it runs.
-void
-spawnOnce(Battle &b, EntityId id) noexcept
-{
-	g_trace.preOrder.push_back(static_cast<int>(b.get(id)->mass));
-	if (g_trace.spawned)
-		return;
-	g_trace.spawned = true;
-
-	Element child;
-	child.mass = 99;
-	child.preProcess = recordPre;
-	// PlayerShip so the hook runs on the appearing frame -- what is under test
-	// is the catch-up pass, and without the tag the hook would be skipped for
-	// the unrelated (and correct) reason that projectiles do not preprocess on
-	// the frame they are born.
-	child.flags = ElementFlags::FiniteLife;
-	child.lifeSpan = 5;
-	g_trace.spawnFrom = b.spawn(g_trace.spawnLayer, std::move(child));
-	b.attach<PlayerShip>(g_trace.spawnFrom);
-}
-
 Element
 plain(int label)
 {
@@ -861,10 +836,9 @@ plain(int label)
 	return e;
 }
 
-// Spawns and tags PlayerShip -- the trait that makes the preprocess hook
-// run on the appearing frame (process.c:150-151) is a component now, so it
-// attaches to the id, not the value. A projectile's hook is skipped on its
-// first frame; these tests are about ordering, not that.
+// Spawns and tags PlayerShip. Only testFiniteLifeExpiresAndCallsDeath still
+// needs the tag (it is otherwise inert for a ShipState-less element); the
+// Animate pass no longer treats it specially.
 EntityId
 spawnShip(Battle &b, Element e, Layer layer = Layer::Field)
 {
@@ -876,58 +850,70 @@ spawnShip(Battle &b, Element e, Layer layer = Layer::Field)
 void
 testStepVisitsInListOrder()
 {
+	// Animate (pipeline slot 7) runs a non-ship element's preProcess hook in
+	// spine order. A plain element's own Appearing frame still suppresses
+	// the hook once, same as always, so each check needs a settling step.
 	g_trace = Trace{};
 	Battle b(1);
-	spawnShip(b, plain(1));
-	spawnShip(b, plain(2));
-	spawnShip(b, plain(3));
+	b.spawn(Layer::Field, plain(1));
+	b.spawn(Layer::Field, plain(2));
+	b.spawn(Layer::Field, plain(3));
+	b.step();
+	g_trace.preOrder.clear();
 	b.step();
 	CHECK(g_trace.preOrder == std::vector<int>({1, 2, 3}),
-			"preprocess should follow list order");
+			"animate should visit non-ship elements in list order");
 
-	// An earlier layer puts the newcomer first next frame -- the pkunk.c
-	// phoenix ordering, declared instead of head-inserted.
+	// An earlier layer puts the newcomer first -- the pkunk.c phoenix
+	// ordering, declared instead of head-inserted.
+	b.spawn(Layer::Background, plain(0));
+	b.step();
 	g_trace.preOrder.clear();
-	spawnShip(b, plain(0), Layer::Background);
 	b.step();
 	CHECK(g_trace.preOrder == std::vector<int>({0, 1, 2, 3}),
-			"an earlier-layer element preprocesses first");
+			"an earlier-layer element animates first");
 }
 
 void
-testMidFrameSpawnIsCaughtUpSameFrame()
+testSpawnLandsAtSyncAndActsNextFrame()
 {
-	// An element spawned during the pre pass has already been walked past
-	// (Background: an earlier layer than the walker) or lies ahead of it
-	// (Ordnance). Either way the C gives it a catch-up pass in
-	// PostProcessQueue (process.c:844-862) so a weapon created this frame
-	// can still act this frame; without it the projectile would sit inert
-	// for a frame, which at 24 Hz is visible.
-	for (const Layer layer : {Layer::Ordnance, Layer::Background})
-	{
-		g_trace = Trace{};
-		g_trace.spawnLayer = layer;
+	// A queued spawn (review-006 §2's command buffer) does not exist for
+	// anything to see the frame it is emitted -- it lands at the sync
+	// point, is reported as a SpawnEvent, and takes its first real motion
+	// the following frame.
+	Battle b(1);
 
-		Battle b(1);
-		Element shooter = plain(1);
-		shooter.preProcess = spawnOnce;
-		spawnShip(b, std::move(shooter));
-		spawnShip(b, plain(2));
+	Element trigger;
+	trigger.flags = ElementFlags::FiniteLife;
+	trigger.lifeSpan = 1;
+	trigger.onDeath = [](Battle &bb, EntityId) noexcept {
+		Element child;
+		child.current = Vec2i{100, 100};
+		child.next = child.current;
+		child.velocity.setComponents(worldToVelocity(10), 0);
+		SpawnCommand cmd;
+		cmd.layer = Layer::Field;
+		cmd.element = std::move(child);
+		bb.queueSpawn(std::move(cmd));
+	};
+	b.spawn(Layer::Field, std::move(trigger));
 
-		b.step();
-		CHECK(g_trace.spawned, "the hook should have spawned");
+	b.step();  // the trigger's own appearing frame: lifeSpan ages to 0
+	CHECK(b.size() == 1, "setup: only the trigger exists so far");
 
-		// 99 must appear exactly once: the catch-up pass runs it, and the
-		// pre pass must not have run it as well.
-		const char *which =
-				layer == Layer::Background ? "background" : "ordnance";
-		const auto count = static_cast<int>(std::count(
-				g_trace.preOrder.begin(), g_trace.preOrder.end(), 99));
-		CHECK(count == 1,
-				"%s: the mid-frame spawn should preprocess exactly once, got %d",
-				which, count);
-		CHECK(b.size() == 3, "%s: all three should be alive", which);
-	}
+	b.step();  // the death is detected, the command queued and drained
+	CHECK(b.spawns().size() == 1, "the child should be a SpawnEvent this step");
+	const EntityId child = b.spawns()[0].id;
+	CHECK(b.alive(child), "the child should exist by the end of this step");
+	const Vec2i wantStart{100, 100};
+	CHECK(b.get(child)->current == wantStart,
+			"and not have moved the frame it was emitted");
+
+	b.step();
+	CHECK(b.alive(child), "the child should still be alive");
+	CHECK(b.get(child)->current.x == 110,
+			"it should move exactly once the following frame, got %ld",
+			static_cast<long>(b.get(child)->current.x));
 }
 
 void
@@ -1227,8 +1213,6 @@ testShipInitialisesFromItsDescriptor()
 {
 	Battle b(1);
 	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{1000, 1000}, 0, 0);
-	b.get(id)->preProcess = shipPreProcess;
-	b.get(id)->postProcess = shipPostProcess;
 
 	b.step();
 	auto s = b.ship(id);
@@ -1244,8 +1228,6 @@ testTurningIsGatedByTurnWait()
 	Battle b(1);
 	// The Avenger turns every 2 frames; the Cruiser every 1.
 	const EntityId slow = addShip(b, ilwrathAvenger(), Vec2i{1000, 1000}, 0, 0);
-	b.get(slow)->preProcess = shipPreProcess;
-	b.get(slow)->postProcess = shipPostProcess;
 
 	b.step();  // Appearing frame: input is not latched
 	b.find<Input>(slow)->buttons = ShipInput::Right;
@@ -1271,8 +1253,6 @@ testFiringSpendsEnergyAndRespectsCooldown()
 {
 	Battle b(1);
 	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{2000, 2000}, 0, 0);
-	b.get(id)->preProcess = shipPreProcess;
-	b.get(id)->postProcess = shipPostProcess;
 
 	b.step();
 	CHECK(b.size() == 1, "just the ship so far");
@@ -1296,8 +1276,6 @@ testFiringSpendsEnergyAndRespectsCooldown()
 	// must not start a cooldown either.
 	Battle c(1);
 	const EntityId poor = addShip(c, earthlingCruiser(), Vec2i{2000, 2000}, 0, 0);
-	c.get(poor)->preProcess = shipPreProcess;
-	c.get(poor)->postProcess = shipPostProcess;
 	c.step();
 	c.ship(poor)->energy = 8;   // one short of the 9-point cost
 	c.ship(poor)->energyCounter = 5;  // ...and hold off regen, which
@@ -1316,8 +1294,6 @@ testMissileFliesAndExpires()
 {
 	Battle b(1);
 	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
-	b.get(id)->preProcess = shipPreProcess;
-	b.get(id)->postProcess = shipPostProcess;
 	b.step();
 
 	b.find<Input>(id)->buttons = ShipInput::Weapon;
@@ -1355,8 +1331,6 @@ testFiringPostponesEnergyRegen()
 	// burst.
 	Battle b(1);
 	const EntityId id = addShip(b, ilwrathAvenger(), Vec2i{2000, 2000}, 0, 0);
-	b.get(id)->preProcess = shipPreProcess;
-	b.get(id)->postProcess = shipPostProcess;
 	b.step();  // Appearing frame
 
 	b.find<Input>(id)->buttons = ShipInput::Weapon;
@@ -1397,8 +1371,6 @@ testSpecialFiresTheFrameItsCounterExpires()
 
 	Battle b(1);
 	const EntityId id = addShip(b, d, Vec2i{2000, 2000}, 0, 0);
-	b.get(id)->preProcess = shipPreProcess;
-	b.get(id)->postProcess = shipPostProcess;
 	b.step();  // Appearing frame
 
 	g_specialFires = 0;
@@ -1434,11 +1406,6 @@ testOpposingMissilesDestroyEachOther()
 	// either could reach the opposing ship.
 	const EntityId a = addShip(b, d, Vec2i{4000, 6000}, 0, 0);
 	const EntityId c = addShip(b, d, Vec2i{4000, 2000}, 8, 1);
-	for (const EntityId id : {a, c})
-	{
-		b.get(id)->preProcess = shipPreProcess;
-		b.get(id)->postProcess = shipPostProcess;
-	}
 	b.step();  // Appearing frame
 
 	b.find<Input>(a)->buttons = ShipInput::Weapon;
@@ -1505,7 +1472,6 @@ addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
 	p.mask = &m;
 	p.current = at;
 	p.next = at;
-	p.postProcess = planetPostProcess;
 	return b.spawn(Layer::Field, std::move(p));
 }
 
@@ -1722,7 +1688,6 @@ testDeltaCrewReportsDeathOnTheExactHit()
 {
 	Battle b(1);
 	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{1000, 1000}, 0, 0);
-	b.get(id)->preProcess = shipPreProcess;
 	b.step();  // the appearing frame is what loads crew from the descriptor
 
 	CHECK(b.ship(id)->crew == 18, "the Cruiser starts with 18 crew, got %ld",
@@ -1798,8 +1763,6 @@ testMissileDamagesAndSpendsItself()
 
 	// Two ships nose to nose, so the Cruiser's missile cannot miss.
 	const EntityId gunner = addShip(b, cruiser, Vec2i{4000, 4000}, 0, 0);
-	b.get(gunner)->preProcess = shipPreProcess;
-	b.get(gunner)->postProcess = shipPostProcess;
 	b.get(gunner)->mask = &m;
 
 	// 400 world units away, not 100. HUMAN_OFFSET is 42 *display* pixels,
@@ -1808,7 +1771,6 @@ testMissileDamagesAndSpendsItself()
 	// it and sail off having never touched anything.
 	const EntityId target =
 			addShip(b, ilwrathAvenger(), Vec2i{4000, 3600}, 8, 1);
-	b.get(target)->preProcess = shipPreProcess;
 	b.get(target)->mask = &m;
 	b.step();
 
@@ -1872,7 +1834,6 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	// one. The C has the same ordering, and avoids it the same way -- by never
 	// placing a ship inside anything (misc.c:63-70, ship.c:480).
 	const EntityId ship = addShip(b, earthlingCruiser(), Vec2i{5000, 5000}, 0, 0);
-	b.get(ship)->preProcess = shipPreProcess;
 	b.get(ship)->mask = &m;
 	b.get(ship)->onCollision = solidCollision;
 	b.step();
@@ -2125,8 +2086,6 @@ testTurningIntoOverlapIsReverted()
 
 	// Adjacent at facing 0 (a 4x4 mask), overlapping at facing 1 (16x16).
 	const EntityId ship = addShip(b, d, Vec2i{4052, 4000}, 0, 0);
-	b.get(ship)->preProcess = shipPreProcess;
-	b.get(ship)->postProcess = shipPostProcess;
 	b.get(ship)->onCollision = solidCollision;
 	b.step();
 	CHECK(b.collisions().empty(), "setup: adjacent is not touching");
@@ -2213,8 +2172,6 @@ testPointDefenceBurnsOwnNuke()
 
 	Battle b(1);
 	const EntityId ship = addShip(b, d, Vec2i{4000, 4000}, 0, 0);
-	b.get(ship)->preProcess = shipPreProcess;
-	b.get(ship)->postProcess = shipPostProcess;
 	b.step();
 
 	b.find<Input>(ship)->buttons = ShipInput::Weapon;
@@ -2253,8 +2210,6 @@ testCommittedElementsAreNotIntegratedTwice()
 	// double turning, double energy clocks.
 	Battle b(1);
 	const EntityId id = addShip(b, ilwrathAvenger(), Vec2i{4000, 6000}, 0, 0);
-	b.get(id)->preProcess = shipPreProcess;
-	b.get(id)->postProcess = shipPostProcess;
 	b.step();
 
 	// Turn and fire together. The Avenger turns every turnWait+1 = 3 frames:
@@ -2294,8 +2249,6 @@ testPointDefenceBurnsIncomingFire()
 
 	const EntityId ship =
 			addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
-	b.get(ship)->preProcess = shipPreProcess;
-	b.get(ship)->postProcess = shipPostProcess;
 	b.get(ship)->mask = &m;
 	b.step();
 
@@ -2334,11 +2287,13 @@ testDeadShipBurnsAsAPhaseThenGoes()
 {
 	Battle b(1);
 	const EntityId id = addShip(b, earthlingCruiser(), Vec2i{4000, 4000}, 0, 0);
-	b.get(id)->preProcess = shipPreProcess;
-	b.get(id)->postProcess = shipPostProcess;
 	b.step();
 
+	// doDamage on a crewed hull only accumulates DamageIncoming now; it
+	// takes the sync point of the next step() to sum it, check death, and
+	// start the explosion.
 	doDamage(b, id, 100);
+	b.step();
 	CHECK(b.has<Exploding>(id),
 			"overkill starts the explosion phase");
 
@@ -2377,7 +2332,6 @@ testShipWarpsInBeforeItIsSolid()
 	e.facing = sim::Facing(4);
 	e.playerNr = 0;
 	e.mass = sim::earthlingCruiser().mass;
-	e.preProcess = sim::shipPreProcess;
 	const sim::EntityId shipId = b.spawn(Layer::Field, std::move(e));
 	b.attach<sim::PlayerShip>(shipId);
 	b.attach<sim::WarpingIn>(shipId);
@@ -2514,13 +2468,10 @@ testCloakHidesFromTracking()
 	Battle b(1);
 	const EntityId avenger =
 			addShip(b, ilwrathAvenger(), Vec2i{4000, 4000}, 0, 1);
-	b.get(avenger)->preProcess = shipPreProcess;
-	b.get(avenger)->postProcess = shipPostProcess;
 	b.step();
 
 	const EntityId hunter =
 			addShip(b, earthlingCruiser(), Vec2i{4000, 4400}, 0, 0);
-	b.get(hunter)->preProcess = shipPreProcess;
 	b.step();
 
 	// Facing 8 is away from the target, so a step toward it is a real change.
@@ -2602,13 +2553,9 @@ testCloakedFiringSnapAims()
 	Battle b(1);
 	const EntityId avenger =
 			addShip(b, ilwrathAvenger(), Vec2i{4000, 4000}, 0, 1);
-	b.get(avenger)->preProcess = shipPreProcess;
-	b.get(avenger)->postProcess = shipPostProcess;
 	b.step();
 
-	const EntityId hunter =
-			addShip(b, earthlingCruiser(), Vec2i{4400, 4000}, 0, 0);
-	b.get(hunter)->preProcess = shipPreProcess;
+	(void)addShip(b, earthlingCruiser(), Vec2i{4400, 4000}, 0, 0);
 	b.step();
 
 	// Cloak fully: activation plus the five-colour walk.
@@ -2680,7 +2627,7 @@ main()
 	testStuckPairIsWorkedApart();
 	testDeriveSpeedStateFromVelocity();
 	testStepVisitsInListOrder();
-	testMidFrameSpawnIsCaughtUpSameFrame();
+	testSpawnLandsAtSyncAndActsNextFrame();
 	testFiniteLifeExpiresAndCallsDeath();
 	testMotionIntegratesAndWraps();
 	testCollisionPairsAreVisitedOnce();

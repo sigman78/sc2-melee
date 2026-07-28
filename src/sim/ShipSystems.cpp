@@ -199,11 +199,13 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 				w.next = w.current;
 			}
 
-			// Tail insertion: a weapon should act *after* the ship that fired
-			// it this frame. The step loop's catch-up pass picks it up, so it
-			// still moves and can hit on the frame it was fired.
-			const EntityId wid = b.spawn(Layer::Ordnance, std::move(w));
-			b.attachWeaponSpec(wid, &spec.weapon);
+			// Queued, not spawned: it enters the world at the sync point and
+			// takes its first live frame the step after this one, one frame
+			// later than the C's same-step catch-up gave it (review-006
+			// §4's accepted latency).
+			SpawnCommand cmd;
+			cmd.layer = Layer::Ordnance;
+			cmd.weaponSpec = &spec.weapon;
 
 			// A guided shot starts with its tracking clock already wound:
 			// initialize_nuke seeds TRACK_WAIT (human.c:297-299), so the
@@ -212,10 +214,11 @@ fireWeapon(Battle &b, EntityId id, Element &e, ShipState &s,
 			// them plus the shot's own clock.
 			if (spec.weapon.trackWait > 0 || spec.weapon.thrustScale > 0)
 			{
-				b.attach<Guided>(wid,
-						Guided{spec.weapon.trackWait, spec.weapon.maxSpeed,
-							spec.weapon.thrustScale, spec.weapon.trackWait});
+				cmd.guided = Guided{spec.weapon.trackWait, spec.weapon.maxSpeed,
+						spec.weapon.thrustScale, spec.weapon.trackWait};
 			}
+			cmd.element = std::move(w);
+			b.queueSpawn(std::move(cmd));
 		}
 
 		s.weaponCounter = spec.weapon.wait;
@@ -259,8 +262,14 @@ energyRegenPass(Battle &b) noexcept
 	});
 }
 
+namespace {
+
+// ShipMachines (pipeline slot 4), one ship: warping in pre-empts
+// everything, the appearing frame is its own one-time init, a dead hull
+// only burns, and only what is left of those runs the ship's own preProcess
+// hook (the Ilwrath cloak). Turn and Thrust are their own passes below.
 void
-shipPreProcess(Battle &b, EntityId id) noexcept
+shipMachinesStep(Battle &b, EntityId id) noexcept
 {
 	auto e = b.get(id);
 	if (e == nullptr)
@@ -271,7 +280,6 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 
 	ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
-	Input &in = *b.find<Input>(id);
 
 	if (b.has<WarpingIn>(id))
 	{
@@ -281,18 +289,15 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 
 	if (any(e->flags & ElementFlags::Appearing))
 	{
-		// First frame: the crew and energy come from the descriptor
-		// (ship.c:169). Input is deliberately *not* latched on the appearing
-		// frame, so a key held during the countdown does not fire on frame 1.
+		Input &in = *b.find<Input>(id);
 		s.crew = spec.maxCrew;
 		s.energy = spec.maxEnergy;
 		in.buttons = ShipInput::None;
-		e->owner = id;  // a ship is its own pParent
+		e->owner = id;
 		applyFacingMask(*e, spec);
 		return;
 	}
 
-	// A dead hull runs its explosion and nothing else (tactrans.c:703-728).
 	if (s.crew == 0)
 	{
 		if (b.has<Exploding>(id))
@@ -300,43 +305,91 @@ shipPreProcess(Battle &b, EntityId id) noexcept
 		return;
 	}
 
-	// The ship's own hook, after regen and before turning -- RACE_DESC
-	// .preprocess_func's slot (ship.c:232-236). The Ilwrath cloak lives here,
-	// winning the energy race against the same frame's weapon.
 	if (spec.preProcess != nullptr)
-	{
 		spec.preProcess(b, id);
-		e = b.get(id);
-		if (e == nullptr)
-			return;
-	}
+}
 
-	turnShip(b, id, *e, s, spec);
-	applyThrustInput(b, id, *e, s, spec);
+// The skip list every ship pass below applies: warping in, appearing, or
+// dead hulls run none of Turn/Thrust/Fire/SpecialGate.
+[[nodiscard]] bool
+shouldSkipShipFrame(Battle &b, EntityId id, const Element &e,
+		const ShipState &s, bool checkAppearing) noexcept
+{
+	if (b.has<WarpingIn>(id))
+		return true;
+	if (checkAppearing && any(e.flags & ElementFlags::Appearing))
+		return true;
+	return s.crew == 0;
+}
+
+}  // namespace
+
+void
+shipMachinesPass(Battle &b) noexcept
+{
+	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
+		if (b.has<PlayerShip>(id))
+			shipMachinesStep(b, id);
 }
 
 void
-shipPostProcess(Battle &b, EntityId id) noexcept
+turnPass(Battle &b) noexcept
 {
-	auto e = b.get(id);
-	if (e == nullptr)
-		return;
-	ShipState *sp = b.ship(id);
-	if (sp == nullptr)
-		return;
+	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
+	{
+		if (!b.has<PlayerShip>(id))
+			continue;
+		auto e = b.get(id);
+		ShipState *sp = b.ship(id);
+		if (e == nullptr || sp == nullptr
+				|| shouldSkipShipFrame(b, id, *e, *sp, true))
+			continue;
+		turnShip(b, id, *e, *sp, *sp->spec);
+	}
+}
 
-	ShipState &s = *sp;
-	const ShipSpec &spec = *s.spec;
+void
+thrustPass(Battle &b) noexcept
+{
+	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
+	{
+		if (!b.has<PlayerShip>(id))
+			continue;
+		auto e = b.get(id);
+		ShipState *sp = b.ship(id);
+		if (e == nullptr || sp == nullptr
+				|| shouldSkipShipFrame(b, id, *e, *sp, true))
+			continue;
+		applyThrustInput(b, id, *e, *sp, *sp->spec);
+	}
+}
 
-	if (b.has<WarpingIn>(id))
-		return;
+void
+fireAndSpecialGatePass(Battle &b) noexcept
+{
+	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
+	{
+		if (!b.has<PlayerShip>(id))
+			continue;
+		auto e = b.get(id);
+		ShipState *sp = b.ship(id);
+		// No Appearing check here, unlike Turn/Thrust: ShipMachines already
+		// forces Input::None on the appearing frame, so fireWeapon/
+		// gateSpecial see nothing pressed regardless.
+		if (e == nullptr || sp == nullptr
+				|| shouldSkipShipFrame(b, id, *e, *sp, false))
+			continue;
+		fireWeapon(b, id, *e, *sp, *sp->spec);
+		gateSpecial(b, id, *sp, *sp->spec);
+	}
+}
 
-	// A dead ship does nothing further (ship.c:288-289).
-	if (s.crew == 0)
-		return;
-
-	fireWeapon(b, id, *e, s, spec);
-	gateSpecial(b, id, s, spec);
+void
+guidedSteerPass(Battle &b) noexcept
+{
+	for (EntityId id = b.front(); id != kNoEntity; id = b.next(id))
+		if (b.has<Guided>(id))
+			guidedShotPreProcess(b, id);
 }
 
 void
@@ -409,11 +462,13 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 			e->current.y + sine(angle, back)});
 	t.next = t.current;
 
-	// Head insertion, so exhaust draws behind everything that matters.
-	// Tags attach after the spawn hands out the id; the walk reaches the
-	// trail later than this statement, so it never sees a half-built one.
-	const EntityId trail = b.spawn(Layer::Background, std::move(t));
-	b.attach<IgnoreVelocity>(trail);
+	// Queued, not spawned: Background layer so it draws behind everything
+	// that matters, once it exists next frame (review-006 §4).
+	SpawnCommand cmd;
+	cmd.layer = Layer::Background;
+	cmd.element = std::move(t);
+	cmd.ignoreVelocity = true;
+	b.queueSpawn(std::move(cmd));
 }
 
 namespace {
@@ -461,7 +516,11 @@ warpInStep(Battle &b, EntityId id) noexcept
 				e->current.y - sine(angle, back)});
 		shadow.next = shadow.current;
 		shadow.velocity.zero();
-		b.spawn(Layer::Background, std::move(shadow));
+
+		SpawnCommand cmd;
+		cmd.layer = Layer::Background;
+		cmd.element = std::move(shadow);
+		b.queueSpawn(std::move(cmd));
 	}
 
 	e = b.get(id);
@@ -517,7 +576,6 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	e->colorCycle = 0;
 	e->flags &= ~ElementFlags::Disappearing;
 	e->flags |= ElementFlags::FiniteLife | ElementFlags::NonSolid;
-	e->postProcess = nullptr;
 	e->onDeath = sweepDeadShipOrdnance;
 	if (!b.has<Exploding>(id))
 		b.attach<Exploding>(id);
@@ -580,7 +638,11 @@ explosionStep(Battle &b, EntityId id) noexcept
 		// drift to 16 facings visibly banded the cloud.
 		d.velocity.setComponents(cosine(drift, worldToVelocity(speed)),
 				sine(drift, worldToVelocity(speed)));
-		b.spawn(Layer::Background, std::move(d));
+
+		SpawnCommand cmd;
+		cmd.layer = Layer::Background;
+		cmd.element = std::move(d);
+		b.queueSpawn(std::move(cmd));
 	}
 }
 
