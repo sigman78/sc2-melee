@@ -93,10 +93,21 @@ Consequences, both simplifications:
 ## 3. The app's state joins the world
 
 **True singletons go to entt's context**, not a magic entity: ctx state
-has no id, never appears in a view, cannot be reaped. Candidates:
-MatchState{winner, endedAtFrame}, the debug-overlay toggle, the
-roster/shipData pair. Battle grows a narrow typed context surface (the
-registry stays private).
+has no id, never appears in a view, cannot be reaped. The rule: ctx is
+world-scoped state that is no entity's — no id, no lifecycle, one per
+world — read by more than one system. The roster:
+MatchState{winner, endedAtFrame, shipIds}, Camera (every render pass
+reads it; passes then take the world and nothing else),
+DebugToggles{overlay, wasDown}, BattleConfig{roster, shipData — same
+lifetime as the world whose ShipStates borrow into it}. Battle grows a
+narrow typed context surface, setContext<T>/context<T>, mirroring
+attach/find (the registry stays private).
+
+Battle's own members (rng, frame, event vectors, command queue) are also
+ctx-shaped, and moving them would dissolve Battle into step(registry&) —
+declined deliberately: the typed facade IS the registry-privacy boundary,
+and every system already receives Battle&. Revisit only if something
+wants systems as pure functions of the registry.
 
 **Parallel arrays become components/entities:**
 
