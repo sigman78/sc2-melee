@@ -245,8 +245,12 @@ testEntityAddressesAreStable()
 	const EntityId B = spawnMarked(b, Layer::Field, 2);
 	const EntityId C = spawnMarked(b, Layer::Field, 3);
 
-	b.attach<ShipState>(A);
-	b.attach<ShipState>(C);
+	// Empty spec: ShipMachines now walks anything with a ShipState, so the
+	// spec pointer has to be real; empty keeps facingMasks empty too, so
+	// this stays the Collider-free spawn spawnMarked's own comment promises.
+	static const ShipSpec inertSpec{};
+	b.attachShip(A, &inertSpec);
+	b.attachShip(C, &inertSpec);
 	ShipState *pa = b.ship(A);
 	ShipState *pc = b.ship(C);
 
@@ -837,14 +841,16 @@ recordDeath(Battle &b, EntityId id) noexcept
 	g_trace.deaths.push_back(static_cast<int>(b.find<Physique>(id)->mass));
 }
 
-// Spawns and tags PlayerShip. Only testFiniteLifeExpiresAndCallsDeath still
-// needs the tag (it is otherwise inert for a ShipState-less element); the
-// Animate pass no longer treats it specially.
+// Spawns and gives it a ShipState so it satisfies the ship gate in
+// ShipSystems.cpp; only testFiniteLifeExpiresAndCallsDeath still calls
+// this. The spec is empty (no facingMasks, no crew), so ShipMachines'
+// Appearing branch has nothing to act on and this stays otherwise inert.
 EntityId
 spawnShip(Battle &b, Layer layer = Layer::Field)
 {
 	const EntityId id = b.spawn(layer);
-	b.attach<PlayerShip>(id);
+	static const ShipSpec inertSpec{};
+	b.attachShip(id, &inertSpec);
 	return id;
 }
 
@@ -1991,7 +1997,11 @@ testShipShotMidFlightKeepsItsMotion()
 	shipPos.current = shipPos.next = Vec2i{4000, 4000};
 	const EntityId is = b.spawn(Layer::Field, shipPos,
 			Motion{}, Physique{6}, &m, Allegiance{0, kNoEntity});
-	b.attach<PlayerShip>(is);
+	// Empty spec: facingMasks stays empty, so ShipMachines' Appearing
+	// branch never reattaches a Collider over `m`, which this test's
+	// impact-point math is keyed to.
+	static const ShipSpec inertSpec{};
+	b.attachShip(is, &inertSpec);
 
 	// A stationary shot in the ship's path. Zero damage, so the run is about
 	// motion, not crew -- and damage IS mass (weapon.c:101,144), so a

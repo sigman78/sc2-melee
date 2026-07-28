@@ -20,11 +20,6 @@ namespace uqm::sim {
 // FiniteLife and Disappearing, the last two ELEMENT_FLAGS bits, are gone the
 // same way (review-007 W3): Lifetime and Doomed (Entity.hpp).
 
-// A player's ship, as opposed to a projectile or a rock.
-comp struct PlayerShip
-{
-};
-
 // GRAVITY_MASS (element.h:198) is `mass > 100`; gravity.c/collide.c ask
 // `mass + 1 > 100` instead (gravity.c:34,45, collide.c:102,139) -- exempting
 // a fleeing ship (battle.c:92) from gravity/impulse but not damage (misc.c:214).
@@ -102,7 +97,7 @@ comp struct AnimFrame
 // silhouette following the growth (ilwrath.c:126-139) -- unlike a
 // directional missile, whose frame follows its facing instead (Human.cpp's
 // guidedShotPreProcess). Stamped from WeaponSpec::frameDriven at fire time;
-// the mask source (WeaponGuidance) and the frame itself (AnimFrame) already
+// the mask source (FromWeapon) and the frame itself (AnimFrame) already
 // exist, so this is a pure marker.
 comp struct FrameDriven
 {

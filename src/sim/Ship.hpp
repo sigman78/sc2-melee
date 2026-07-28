@@ -221,11 +221,11 @@ comp struct Input
 	ShipInput buttons = ShipInput::None;
 };
 
-// The weapon-guidance component: which WeaponSpec a shot flies by
-// (review-002 §1) -- ends the old abuse of ShipState as a spec-pointer
-// carrier on weapons. The pointer is copied out by readers, never held
-// into the pool, so default storage suffices.
-comp struct WeaponGuidance
+// Which WeaponSpec a shot came from (review-002 §1): read for collision
+// masks and cel lookup as much as for steering -- ends the old abuse of
+// ShipState as a spec-pointer carrier on weapons. The pointer is copied
+// out by readers, never held into the pool, so default storage suffices.
+comp struct FromWeapon
 {
 	Borrowed<const WeaponSpec> spec = nullptr;
 };

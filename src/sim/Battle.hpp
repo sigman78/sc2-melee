@@ -112,7 +112,7 @@ struct SpawnCommand
 	bool debris = false;
 	bool blast = false;
 
-	// Non-null for a weapon: attaches a WeaponGuidance once the spawn lands.
+	// Non-null for a weapon: attaches a FromWeapon once the spawn lands.
 	Borrowed<const WeaponSpec> weaponSpec = nullptr;
 
 	// Set for a guided weapon; the clock inside is already wound (see
@@ -245,7 +245,7 @@ public:
 	//
 	// Builds through make() (review-007 W9): a thin domain wrapper, not a
 	// second construction path -- Spawned's own return lets a caller chain
-	// further `.with()` calls (spawnPlayerShip's PlayerShip/IgnoreSimilar,
+	// further `.with()` calls (spawnPlayerShip's IgnoreSimilar,
 	// drainSpawnCommands' per-command extras) exactly as a direct make()
 	// call would, instead of re-deriving the id for another round of
 	// Battle::attach.
@@ -332,11 +332,11 @@ public:
 	[[nodiscard]] const ShipState *ship(EntityId id) const noexcept;
 	ShipState &attachShip(EntityId id, Borrowed<const ShipSpec> spec);
 
-	// The weapon-guidance component, by value -- see WeaponGuidance. The
-	// setter is gone (review-007 W9): a plain `.with(WeaponGuidance{spec})`
-	// on the Spawned a spawn call hands back does the same one-line attach
-	// through the general component surface below, so a dedicated wrapper
-	// bought nothing this one didn't already offer.
+	// The spec a shot flies by, by value -- see FromWeapon. The setter is
+	// gone (review-007 W9): a plain `.with(FromWeapon{spec})` on the
+	// Spawned a spawn call hands back does the same one-line attach through
+	// the general component surface below, so a dedicated wrapper bought
+	// nothing this one didn't already offer.
 	[[nodiscard]] Borrowed<const WeaponSpec> weaponSpec(
 			EntityId id) const noexcept;
 
@@ -344,8 +344,8 @@ public:
 	// defines goes through these instead of naming entt::registry directly --
 	// review-004 open question 3's ownership-by-component-type answer, closed.
 	// decltype(auto), not T&: entt's emplace returns void for an empty
-	// (tag) component -- PlayerShip, WarpingIn, Exploding -- since there is
-	// nothing to reference; no call site uses the return value for those.
+	// (tag) component -- WarpingIn, Exploding -- since there is nothing to
+	// reference; no call site uses the return value for those.
 	template <class T, class... Args>
 	decltype(auto) attach(EntityId id, Args &&...args)
 	{

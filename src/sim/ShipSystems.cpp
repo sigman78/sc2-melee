@@ -59,7 +59,7 @@ spawnPlayerShip(Battle &b, const ShipSpec &spec,
 	const Physique phys{spec.mass};
 	Spawned s = b.spawn(Layer::Field, pos, Motion{}, phys, mask,
 			Allegiance{playerNr, kNoEntity});
-	s.with(IgnoreSimilar{}).with(PlayerShip{});
+	s.with(IgnoreSimilar{});
 	if (warpIn)
 		s.with(WarpingIn{});
 	b.attachShip(s.id(), &spec);
@@ -335,7 +335,7 @@ void
 shipMachinesPass(Battle &b) noexcept
 {
 	b.eachOrdered([&b](EntityId id) {
-		if (b.has<PlayerShip>(id))
+		if (b.has<ShipState>(id))
 			shipMachinesStep(b, id);
 	});
 }
@@ -343,12 +343,11 @@ shipMachinesPass(Battle &b) noexcept
 void
 turnPass(Battle &b) noexcept
 {
-	// PlayerShip is redundant to check separately: ShipState only ever
-	// attaches alongside it (attachShip/spawnPlayerShip), so requiring
-	// ShipState in the join already selects exactly the ships. WarpingIn/
-	// Appearing are presence filters -> the query's exclude; crew == 0 is a
-	// value test -> stays in the body (review-007 W4b's join rule, and
-	// SiGMan's presence-in-the-query review). Order-free: turning has no
+	// ShipState alone in the join already selects exactly the ships --
+	// only a ship ever carries one. WarpingIn/Appearing are presence
+	// filters -> the query's exclude; crew == 0 is a value test -> stays in
+	// the body (review-007 W4b's join rule, and SiGMan's
+	// presence-in-the-query review). Order-free: turning has no
 	// cross-entity or spawn-ordering dependency. Element itself dropped from
 	// the join now that turnWait moved to ShipState -- turnShip reads
 	// nothing else off it.

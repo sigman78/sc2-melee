@@ -31,10 +31,9 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 
 	// Allegiance, ShipState and Position as a required join, not a get-then-
 	// null-check per iteration (review-007 W4b's join rule): every ship
-	// has all three, so PlayerShip need not be checked separately either --
-	// only a ship ever carries a ShipState (attachShip/spawnPlayerShip
-	// attach both together). Dead-ship and cloak are value tests, so they
-	// stay in the body.
+	// has all three, and only a ship ever carries a ShipState
+	// (attachShip/spawnPlayerShip attach it). Dead-ship and cloak are value
+	// tests, so they stay in the body.
 	b.eachOrdered<Allegiance, ShipState, Position>([&](EntityId id,
 															Allegiance &t,
 															ShipState &ts,

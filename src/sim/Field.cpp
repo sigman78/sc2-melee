@@ -79,7 +79,7 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 		// A player ship counts even when it is not collidable -- gravity.c:175
 		// calls that case "ship in transition", and it is what stops a planet
 		// materialising on top of a ship that is still warping in.
-		if (!b.collidable(other) && !b.has<PlayerShip>(other))
+		if (!b.collidable(other) && !b.has<ShipState>(other))
 			return;
 
 		const Body other_{tCollider.mask, pos.current, pos.current};
@@ -104,13 +104,13 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 			return true;
 		const Vec2i selfAt = b.find<Position>(id)->current;
 		bool tooClose = false;
-		// PlayerShip is a required join too, but left as a manual has<>: a
-		// tag-only join over an empty type mixed with Position works
-		// (entt elides it from the callback), yet spelling out the
-		// requirement as a plain check here reads at least as clearly and
-		// keeps this the same shape as the Collider join above.
+		// ShipState is a required join too, but left as a manual has<>:
+		// joining it would force the callback to bind a ShipState& this
+		// loop has no use for, whereas the plain check here reads at least
+		// as clearly and keeps this the same shape as the Collider join
+		// above.
 		b.each<Position>([&](EntityId other, Position &pos) {
-			if (tooClose || other == id || !b.has<PlayerShip>(other))
+			if (tooClose || other == id || !b.has<ShipState>(other))
 				return;
 			const Vec2i d = wrapDelta(pos.current - selfAt);
 			if (d.x * d.x + d.y * d.y < want * want)

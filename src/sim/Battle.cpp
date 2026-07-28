@@ -234,7 +234,7 @@ Borrowed<const WeaponSpec>
 Battle::weaponSpec(EntityId id) const noexcept
 {
 	const auto *g =
-			reg_.valid(id) ? reg_.try_get<const WeaponGuidance>(id) : nullptr;
+			reg_.valid(id) ? reg_.try_get<const FromWeapon>(id) : nullptr;
 	return g != nullptr ? g->spec : nullptr;
 }
 
@@ -283,7 +283,7 @@ Battle::spawnBeam(Layer layer, Beam beam, Allegiance allegiance)
 	// dead weight -- resolveAgainst gates on collidable(testId) before
 	// touching any of them, so a beam never needs the scaffold to exist.
 	// Appearing drops too: nothing that reads it can ever reach a beam
-	// (every reader is gated behind Position, PlayerShip/WarpingIn, or
+	// (every reader is gated behind Position, ShipState/WarpingIn, or
 	// collidable(), none of which a beam has). Order (from make()) and
 	// Allegiance stay -- a beam is still walked and drawn like anything
 	// else, and Allegiance is the one uniform attach.
@@ -551,7 +551,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		else
 			solidCollision(*this, id, otherId);
 	};
-	if (reg_.all_of<PlayerShip>(testId))
+	if (reg_.all_of<ShipState>(testId))
 	{
 		respond(tIsWeapon, testId, elemId);
 		if (alive(elemId))
@@ -594,10 +594,10 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			impulsed = true;
 
 			// collide.c:104-110: an impulse invalidates the at-max bookkeeping.
-			if (reg_.all_of<PlayerShip>(elemId))
+			if (reg_.all_of<ShipState>(elemId))
 				if (ShipState *ss = ship(elemId))
 					ss->speed = SpeedState::Normal;
-			if (reg_.all_of<PlayerShip>(testId))
+			if (reg_.all_of<ShipState>(testId))
 				if (ShipState *ss = ship(testId))
 					ss->speed = SpeedState::Normal;
 		}
@@ -939,7 +939,7 @@ Battle::drainSpawnCommands()
 					cmd.collider, cmd.allegiance, cmd.warhead);
 		}();
 		if (cmd.weaponSpec != nullptr)
-			s.with(WeaponGuidance{cmd.weaponSpec});
+			s.with(FromWeapon{cmd.weaponSpec});
 		if (cmd.guided)
 			s.with(*cmd.guided);
 		if (cmd.lifetime)

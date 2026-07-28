@@ -62,7 +62,7 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 	if (!b.alive(id))
 		return;
 
-	if (b.has<PlayerShip>(id))
+	if (b.has<ShipState>(id))
 	{
 		if (b.ship(id) == nullptr)
 			return;
@@ -80,7 +80,7 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 
 	// Every non-ship collidable thing that can reach here carries a
 	// Vitality (weapons, the asteroid field, the planet -- review-007
-	// W4b's attach set); a bare id with neither PlayerShip nor Vitality
+	// W4b's attach set); a bare id with neither ShipState nor Vitality
 	// simply has nothing left to hurt.
 	Vitality *v = b.find<Vitality>(id);
 	if (v == nullptr)

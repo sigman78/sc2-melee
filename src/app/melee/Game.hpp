@@ -26,8 +26,6 @@
 #include <filesystem>
 #include <vector>
 
-#define comp
-
 namespace uqm::melee {
 
 // Randomness enters the simulation here or not at all: the sim never reads
@@ -65,7 +63,7 @@ struct Game
 // -1 while the fight is on, then the surviving player, or 2 for a draw.
 // Held rather than acted on: the battle keeps stepping so the wreck and its
 // blast finish playing out, which is what the C does too.
-comp struct MatchState
+struct MatchState
 {
 	i32 winner = -1;
 	i64 endedAtFrame = 0;
@@ -74,7 +72,7 @@ comp struct MatchState
 	std::array<sim::EntityId, 2> shipIds{sim::kNoEntity, sim::kNoEntity};
 };
 
-comp struct DebugToggles
+struct DebugToggles
 {
 	// F1. Off by default; costs nothing when off.
 	bool overlay = false;
@@ -88,7 +86,7 @@ comp struct DebugToggles
 // per-battle materialized specs. Art and sounds resolve through the owner's
 // definition (visualFor, Sound.cpp); no other app code names a resource id.
 // Same lifetime as the world whose ShipStates borrow into shipData.
-comp struct BattleConfig
+struct BattleConfig
 {
 	std::array<Borrowed<const game::ShipDef>, 2> roster{};
 
@@ -113,7 +111,5 @@ void setUp(Game &g, const std::filesystem::path &content);
 void iterate(Game &g);
 
 }  // namespace uqm::melee
-
-#undef comp
 
 #endif  // UQM2_APP_MELEE_GAME_HPP
