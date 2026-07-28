@@ -2537,7 +2537,7 @@ testCloakHidesFromTracking()
 	// yet. OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204), so
 	// the whole five-colour fade is still targetable -- being missile-proof
 	// from the frame SPECIAL lands would be a sizeable unearned buff.
-	CHECK(!isCloaked(b, avenger),
+	CHECK(!b.has<Cloaked>(avenger),
 			"activation alone must not hide the ship");
 	Facing fadeFacing{8};
 	CHECK(trackShip(b, hunter, fadeFacing) >= 0,
@@ -2546,8 +2546,12 @@ testCloakHidesFromTracking()
 	// Five walk steps later it is black, and hidden.
 	for (int i = 0; i < 5; ++i)
 		b.step();
-	CHECK(isCloaked(b, avenger),
+	CHECK(b.has<Cloaked>(avenger),
 			"fully faded should be cloaked");
+	CHECK(b.has<Cloaked>(avenger)
+					== (b.find<Cloak>(avenger)->level == kCloakFullLevel),
+			"review-007 W6's invariant: Cloaked present iff the cloak is at "
+			"its full level, got level %d", b.find<Cloak>(avenger)->level);
 
 	Facing cloakedFacing{8};
 	CHECK(trackShip(b, hunter, cloakedFacing) < 0,
@@ -2562,7 +2566,7 @@ testCloakHidesFromTracking()
 	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 40; ++i)
 		b.step();
-	CHECK(isCloaked(b, avenger),
+	CHECK(b.has<Cloaked>(avenger),
 			"a cloak stays on until it is switched off, not until a timer "
 			"runs out");
 
@@ -2572,8 +2576,12 @@ testCloakHidesFromTracking()
 	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 20; ++i)
 		b.step();
-	CHECK(!isCloaked(b, avenger),
+	CHECK(!b.has<Cloaked>(avenger),
 			"a second press should uncloak it (ilwrath.c:251-253)");
+	CHECK(b.has<Cloaked>(avenger)
+					== (b.find<Cloak>(avenger)->level == kCloakFullLevel),
+			"review-007 W6's invariant still holds once uncloaked, got "
+			"level %d", b.find<Cloak>(avenger)->level);
 
 	// And firing gives you away, permanently -- the ramp runs all the way
 	// back even after the trigger is released (ilwrath.c:249-252).
@@ -2582,7 +2590,7 @@ testCloakHidesFromTracking()
 	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 20; ++i)
 		b.step();
-	CHECK(isCloaked(b, avenger),
+	CHECK(b.has<Cloaked>(avenger),
 			"it should be hidden again before the firing check");
 
 	b.find<Input>(avenger)->buttons = ShipInput::Weapon;
@@ -2590,7 +2598,7 @@ testCloakHidesFromTracking()
 	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 20; ++i)
 		b.step();
-	CHECK(!isCloaked(b, avenger),
+	CHECK(!b.has<Cloaked>(avenger),
 			"firing should drop the cloak and it should not come back on its "
 			"own");
 }
@@ -2614,7 +2622,7 @@ testCloakedFiringSnapAims()
 	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 5; ++i)
 		b.step();
-	CHECK(isCloaked(b, avenger),
+	CHECK(b.has<Cloaked>(avenger),
 			"setup: the Avenger should be hidden");
 
 	// Point it the wrong way, then fire from the dark.
@@ -2628,7 +2636,7 @@ testCloakedFiringSnapAims()
 	CHECK(b.find<Position>(avenger)->facing == Facing(4),
 			"firing from full black should snap the facing onto the target, "
 			"got %d", b.find<Position>(avenger)->facing.raw());
-	CHECK(!isCloaked(b, avenger),
+	CHECK(!b.has<Cloaked>(avenger),
 			"and the discharge steps the cloak off black");
 	CHECK(b.ship(avenger)->specialCounter == 0,
 			"and zeroes the special debounce, so re-cloak is immediate once "

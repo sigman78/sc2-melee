@@ -70,7 +70,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		if (!b.collidable(other))
 			return;
-		if (isCloaked(b, other))
+		if (b.has<Cloaked>(other))
 			return;  // human.c:203-204
 
 		// No ownership test -- the C has none (human.c:203-204): the Cruiser pays
@@ -145,16 +145,15 @@ earthlingCruiser() noexcept
 			.wait = 10,
 			.energyCost = 9,
 			.speed = 40,  // max(MAX_THRUST, DISPLAY_TO_WORLD(10)), human.c:42-45
-			.life = 60,
-			.damage = 4,
-			.hitPoints = 1,
 			.muzzleOffset = 42,  // HUMAN_OFFSET
-			.blastOffset = 8,    // NUKE_OFFSET
+			.lifetime{.remaining = 60},
+			.vitality{.hitPoints = 1},
+			.warhead{.damage = 4, .blastOffset = 8},  // NUKE_OFFSET
 			// Guided and accelerating (human.c:43-50): TRACK_WAIT 3,
-			// DISPLAY_TO_WORLD(20) == 80, DISPLAY_TO_WORLD(1) == 4.
-			.trackWait = 3,
-			.maxSpeed = 80,
-			.thrustScale = 4,
+			// DISPLAY_TO_WORLD(20) == 80, DISPLAY_TO_WORLD(1) == 4. The
+			// clock starts already wound to trackWait (human.c:297-299).
+			.guided = Guided{
+					.trackWait = 3, .maxSpeed = 80, .thrustScale = 4, .clock = 3},
 			.spawn = spawnCruiserPrimary,
 		},
 		.special{

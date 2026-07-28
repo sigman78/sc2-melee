@@ -5,9 +5,12 @@
 
 #include "engine/core/Borrowed.hpp"
 #include "engine/core/Types.hpp"
+#include "sim/Damage.hpp"
 #include "sim/Element.hpp"
 #include "sim/Spawn.hpp"
 #include "sim/Thrust.hpp"
+
+#include <optional>
 
 #define comp
 
@@ -58,6 +61,22 @@ any(ShipInput f) noexcept
 	return static_cast<u8>(f) != 0;
 }
 
+// GuidedShot, the census's first library component (review-002 §4): the
+// guidance parameters copied from the spec at fire time, plus the shot's
+// own tracking clock -- which lived in a repurposed Element::turnWait
+// until review-005 Y1. Attached by the fire block to any weapon whose
+// spec declares guidance; guidedShotPreProcess is its system function.
+// Declared ahead of WeaponSpec (review-007 W9) so a spec can carry one as
+// an attach-ready `std::optional<Guided>` literal instead of the three
+// scalars a fire block used to repack into one of these on every shot.
+comp struct Guided
+{
+	i32 trackWait = 0;
+	i32 maxSpeed = 0;
+	i32 thrustScale = 0;
+	i32 clock = 0;
+};
+
 // A ship's weapon: the primary-fire descriptor plus the shot's own flight
 // parameters, guidance, and per-frame/collision hooks.
 struct WeaponSpec
@@ -65,19 +84,27 @@ struct WeaponSpec
 	i32 wait = 0;
 	i32 energyCost = 0;
 
-	// Handed to the spawn function below (Spawn.hpp's ShipView).
+	// Geometry, handed to the spawn function below (Spawn.hpp's ShipView):
+	// needs the ship's own facing to resolve into a Position/Motion, so it
+	// stays scalar rather than an attach-ready literal (review-007 W9).
 	i32 speed = 0;
-	i32 life = 0;
-	i32 damage = 0;
-	i32 hitPoints = 0;
 	i32 muzzleOffset = 0;
-	i32 blastOffset = 0;
 
-	// Guided-weapon parameters (human.c:36-44). Zero for a weapon that just
-	// flies straight, which is most of them.
-	i32 trackWait = 0;
-	i32 maxSpeed = 0;
-	i32 thrustScale = 0;
+	// Attach-ready component literals (review-007 W9): the fire block
+	// attaches these verbatim instead of re-translating scattered scalars
+	// into a fresh component on every shot. `lifetime.remaining` and
+	// `vitality.hitPoints` are also read as plain scalars elsewhere
+	// (guidedShotPreProcess's speed ramp, ShipView's per-shot descriptor) --
+	// the spec itself never decrements, only the entity's own copy does.
+	Lifetime lifetime;
+	Vitality vitality;
+	Warhead warhead;
+
+	// Guided-weapon parameters (human.c:36-44), wound and ready to attach
+	// verbatim; absent for a weapon that just flies straight, which is most
+	// of them. Presence is the query now (review-007 W9), not "any of three
+	// scalars nonzero".
+	std::optional<Guided> guided;
 
 	// The primary weapon, as a pure descriptor function (Spawn.hpp).
 	SpawnFn spawn = nullptr;
@@ -88,12 +115,6 @@ struct WeaponSpec
 	// sub-iteration, not a per-shot hook. A guided shot's frame follows its
 	// facing instead (Human.cpp's guidedShotPreProcess, its own pass).
 	bool frameDriven = false;
-
-	// Stamped onto every shot's Warhead (review-007 W5): true only for the
-	// flame, which lingers a frame on impact instead of vanishing outright
-	// (ilwrath.c:141-148) -- weaponCollision reads the bit off the shot
-	// itself now, not a per-spec response override.
-	bool lingersOnHit = false;
 
 	// A shot collides as whichever sprite frame it is drawn from, which is
 	// not always its facing -- indexing by facing instead is what squashes a
@@ -209,19 +230,6 @@ comp struct WeaponGuidance
 	Borrowed<const WeaponSpec> spec = nullptr;
 };
 
-// GuidedShot, the census's first library component (review-002 §4): the
-// guidance parameters copied from the spec at fire time, plus the shot's
-// own tracking clock -- which lived in a repurposed Element::turnWait
-// until review-005 Y1. Attached by the fire block to any weapon whose
-// spec declares guidance; guidedShotPreProcess is its system function.
-comp struct Guided
-{
-	i32 trackWait = 0;
-	i32 maxSpeed = 0;
-	i32 thrustScale = 0;
-	i32 clock = 0;
-};
-
 // The cloak walk: five visible fill colours (levels 1..5), then black.
 inline constexpr i32 kCloakVisibleColours = 5;
 inline constexpr i32 kCloakFullLevel = kCloakVisibleColours + 1;
@@ -259,12 +267,6 @@ comp struct Exploding
 comp struct SweepsOwnedOnDeath
 {
 };
-
-// OBJECT_CLOAKED, derived: hidden from weapon targeting (weapon.c:344) and
-// PD (human.c:202) only at full black (element.h:201-204). Computed from
-// the component, never stored beside it -- the flag this replaces violated
-// review-002's stored-vs-derived rule by construction.
-[[nodiscard]] bool isCloaked(const Battle &b, EntityId id) noexcept;
 
 // How long the exhaust fade runs, in frames -- the length of the C's colour
 // table (tactrans.c:757-770).

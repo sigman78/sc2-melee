@@ -197,6 +197,7 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	cmd.position = blastPos;
 	cmd.lifetime = Lifetime{kBlastLife};
 	cmd.effect = true;  // stationary: no Motion needed (review-007 W5)
+	cmd.blast = true;
 	cmd.allegiance = Allegiance{shooterPlayerNr, kNoEntity};
 	b.queueSpawn(std::move(cmd));
 }

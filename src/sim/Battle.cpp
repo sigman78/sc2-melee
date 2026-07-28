@@ -160,10 +160,22 @@ Battle::buildOrderedIds(std::vector<EntityId> &out) const noexcept
 	});
 }
 
+// The value SpawnEvent::kind carries, derived from what the entity actually
+// composes (review-007 W6) instead of copied off Element::kind, a field on
+// its way out entirely: a Beam makes this a laser, a Warhead makes it a
+// weapon -- the only two flavors Sound.cpp's dispatch ever asks for. Both
+// components are already attached by the time this runs (spawn/spawnBeam
+// call it last), so this is a real composition read, not a guess ahead of
+// one.
 void
-Battle::recordSpawn(EntityId id, const Element &e, const Allegiance &allegiance)
+Battle::recordSpawn(EntityId id, const Allegiance &allegiance)
 {
-	spawns_.push_back(SpawnEvent{id, e.kind, allegiance.playerNr});
+	ElementKind flavor = ElementKind::Unknown;
+	if (reg_.all_of<Beam>(id))
+		flavor = ElementKind::Laser;
+	else if (reg_.all_of<Warhead>(id))
+		flavor = ElementKind::Weapon;
+	spawns_.push_back(SpawnEvent{id, flavor, allegiance.playerNr});
 }
 
 void
@@ -229,20 +241,11 @@ Battle::weaponSpec(EntityId id) const noexcept
 	return g != nullptr ? g->spec : nullptr;
 }
 
-void
-Battle::attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec)
-{
-	reg_.emplace<WeaponGuidance>(id, spec);
-}
-
-EntityId
+Spawned
 Battle::spawn(Layer layer, Element e, Position pos, Motion motion,
 		Physique physique, Borrowed<const CollisionMask> collider,
-		Allegiance allegiance)
+		Allegiance allegiance, std::optional<Warhead> warhead)
 {
-	const EntityId id = reg_.create();
-	recordSpawn(id, e, allegiance);
-
 	// Seeded from the mask the element is spawning with, not left null: a
 	// mid-pipeline spawn (a death hook's replacement asteroid) reaches
 	// Collide with no CapturePrior pass of its own to have filled this in,
@@ -252,27 +255,32 @@ Battle::spawn(Layer layer, Element e, Position pos, Motion motion,
 	// keeps this seed and the component in agreement -- a caller attaching
 	// one a statement later would leave this reading stale.
 	const PriorSilhouette prior{collider, pos.facing};
-	reg_.emplace<Element>(id, std::move(e));
-	reg_.emplace<Position>(id, pos);
-	reg_.emplace<Motion>(id, motion);
-	reg_.emplace<Physique>(id, physique);
-	reg_.emplace<Allegiance>(id, allegiance);
-	reg_.emplace<PriorSilhouette>(id, prior);
-	reg_.emplace<CollisionScratch>(id);
-	reg_.emplace<Order>(id, nextOrder(layer));
-	reg_.emplace<Appearing>(id);
+
+	// Builds through make() (review-007 W9): the universal attach set,
+	// named one .with() at a time instead of a block of reg_.emplace calls.
+	Spawned s = make(layer);
+	s.with(std::move(e))
+			.with(pos)
+			.with(motion)
+			.with(physique)
+			.with(allegiance)
+			.with(prior)
+			.with(CollisionScratch{})
+			.with(Appearing{});
 	if (collider != nullptr)
-		reg_.emplace<Collider>(id, Collider{collider});
-	++count_;
-	return id;
+		s.with(Collider{collider});
+	if (warhead)
+		s.with(*warhead);
+
+	// Recorded last, once Warhead (if any) is in place: recordSpawn's
+	// flavor reads has<Warhead> (review-007 W6).
+	recordSpawn(s.id(), allegiance);
+	return s;
 }
 
-EntityId
+Spawned
 Battle::spawnBeam(Layer layer, Element e, Beam beam, Allegiance allegiance)
 {
-	const EntityId id = reg_.create();
-	recordSpawn(id, e, allegiance);
-
 	// The minimal-composition rule's worked example (review-007 W4b): a
 	// beam is never solid (no Collider ever attaches to one) and never
 	// moves, so Motion/Physique/PriorSilhouette/CollisionScratch would be
@@ -280,46 +288,45 @@ Battle::spawnBeam(Layer layer, Element e, Beam beam, Allegiance allegiance)
 	// touching any of them, so a beam never needs the scaffold to exist.
 	// Appearing drops too: nothing that reads it can ever reach a beam
 	// (every reader is gated behind Position, PlayerShip/WarpingIn, or
-	// collidable(), none of which a beam has). Order and Allegiance stay --
-	// a beam is still walked and drawn like anything else, and Allegiance
-	// is the one uniform attach.
-	reg_.emplace<Element>(id, std::move(e));
-	reg_.emplace<Beam>(id, beam);
-	reg_.emplace<Allegiance>(id, allegiance);
-	reg_.emplace<Order>(id, nextOrder(layer));
-	++count_;
-	return id;
+	// collidable(), none of which a beam has). Order (from make()) and
+	// Allegiance stay -- a beam is still walked and drawn like anything
+	// else, and Allegiance is the one uniform attach.
+	Spawned s = make(layer);
+	s.with(std::move(e)).with(beam).with(allegiance);
+
+	// Recorded last, once Beam is in place: recordSpawn's flavor reads
+	// has<Beam> (review-007 W6) -- unconditionally Laser here.
+	recordSpawn(s.id(), allegiance);
+	return s;
 }
 
-EntityId
+Spawned
 Battle::spawnEffect(Layer layer, Element e, Position pos, Allegiance allegiance)
 {
-	const EntityId id = reg_.create();
-	recordSpawn(id, e, allegiance);
-
 	// A decorative particle (review-007 W5's diet): never solid, and its
 	// Position is set once at spawn and never touched again (the caller
 	// already computed `pos.next`), so Motion/Physique/PriorSilhouette/
 	// CollisionScratch/Collider/Appearing are all dead weight -- the same
 	// reasoning as spawnBeam's, minus the Position exemption (a decoration
 	// is drawn at a place, a beam is drawn between two).
-	reg_.emplace<Element>(id, std::move(e));
-	reg_.emplace<Position>(id, pos);
-	reg_.emplace<Allegiance>(id, allegiance);
-	reg_.emplace<Order>(id, nextOrder(layer));
-	++count_;
-	return id;
+	Spawned s = make(layer);
+	s.with(std::move(e)).with(pos).with(allegiance);
+
+	// Never a Beam, never a Warhead: recordSpawn's flavor is always Unknown
+	// for an effect, which is correct -- nothing reads it for one.
+	recordSpawn(s.id(), allegiance);
+	return s;
 }
 
-EntityId
+Spawned
 Battle::spawnEffect(
 		Layer layer, Element e, Position pos, Motion motion, Allegiance allegiance)
 {
 	// The one decoration that actually drifts (the explosion's debris):
 	// spawnEffect's shape plus Motion, so Integrate still advances it.
-	const EntityId id = spawnEffect(layer, std::move(e), pos, allegiance);
-	reg_.emplace<Motion>(id, motion);
-	return id;
+	Spawned s = spawnEffect(layer, std::move(e), pos, allegiance);
+	s.with(motion);
+	return s;
 }
 
 // "BAD NEWS": an APPEARING element wedged inside something on spawn dies
@@ -928,40 +935,56 @@ Battle::drainSpawnCommands()
 		// entirely -- cmd.position/motion/physique are never read for one
 		// (review-007 W4a). An effect (a decorative particle) takes
 		// spawnEffect instead, skipping spawn()'s collision scaffold
-		// (review-007 W5).
-		EntityId id;
-		if (cmd.beam)
-			id = spawnBeam(
-					cmd.layer, std::move(cmd.element), *cmd.beam, cmd.allegiance);
-		else if (cmd.effect)
-			id = cmd.effectMoves
-					? spawnEffect(cmd.layer, std::move(cmd.element),
-							  cmd.position, cmd.motion, cmd.allegiance)
-					: spawnEffect(cmd.layer, std::move(cmd.element),
-							  cmd.position, cmd.allegiance);
-		else
-			id = spawn(cmd.layer, std::move(cmd.element), cmd.position,
-					cmd.motion, cmd.physique, cmd.collider, cmd.allegiance);
+		// (review-007 W5). All three build through make() themselves
+		// (review-007 W9); the extras below are just more `.with()` calls
+		// on the Spawned each hands back.
+		Spawned s = [&]() -> Spawned {
+			if (cmd.beam)
+				return spawnBeam(cmd.layer, std::move(cmd.element), *cmd.beam,
+						cmd.allegiance);
+			if (cmd.effect)
+				return cmd.effectMoves
+						? spawnEffect(cmd.layer, std::move(cmd.element),
+								  cmd.position, cmd.motion, cmd.allegiance)
+						: spawnEffect(cmd.layer, std::move(cmd.element),
+								  cmd.position, cmd.allegiance);
+			// warhead passed straight into spawn(), not attached after: it
+			// has to be there before spawn() records the SpawnEvent, whose
+			// flavor now reads has<Warhead> instead of a hand-set kind
+			// (review-007 W6). cmd.warhead is never set alongside cmd.beam
+			// or cmd.effect, so this is the only place it needs reading.
+			return spawn(cmd.layer, std::move(cmd.element), cmd.position,
+					cmd.motion, cmd.physique, cmd.collider, cmd.allegiance,
+					cmd.warhead);
+		}();
 		if (cmd.weaponSpec != nullptr)
-			attachWeaponSpec(id, cmd.weaponSpec);
+			s.with(WeaponGuidance{cmd.weaponSpec});
 		if (cmd.guided)
-			attach<Guided>(id, *cmd.guided);
+			s.with(*cmd.guided);
 		if (cmd.lifetime)
-			attach<Lifetime>(id, *cmd.lifetime);
+			s.with(*cmd.lifetime);
 		if (cmd.vitality)
-			attach<Vitality>(id, *cmd.vitality);
-		if (cmd.warhead)
-			attach<Warhead>(id, *cmd.warhead);
+			s.with(*cmd.vitality);
 		if (cmd.animFrame)
-			attach<AnimFrame>(id, *cmd.animFrame);
+			s.with(*cmd.animFrame);
 		if (cmd.frameDriven)
-			attach<FrameDriven>(id);
+			s.with(FrameDriven{});
 		if (cmd.ignoreSimilar)
-			attach<IgnoreSimilar>(id);
+			s.with(IgnoreSimilar{});
 		if (cmd.rubbleMask != nullptr)
-			attach<StashedMask>(id, StashedMask{cmd.rubbleMask});
+			s.with(StashedMask{cmd.rubbleMask});
 		if (cmd.deathSpawn != nullptr)
-			attach<DeathSpawn>(id, DeathSpawn{cmd.deathSpawn});
+			s.with(DeathSpawn{cmd.deathSpawn});
+		// The render tags (review-007 W6): at most one is ever set, by the
+		// effect's own spawn site.
+		if (cmd.trail)
+			s.with(Trail{});
+		if (cmd.shadow)
+			s.with(Shadow{});
+		if (cmd.debris)
+			s.with(Debris{});
+		if (cmd.blast)
+			s.with(Blast{});
 	}
 	spawnCommands_.clear();
 }

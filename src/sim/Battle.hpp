@@ -92,7 +92,17 @@ struct SpawnCommand
 	bool effect = false;
 	bool effectMoves = false;
 
-	// Non-null for a weapon: attachWeaponSpec's payload.
+	// Which render tag lands on an effect spawn (review-007 W6): at most one
+	// is ever true, one per Entity.hpp render tag, set by the effect's own
+	// spawn site (spawnIonTrail, warpInStep's shadow, explosionStep's
+	// debris, the blast sites in Field.cpp/Damage.cpp) instead of a kind
+	// switch at the drain.
+	bool trail = false;
+	bool shadow = false;
+	bool debris = false;
+	bool blast = false;
+
+	// Non-null for a weapon: attaches a WeaponGuidance once the spawn lands.
 	Borrowed<const WeaponSpec> weaponSpec = nullptr;
 
 	// Set for a guided weapon; the clock inside is already wound (see
@@ -111,8 +121,12 @@ struct SpawnCommand
 	// `lifeSpan` (review-007 W4b) -- attached where read, not uniformly.
 	std::optional<Vitality> vitality;
 
-	// Set only for a weapon shot: Warhead attaches once the spawn lands.
-	// Element lost `damage`/`blastOffset` the same way (review-007 W4b).
+	// Set only for a weapon shot: passed straight through to Battle::spawn,
+	// which attaches it before the spawn is recorded -- has<Warhead> is what
+	// makes recordSpawn's derived flavor a weapon (review-007 W6), so this
+	// has to be in place by the time spawn() gets to it, not attached a
+	// statement later the way it was before Element lost
+	// `damage`/`blastOffset` (review-007 W4b).
 	std::optional<Warhead> warhead;
 
 	// Set only for a weapon shot: AnimFrame attaches once the spawn lands.
@@ -209,10 +223,22 @@ public:
 	// W4b: the one deliberately-uniform component of this stage) -- its own
 	// default matches Element::playerNr/owner's old defaults exactly, so a
 	// caller that doesn't care passes nothing.
-	EntityId spawn(Layer layer, Element e, Position pos = Position{},
+	// `warhead` attaches iff set, same rule as `collider` (review-007 W6):
+	// centralised here, not a statement later, because recordSpawn's
+	// composition-derived flavor (Weapon iff has<Warhead>) has to see it
+	// already attached.
+	//
+	// Builds through make() (review-007 W9): a thin domain wrapper, not a
+	// second construction path -- Spawned's own return lets a caller chain
+	// further `.with()` calls (spawnPlayerShip's PlayerShip/IgnoreSimilar,
+	// drainSpawnCommands' per-command extras) exactly as a direct make()
+	// call would, instead of re-deriving the id for another round of
+	// Battle::attach.
+	Spawned spawn(Layer layer, Element e, Position pos = Position{},
 			Motion motion = Motion{}, Physique physique = Physique{},
 			Borrowed<const CollisionMask> collider = nullptr,
-			Allegiance allegiance = Allegiance{});
+			Allegiance allegiance = Allegiance{},
+			std::optional<Warhead> warhead = std::nullopt);
 
 	// A beam's own spawn (review-007 W4a, diet W4b): no Position, no
 	// Collider, no Motion/Physique/PriorSilhouette/CollisionScratch, no
@@ -221,7 +247,7 @@ public:
 	// collidable(testId) before it would ever read through the hole);
 	// `beam` is what a mover's `pos` is elsewhere. Still gets Order (walked
 	// and drawn like anything else) and Allegiance, same as spawn() above.
-	EntityId spawnBeam(Layer layer, Element e, Beam beam,
+	Spawned spawnBeam(Layer layer, Element e, Beam beam,
 			Allegiance allegiance = Allegiance{});
 
 	// A decorative particle -- an ion trail, a warp-in shadow, an impact
@@ -232,13 +258,13 @@ public:
 	// Collider -- the collide pass gates on collidable(testId), which this
 	// never satisfies). Still gets Order and Allegiance, same as spawn()
 	// and spawnBeam above.
-	EntityId spawnEffect(Layer layer, Element e, Position pos,
+	Spawned spawnEffect(Layer layer, Element e, Position pos,
 			Allegiance allegiance = Allegiance{});
 
 	// The one decoration that actually drifts (the explosion's debris):
 	// spawnEffect's shape plus Motion, so Integrate still advances it --
 	// everything spawnEffect omits stays omitted.
-	EntityId spawnEffect(Layer layer, Element e, Position pos, Motion motion,
+	Spawned spawnEffect(Layer layer, Element e, Position pos, Motion motion,
 			Allegiance allegiance = Allegiance{});
 
 	// The fluent spawn (review-007 W9): the entity with its declared Order
@@ -291,10 +317,13 @@ public:
 	[[nodiscard]] const ShipState *ship(EntityId id) const noexcept;
 	ShipState &attachShip(EntityId id, Borrowed<const ShipSpec> spec);
 
-	// The weapon-guidance component, by value -- see WeaponGuidance.
+	// The weapon-guidance component, by value -- see WeaponGuidance. The
+	// setter is gone (review-007 W9): a plain `.with(WeaponGuidance{spec})`
+	// on the Spawned a spawn call hands back does the same one-line attach
+	// through the general component surface below, so a dedicated wrapper
+	// bought nothing this one didn't already offer.
 	[[nodiscard]] Borrowed<const WeaponSpec> weaponSpec(
 			EntityId id) const noexcept;
-	void attachWeaponSpec(EntityId id, Borrowed<const WeaponSpec> spec);
 
 	// The typed component surface: every component type the sim or the app
 	// defines goes through these instead of naming entt::registry directly --
@@ -496,7 +525,7 @@ private:
 	bool resolveAgainst(EntityId elem, usize elemIdx, EntityId test,
 			usize testIdx, TimeValue maxTime);
 	void killOverlapSpawn(EntityId id);
-	void recordSpawn(EntityId id, const Element &e, const Allegiance &allegiance);
+	void recordSpawn(EntityId id, const Allegiance &allegiance);
 
 	// The death path's two mechanisms (review-007 W5, replacing
 	// Element::onDeath): DeathSpawn's payload (asteroid/rubble) and
@@ -553,10 +582,20 @@ class Spawned
 public:
 	Spawned(Battle &b, EntityId id) noexcept : b_(b), id_(id) {}
 
+	// A tag still reads as `.with(Appearing{})` at the call site, matching
+	// every other component -- entt's own emplace has no value-carrying
+	// overload for an empty type (there is nothing to store), so this picks
+	// the zero-arg attach for one instead of forwarding the placeholder
+	// value into a call that does not exist (review-007 W9: found the first
+	// time a tag went through the builder).
 	template <class T>
 	Spawned &with(T &&value)
 	{
-		b_.attach<std::decay_t<T>>(id_, std::forward<T>(value));
+		using U = std::decay_t<T>;
+		if constexpr (std::is_empty_v<U>)
+			b_.attach<U>(id_);
+		else
+			b_.attach<U>(id_, std::forward<T>(value));
 		return *this;
 	}
 
