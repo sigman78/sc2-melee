@@ -14,7 +14,6 @@
 
 #include <optional>
 #include <span>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -177,24 +176,6 @@ struct SpawnCommand
 	void (*deferred)(Battle &, Borrowed<const CollisionMask>) noexcept = nullptr;
 	Borrowed<const CollisionMask> deferredMask = nullptr;
 };
-
-namespace detail {
-
-// entt drops an empty component from the tuple a view yields -- a tag has no
-// value to bind a reference to. The ordered walk destructures by hand, so it
-// has to drop the same ones itself, or naming a tag in its type list would
-// not compile and a tag could filter a view but never eachOrdered<>.
-template <class T, class Reg>
-[[nodiscard]] auto
-fetchOrdered([[maybe_unused]] Reg &reg, [[maybe_unused]] EntityId id)
-{
-	if constexpr (std::is_empty_v<T>)
-		return std::tuple<>{};
-	else
-		return std::forward_as_tuple(reg.template get<T>(id));
-}
-
-}  // namespace detail
 
 class Spawned;
 
@@ -444,11 +425,13 @@ public:
 		return reg_.view<const Ts...>(excl);
 	}
 
-	// The declared-order walk (review-006 Z6): a local scratch of every live
-	// id, sorted ascending by (Order.layer, Order.seq) -- rebuilt fresh per
-	// call (a battle is ~40 entities; no caching). collidePass builds the
-	// same scratch through the private helper below instead of duplicating
-	// the sort.
+	// The declared-order walk (review-008 V2): the Order pool itself stays
+	// sorted ascending by (Order.layer, Order.seq) -- ensureOrdered() below
+	// re-sorts it only when something spawned or destroyed since the last
+	// sort, so a steady-state frame's 39 call sites share one sort instead of
+	// each rebuilding and sorting their own scratch. `use<Order>()` drives
+	// the view's iteration off that pool, so the walk order matches without
+	// a hand-built index.
 	//
 	// One template, not two overloads: a bare eachOrdered(fn) call (no
 	// explicit Ts) and an eachOrdered<Ts...>(fn) call both bind here, since
@@ -456,53 +439,61 @@ public:
 	// templates for the same one-argument shape left the empty-Ts case
 	// genuinely ambiguous between them (found by the compiler, not by
 	// inspection). The zero-Ts form is the walk that genuinely wants bare
-	// ids; eachOrdered<Ts...> is the join -- fetch every Ts and skip the
-	// entity if any is missing (reg_.all_of first) rather than passing a
-	// null through. Ts always explicit when non-empty (it isn't deducible
-	// from Fn alone). A tag among Ts filters presence without the callback
-	// taking an argument for it, same as a view (see fetchOrdered).
+	// ids; eachOrdered<Ts...> is the join -- entt's own view drops an
+	// entity missing any Ts, and elides an empty (tag) Ts from what `each`
+	// yields, so the swallowed `Order &` plus `auto &...rest` is exactly the
+	// non-empty Ts in declaration order -- the signature every call site's
+	// lambda already has.
 	template <class... Ts, class Fn>
 	void eachOrdered(Fn &&fn)
 	{
-		std::vector<EntityId> ids;
-		buildOrderedIds(ids);
-		for (EntityId id : ids)
+		ensureOrdered();
+		if constexpr (sizeof...(Ts) == 0)
 		{
-			if constexpr (sizeof...(Ts) == 0)
+			for (EntityId id : reg_.view<Order>())
 				fn(id);
-			else if (reg_.all_of<Ts...>(id))
-				std::apply(fn,
-						std::tuple_cat(std::forward_as_tuple(id),
-								detail::fetchOrdered<Ts>(reg_, id)...));
 		}
-	}
-	template <class... Ts, class Fn>
-	void eachOrdered(Fn &&fn) const
-	{
-		std::vector<EntityId> ids;
-		buildOrderedIds(ids);
-		for (EntityId id : ids)
+		else
 		{
-			if constexpr (sizeof...(Ts) == 0)
-				fn(id);
-			else if (reg_.all_of<Ts...>(id))
-				std::apply(fn,
-						std::tuple_cat(std::forward_as_tuple(id),
-								detail::fetchOrdered<Ts>(reg_, id)...));
+			auto v = reg_.view<Order, Ts...>();
+			v.template use<Order>();
+			v.each([&fn](EntityId id, Order &, auto &...rest) {
+				fn(id, rest...);
+			});
 		}
 	}
 	// The exclude form, matching view<Ts...>(excl)'s: an entity carrying any
 	// of Xs is skipped before Ts is even checked.
 	template <class... Ts, class... Xs, class Fn>
-	void eachOrdered(entt::exclude_t<Xs...>, Fn &&fn)
+	void eachOrdered(entt::exclude_t<Xs...> excl, Fn &&fn)
 	{
-		std::vector<EntityId> ids;
-		buildOrderedIds(ids);
-		for (EntityId id : ids)
-			if (reg_.all_of<Ts...>(id) && !reg_.any_of<Xs...>(id))
-				std::apply(fn,
-						std::tuple_cat(std::forward_as_tuple(id),
-								detail::fetchOrdered<Ts>(reg_, id)...));
+		ensureOrdered();
+		if constexpr (sizeof...(Ts) == 0)
+		{
+			for (EntityId id : reg_.view<Order>(excl))
+				fn(id);
+		}
+		else
+		{
+			auto v = reg_.view<Order, Ts...>(excl);
+			v.template use<Order>();
+			v.each([&fn](EntityId id, Order &, auto &...rest) {
+				fn(id, rest...);
+			});
+		}
+	}
+
+	// The escape hatch review-008 V1 established the pattern for: the same
+	// sorted-and-driven view eachOrdered iterates internally, handed back
+	// instead of walked here -- for a caller that wants entt's own iterator/
+	// size_hint surface over the declared order rather than a callback.
+	template <class... Ts>
+	[[nodiscard]] auto ordered()
+	{
+		ensureOrdered();
+		auto v = reg_.view<Order, Ts...>();
+		v.template use<Order>();
+		return v;
 	}
 
 private:
@@ -558,9 +549,11 @@ private:
 	// spine to unlink.
 	void removeElement(EntityId id) noexcept;
 
-	// Shared by eachOrdered and collidePass: every live element's id,
-	// ascending by (Order.layer, Order.seq).
-	void buildOrderedIds(std::vector<EntityId> &out) const noexcept;
+	// Re-sorts the Order pool by (layer, seq) iff a spawn or a destroy has
+	// touched it since the last sort (review-008 V2) -- make() and
+	// removeElement set orderDirty_, so a steady-state frame with no births
+	// or deaths sorts nothing.
+	void ensureOrdered();
 
 	// The declared position every spawn gets: the caller's layer, FIFO
 	// within it. One counter, one place it advances, so make() and the
@@ -568,6 +561,12 @@ private:
 	[[nodiscard]] Order nextOrder(Layer layer) noexcept;
 
 	entt::registry reg_;
+	// Set true by anything that adds or removes an Order (make(),
+	// removeElement(), destroy() iff the entity had one) -- see
+	// ensureOrdered(). Starts true: an empty pool has nothing to sort, but
+	// leaving it false would skip the first real sort if the flip site were
+	// ever missed.
+	bool orderDirty_ = true;
 	usize count_ = 0;
 	Rng rng_;
 	u64 frame_ = 0;

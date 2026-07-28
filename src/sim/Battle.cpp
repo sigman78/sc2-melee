@@ -10,7 +10,6 @@
 #include "sim/ShipSystems.hpp"
 #include "sim/World.hpp"
 
-#include <algorithm>
 #include <utility>
 
 namespace uqm::sim {
@@ -134,6 +133,11 @@ Battle::removeElement(EntityId id) noexcept
 	if (!alive(id))
 		return;
 
+	// Every sim element carries an Order (Battle::make), so a removal always
+	// invalidates the sort -- unlike destroy() below, no has<Order> guard is
+	// needed here.
+	orderDirty_ = true;
+
 	// Bumps the entity's version, which is what turns a surviving handle
 	// into a detectable mistake instead of a read of the next tenant.
 	reg_.destroy(id);
@@ -141,21 +145,14 @@ Battle::removeElement(EntityId id) noexcept
 }
 
 void
-Battle::buildOrderedIds(std::vector<EntityId> &out) const noexcept
+Battle::ensureOrdered()
 {
-	// Keyed on Order, not Element: Order is what every sim spawn declares and
-	// what this sorts by, and it is what separates a stepped element from an
-	// app-owned entity (Battle::create) that the walk must never see.
-	out.clear();
-	for (EntityId id : reg_.view<const Order>())
-		out.push_back(id);
-	std::sort(out.begin(), out.end(), [this](EntityId a, EntityId b) {
-		const Order &oa = reg_.get<const Order>(a);
-		const Order &ob = reg_.get<const Order>(b);
-		if (oa.layer != ob.layer)
-			return oa.layer < ob.layer;
-		return oa.seq < ob.seq;
+	if (!orderDirty_)
+		return;
+	reg_.sort<Order>([](const Order &a, const Order &b) {
+		return a.layer != b.layer ? a.layer < b.layer : a.seq < b.seq;
 	});
+	orderDirty_ = false;
 }
 
 // The value SpawnEvent::kind carries, derived from what the entity actually
@@ -192,6 +189,7 @@ Battle::make(Layer layer)
 {
 	const EntityId id = reg_.create();
 	reg_.emplace<Order>(id, nextOrder(layer));
+	orderDirty_ = true;
 	++count_;
 	return Spawned{*this, id};
 }
@@ -205,8 +203,14 @@ Battle::create()
 void
 Battle::destroy(EntityId id) noexcept
 {
-	if (reg_.valid(id))
-		reg_.destroy(id);
+	if (!reg_.valid(id))
+		return;
+	// create() itself never attaches an Order, but this is the one app-owned
+	// destroy path (Battle::create's own contract), so the guard costs
+	// nothing and keeps ensureOrdered() honest if that contract ever bends.
+	if (reg_.all_of<Order>(id))
+		orderDirty_ = true;
+	reg_.destroy(id);
 }
 
 ShipState *
@@ -781,10 +785,17 @@ Battle::integratePass() noexcept
 // by (Order.layer, Order.seq). Nothing is destroyed mid-Collide (the reap is
 // a later sync point), so an index into this snapshot stays valid for the
 // rest of the pass, and processCollisions/resolveAgainst walk it by index.
+// review-008 V2: filled from the Order pool once it's sorted (ensureOrdered),
+// not sorted again here -- this snapshot itself is still required, not the
+// sort, since indexed successor-only access and stability across a walk
+// that attaches Doomed mid-flight are things a live view cannot give.
 void
 Battle::collidePass()
 {
-	buildOrderedIds(collideOrder_);
+	ensureOrdered();
+	collideOrder_.clear();
+	for (EntityId id : reg_.view<Order>())
+		collideOrder_.push_back(id);
 
 	for (usize i = 0; i < collideOrder_.size(); ++i)
 	{
