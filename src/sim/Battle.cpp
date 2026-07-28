@@ -785,10 +785,13 @@ Battle::integratePass() noexcept
 // by (Order.layer, Order.seq). Nothing is destroyed mid-Collide (the reap is
 // a later sync point), so an index into this snapshot stays valid for the
 // rest of the pass, and processCollisions/resolveAgainst walk it by index.
-// review-008 V2: filled from the Order pool once it's sorted (ensureOrdered),
-// not sorted again here -- this snapshot itself is still required, not the
-// sort, since indexed successor-only access and stability across a walk
-// that attaches Doomed mid-flight are things a live view cannot give.
+// review-008 V2: filled from the Order pool once it is sorted
+// (ensureOrdered), not sorted again here. The sequence itself stays, because
+// the walk is not forward-only: resolveAgainst re-enters processCollisions at
+// testIdx + 1, at elemIdx + 1, and at 0 for an Appearing test, and each
+// scanner carries its own position in so a nested scan knows where it sits.
+// entt's view iterators are forward-only, so that needs an addressable
+// sequence -- the copy is what buys random access, not stability.
 void
 Battle::collidePass()
 {
