@@ -206,7 +206,7 @@ iterate(Game &g)
 	// this loop's job, not the sim's Doomed/reap protocol; collected first
 	// since destroying mid-view is not safe.
 	std::vector<sim::EntityId> agedOut;
-	g.battle.each<Mark>([&](sim::EntityId id, Mark &m) {
+	g.battle.view<Mark>().each([&](sim::EntityId id, Mark &m) {
 		if (g.battle.frame() - m.bornFrame > kMarkLife)
 			agedOut.push_back(id);
 	});

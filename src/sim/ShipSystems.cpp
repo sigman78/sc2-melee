@@ -276,11 +276,12 @@ energyRegenPass(Battle &b) noexcept
 	// WarpingIn/Appearing are presence filters on the iterated ship, so they
 	// belong in the query (SiGMan's review), not an in-body has<>/!has<>
 	// guard; crew == 0 is a value test and stays in the body.
-	b.each<ShipState>(entt::exclude<WarpingIn, Appearing>, [](ShipState &s) {
-		if (s.crew == 0)
-			return;
-		regenEnergy(s, *s.spec);
-	});
+	b.view<ShipState>(entt::exclude<WarpingIn, Appearing>).each(
+			[](ShipState &s) {
+				if (s.crew == 0)
+					return;
+				regenEnergy(s, *s.spec);
+			});
 }
 
 namespace {
@@ -351,7 +352,7 @@ turnPass(Battle &b) noexcept
 	// cross-entity or spawn-ordering dependency. Element itself dropped from
 	// the join now that turnWait moved to ShipState -- turnShip reads
 	// nothing else off it.
-	b.each<ShipState>(entt::exclude<WarpingIn, Appearing>,
+	b.view<ShipState>(entt::exclude<WarpingIn, Appearing>).each(
 			[&b](EntityId id, ShipState &s) {
 				if (s.crew == 0)
 					return;

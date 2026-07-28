@@ -290,7 +290,8 @@ namespace {
 // they are meant to be at infinity. Each plane is a screen-sized torus;
 // the camera's position enters divided by 2^plane, a plain integer pan.
 // Keyed on the Starfield component: one entity, no Position, no Order
-// (review-007 §3) -- each<> rather than eachOrdered, matching that.
+// (review-007 §3) -- an unordered view rather than eachOrdered, matching
+// that.
 void
 renderStars(Game &g)
 {
@@ -302,7 +303,7 @@ renderStars(Game &g)
 		return v < 0 ? v + n : v;
 	};
 
-	g.battle.each<Starfield>([&](sim::EntityId, Starfield &sf) {
+	g.battle.view<Starfield>().each([&](sim::EntityId, Starfield &sf) {
 		usize first = 0;
 		for (int plane = 0; plane < kStarPlanes; ++plane)
 		{
@@ -586,7 +587,8 @@ renderEffects(Game &g)
 // Contact points and response vectors, gated by DebugToggles.overlay (F1) --
 // the same single gate the old drawOverlay used for both halves of the
 // debug view; this is the half keyed on Mark entities (review-007 §3), an
-// app-owned bare walk (each<>, not eachOrdered: Mark carries no Order).
+// app-owned bare walk (an unordered view, not eachOrdered: Mark carries no
+// Order).
 void
 renderMarks(Game &g)
 {
@@ -596,7 +598,7 @@ renderMarks(Game &g)
 	const game::Camera &camera = g.battle.context<game::Camera>();
 	constexpr i32 kVectorGain = 8;
 
-	g.battle.each<Mark>([&](sim::EntityId, Mark &mark) {
+	g.battle.view<Mark>().each([&](sim::EntityId, Mark &mark) {
 		const Vec2i at = camera.toScreen(mark.event.at);
 		g.window.drawLine(Vec2i{at.x - 4, at.y - 4}, Vec2i{at.x + 4, at.y + 4},
 				0xFF, 0x30, 0x30);

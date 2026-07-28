@@ -731,13 +731,13 @@ Battle::animatePass()
 	// flame_preprocess (ilwrath.c:126-139): the frame advances every frame
 	// it lives, and the collision silhouette follows -- why the flame GROWS
 	// as it flies (mask update = the C's CHANGING re-init, process.c:159-160).
-	// Order-free: nothing here reads another entity, so each<> suffices
-	// (FrameDriven is a tag; each<>'s underlying view elides it from the
-	// callback, unlike eachOrdered's plain get<>). Collider is read through
-	// find<>, not the join: the flame's own linger frame can legitimately
-	// have none (its detonation already detached it), same as the hook it
-	// replaces always tolerated.
-	each<AnimFrame, FrameDriven>(entt::exclude<Appearing>,
+	// Order-free: nothing here reads another entity, so an unordered view
+	// suffices (FrameDriven is a tag; the view elides it from the callback,
+	// unlike eachOrdered's plain get<>). Collider is read through find<>,
+	// not the join: the flame's own linger frame can legitimately have none
+	// (its detonation already detached it), same as the hook it replaces
+	// always tolerated.
+	view<AnimFrame, FrameDriven>(entt::exclude<Appearing>).each(
 			[this](EntityId id, AnimFrame &frame) {
 				++frame.n;
 				Borrowed<const WeaponSpec> ws = weaponSpec(id);

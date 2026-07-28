@@ -183,7 +183,7 @@ namespace detail {
 // entt drops an empty component from the tuple a view yields -- a tag has no
 // value to bind a reference to. The ordered walk destructures by hand, so it
 // has to drop the same ones itself, or naming a tag in its type list would
-// not compile and a tag could filter each<> but never eachOrdered<>.
+// not compile and a tag could filter a view but never eachOrdered<>.
 template <class T, class Reg>
 [[nodiscard]] auto
 fetchOrdered([[maybe_unused]] Reg &reg, [[maybe_unused]] EntityId id)
@@ -417,37 +417,31 @@ public:
 		return reg_.ctx().find<T>();
 	}
 
-	// The typed join (review-007 W4b's join rule): a pass's component set is
-	// its call signature now, not documentation above a blanket get<> or a
-	// find<T> per iteration -- reg_.view<Ts...>().each(fn) yielding
-	// (EntityId, Ts&...), order-free (for the scans that don't need the
-	// spine -- Field.cpp's gravity/placement checks). entt::registry still
-	// never escapes Battle. Ts always explicit at the call site (each<Ts...>
-	// isn't deducible from Fn alone); a tag among Ts still filters presence
-	// without the callback needing a reference for it -- entt elides an
-	// empty type from the yielded tuple on its own.
-	template <class... Ts, class Fn>
-	void each(Fn &&fn)
+	// The query surface (review-008 V1): entt's own view vocabulary, not a
+	// hand-rolled fraction of it -- iterators, use<>, size_hint and storage
+	// all reach the caller through the view entt returns, where each<Ts...>
+	// only ever forwarded .each(fn). Battle owns the registry; the caller
+	// owns the query. entt::registry itself still never escapes (review-004
+	// open question 3) -- only the view does.
+	template <class... Ts>
+	[[nodiscard]] auto view()
 	{
-		reg_.view<Ts...>().each(std::forward<Fn>(fn));
+		return reg_.view<Ts...>();
 	}
-	template <class... Ts, class Fn>
-	void each(Fn &&fn) const
+	template <class... Ts>
+	[[nodiscard]] auto view() const
 	{
-		reg_.view<const Ts...>().each(std::forward<Fn>(fn));
+		return reg_.view<const Ts...>();
 	}
-	// The exclude form: presence/absence is a query, not an in-body
-	// has<X>/!has<X> guard (SiGMan's review) -- an entity carrying any of
-	// Xs never reaches the callback at all.
-	template <class... Ts, class... Xs, class Fn>
-	void each(entt::exclude_t<Xs...> excl, Fn &&fn)
+	template <class... Ts, class... Xs>
+	[[nodiscard]] auto view(entt::exclude_t<Xs...> excl)
 	{
-		reg_.view<Ts...>(excl).each(std::forward<Fn>(fn));
+		return reg_.view<Ts...>(excl);
 	}
-	template <class... Ts, class... Xs, class Fn>
-	void each(entt::exclude_t<Xs...> excl, Fn &&fn) const
+	template <class... Ts, class... Xs>
+	[[nodiscard]] auto view(entt::exclude_t<Xs...> excl) const
 	{
-		reg_.view<const Ts...>(excl).each(std::forward<Fn>(fn));
+		return reg_.view<const Ts...>(excl);
 	}
 
 	// The declared-order walk (review-006 Z6): a local scratch of every live
@@ -466,7 +460,7 @@ public:
 	// entity if any is missing (reg_.all_of first) rather than passing a
 	// null through. Ts always explicit when non-empty (it isn't deducible
 	// from Fn alone). A tag among Ts filters presence without the callback
-	// taking an argument for it, same as each<Ts...> (see fetchOrdered).
+	// taking an argument for it, same as a view (see fetchOrdered).
 	template <class... Ts, class Fn>
 	void eachOrdered(Fn &&fn)
 	{
@@ -497,8 +491,8 @@ public:
 								detail::fetchOrdered<Ts>(reg_, id)...));
 		}
 	}
-	// The exclude form, matching each<Ts...>'s: an entity carrying any of
-	// Xs is skipped before Ts is even checked.
+	// The exclude form, matching view<Ts...>(excl)'s: an entity carrying any
+	// of Xs is skipped before Ts is even checked.
 	template <class... Ts, class... Xs, class Fn>
 	void eachOrdered(entt::exclude_t<Xs...>, Fn &&fn)
 	{

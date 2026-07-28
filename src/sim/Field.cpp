@@ -66,26 +66,27 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 	const Body a{selfCollider->mask, selfAt, selfAt};
 
 	// Order-independent: a plain OR over every other element, so the walk
-	// need not be the spine -- each<> is enough, and keeps entt::registry
-	// out of this file. Collider is a required join now, not a find-then-
-	// null-check: the presence filter moved into the query (review-007
-	// W4b's join rule).
+	// need not be the spine -- an unordered view is enough, and keeps
+	// entt::registry out of this file. Collider is a required join now, not
+	// a find-then-null-check: the presence filter moved into the query
+	// (review-007 W4b's join rule).
 	bool conflict = false;
-	b.each<Collider, Position>([&](EntityId other, Collider &tCollider,
-											Position &pos) {
-		if (conflict || other == id)
-			return;
+	b.view<Collider, Position>().each(
+			[&](EntityId other, Collider &tCollider, Position &pos) {
+				if (conflict || other == id)
+					return;
 
-		// A player ship counts even when it is not collidable -- gravity.c:175
-		// calls that case "ship in transition", and it is what stops a planet
-		// materialising on top of a ship that is still warping in.
-		if (!b.collidable(other) && !b.has<ShipState>(other))
-			return;
+				// A player ship counts even when it is not collidable --
+				// gravity.c:175 calls that case "ship in transition", and it
+				// is what stops a planet materialising on top of a ship
+				// that is still warping in.
+				if (!b.collidable(other) && !b.has<ShipState>(other))
+					return;
 
-		const Body other_{tCollider.mask, pos.current, pos.current};
-		if (sweptIntersect(a, other_))
-			conflict = true;
-	});
+				const Body other_{tCollider.mask, pos.current, pos.current};
+				if (sweptIntersect(a, other_))
+					conflict = true;
+			});
 
 	return conflict;
 }
@@ -109,7 +110,7 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 		// loop has no use for, whereas the plain check here reads at least
 		// as clearly and keeps this the same shape as the Collider join
 		// above.
-		b.each<Position>([&](EntityId other, Position &pos) {
+		b.view<Position>().each([&](EntityId other, Position &pos) {
 			if (tooClose || other == id || !b.has<ShipState>(other))
 				return;
 			const Vec2i d = wrapDelta(pos.current - selfAt);
