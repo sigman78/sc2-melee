@@ -10,6 +10,7 @@
 #include "sim/ShipSystems.hpp"
 #include "sim/World.hpp"
 
+#include <cassert>
 #include <tuple>
 #include <utility>
 
@@ -336,14 +337,14 @@ Battle::spawnEffect(
 void
 Battle::killOverlapSpawn(EntityId id)
 {
-	if (!alive(id))
-		return;
+	// Reached only from resolveAgainst, which has already established that
+	// both its ids are live; doDamage marks and drains, it never retires an
+	// entity (see resolveAgainst for why nothing dies mid-Collide).
+	assert(alive(id) && "killOverlapSpawn is given a live entity");
 
 	const ShipState *s = ship(id);
 	const Vitality *v = find<Vitality>(id);
 	doDamage(*this, id, s != nullptr ? s->crew : v != nullptr ? v->hitPoints : 0);
-	if (!alive(id))
-		return;
 	reg_.get<CollisionScratch>(id).collided = true;
 	reg_.emplace_or_replace<Doomed>(id);
 	runDeathResponses(id);
@@ -369,10 +370,13 @@ bool
 Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		usize testIdx, TimeValue maxTime)
 {
-	if (!alive(elemId))
-		return true;
-	if (!alive(testId))
-		return false;
+	// Both ids are live, and stay live for this whole call including the
+	// recursive descent below: collidePass only starts a walk from a
+	// collidable id, and nothing is destroyed mid-Collide -- removeElement's
+	// one caller is the reap, a later sync point (11c). A response can mark
+	// an entity Doomed, which is not the same as retiring it.
+	assert(alive(elemId) && alive(testId)
+			&& "resolveAgainst is given two live entities");
 
 	// Solidity first, before any of Motion/Physique/CollisionScratch is
 	// fetched (review-007 W4b's minimal-composition rule): elemId is
@@ -497,10 +501,6 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 				reg_.try_get<Position, Motion, Physique>(elemId);
 		std::tie(tPos, tMotion, tPhys) =
 				reg_.try_get<Position, Motion, Physique>(testId);
-		if (!alive(elemId))
-			return true;
-		if (!alive(testId))
-			return false;
 
 		if (!tScratch.collided)
 		{
@@ -516,10 +516,6 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 				reg_.try_get<Position, Motion, Physique>(elemId);
 		std::tie(tPos, tMotion, tPhys) =
 				reg_.try_get<Position, Motion, Physique>(testId);
-		if (!alive(elemId))
-			return true;
-		if (!alive(testId))
-			return false;
 	}
 
 	// Resolution. The response decides who stops -- each raises Collided on
@@ -553,14 +549,12 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	if (reg_.all_of<ShipState>(testId))
 	{
 		respond(tIsWeapon, testId, elemId);
-		if (alive(elemId))
-			respond(eIsWeapon, elemId, testId);
+		respond(eIsWeapon, elemId, testId);
 	}
 	else
 	{
 		respond(eIsWeapon, elemId, testId);
-		if (alive(testId))
-			respond(tIsWeapon, testId, elemId);
+		respond(tIsWeapon, testId, elemId);
 	}
 
 	std::tie(ePos, eMotion, ePhys) =
@@ -571,17 +565,17 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// Whoever NEWLY raised Collided stops at the impact point
 	// (process.c:572-596); a side that was already stopped keeps the
 	// position its first collision gave it.
-	if (alive(testId) && tScratch.collided && !testHad)
+	if (tScratch.collided && !testHad)
 		tPos->next = testStop;
 
 	bool impulsed = false;
-	if (alive(elemId) && eScratch.collided && !elemHad)
+	if (eScratch.collided && !elemHad)
 	{
 		ePos->next = elemStop;
 
 		// Momentum exchange is solid-on-solid only (process.c:598-601). A
 		// weapon hit is resolved by damage, in the dispatch above.
-		if (alive(testId) && bothSolidNow)
+		if (bothSolidNow)
 		{
 			// Pure physics is told who is a ship by a ShipState pointer, null
 			// for anything else (review-007 W4b: the turn/thrust stagger is
@@ -600,8 +594,8 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		}
 	}
 
-	event.afterA = alive(elemId) ? worldVelocityOf(*eMotion) : event.beforeA;
-	event.afterB = alive(testId) ? worldVelocityOf(*tMotion) : event.beforeB;
+	event.afterA = worldVelocityOf(*eMotion);
+	event.afterB = worldVelocityOf(*tMotion);
 	collisions_.push_back(event);
 
 	if (impulsed)
@@ -616,7 +610,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	// Keeps scanning unless out of the game for the frame (process.c:609-618):
 	// stopped, or no longer collidable -- a ship merely hit by a missile is
 	// neither, and can still bounce off another ship this frame.
-	if (!alive(elemId) || eScratch.collided)
+	if (eScratch.collided)
 		return true;
 	if (!collidable(elemId))
 	{
@@ -637,11 +631,14 @@ bool
 Battle::processCollisions(
 		EntityId elemId, usize elemIdx, usize fromIdx, TimeValue maxTime)
 {
+	// Every id in the snapshot is still live: it was taken this pass and
+	// nothing is destroyed mid-Collide (see resolveAgainst).
+	assert(alive(elemId) && "processCollisions scans for a live entity");
+
 	for (usize idx = fromIdx; idx < collideOrder_.size();)
 	{
 		const EntityId testId = collideOrder_[idx];
-		if (!alive(testId))
-			break;
+		assert(alive(testId) && "the collide snapshot outlived an entity");
 
 		const usize succIdx = idx + 1;
 
@@ -652,7 +649,7 @@ Battle::processCollisions(
 		idx = succIdx;
 	}
 
-	return !alive(elemId) || reg_.get<CollisionScratch>(elemId).collided;
+	return reg_.get<CollisionScratch>(elemId).collided;
 }
 
 // CapturePrior (pipeline slot 1): the silhouette/facing every element enters
