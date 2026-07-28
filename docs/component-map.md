@@ -42,8 +42,8 @@ stays out of the walk entirely.
 | Component | Answers | Carried by |
 | --- | --- | --- |
 | `Physique{mass}` | how hard it is to push, and whether it pulls | everything collidable |
-| `Collider{mask}` | **is it solid** — solidity is having one | anything that can be hit right now |
-| `StashedMask{mask}` | a mask held while *not* solid | see the overlap note below |
+| `Collider{mask}` | **is it solid** — solidity is having one | anything solid; a warping ship keeps its one and is gated out by `WarpingIn` instead |
+| `StashedMask{mask}` | a durable copy of the birth mask, outliving the `Collider` so the death chain can hand it on | asteroids and their rubble, nothing else |
 | `CollisionScratch{collided, defyPhysics}` | this frame's contact bookkeeping | anything the collide pass walks |
 | `PriorSilhouette{mask, facing}` | the silhouette it entered the frame with | private to `Battle.cpp` — the overlap-repair protocol's own scratch |
 
@@ -161,8 +161,8 @@ Read these as the answer to "what *is* a shot", now that no struct says so.
 **A player's ship**
 `Order Position Motion Physique Allegiance CollisionScratch PriorSilhouette
 Appearing Collider IgnoreSimilar ShipState Input` + `Visual`
-— plus `WarpingIn Lifetime StashedMask` while arriving (its `Collider` is
-detached for the duration), `Cloak`/`Cloaked` if it is the Ilwrath, and
+-- plus `WarpingIn Lifetime` while arriving (it keeps its `Collider`;
+`collidable()` excludes it), `Cloak`/`Cloaked` if it is the Ilwrath, and
 `Exploding SweepsOwnedOnDeath` when it dies.
 
 **An asteroid**
@@ -212,12 +212,17 @@ dereferenced the null spec. They carry an inert spec now.
 **2. `StashedMask` means two different things.** On an asteroid it is a
 durable copy of the birth mask that deliberately coexists with the
 `Collider` so the death chain can hand the mask to the next asteroid. On a
-warping-in ship it is a temporary parking spot, attached as the `Collider`
-is detached and removed on arrival — strictly exclusive with it. Same
+warping-in ship it was a temporary parking spot, attached as the `Collider`
+was detached and removed on arrival — strictly exclusive with it. Same
 component, opposite lifetimes and opposite relationships to `Collider`, so
-"does this entity have a StashedMask" has no single meaning. Splitting it
-(`BirthMask` for the asteroid's, `ParkedMask` for the ship's) would make
-each site's invariant checkable.
+"does this entity have a StashedMask" answered nothing.
+
+Resolved by removing the second use rather than splitting the type: a
+warping ship now keeps its `Collider`, and `collidable()` excludes
+`WarpingIn`. Intangibility became a stated gate instead of an absence.
+Arrival's `applyFacingMask` no longer needs the stash as a fallback for a
+spec with no `facingMasks` either — the mask it would have restored is the
+one still sitting in the `Collider`.
 
 **3. `WeaponGuidance` did not guide anything — resolved.** It holds the
 shot's `WeaponSpec` borrow and is read for collision masks and cel lookup
@@ -235,8 +240,8 @@ duplicates its lifetime. Recorded so the next reader does not re-litigate it.
 **Not duplication, though the shapes match:** `Position{current, next}` and
 `Beam{from, to}` are both two points, meaning motion and geometry
 respectively — the split exists precisely because the old code abused one
-for the other. `Collider{mask}` and `StashedMask{mask}` share a shape for
-the reason in (2).
+for the other. `Collider{mask}` and `StashedMask{mask}` still share a
+shape, but only one entity kind carries both now, for the reason in (2).
 
 **5. The `comp` marker on three context types — resolved.** `MatchState`,
 `DebugToggles` and `BattleConfig` carried a marker whose own definition
