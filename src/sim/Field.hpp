@@ -3,6 +3,7 @@
 #ifndef UQM2_SIM_FIELD_HPP
 #define UQM2_SIM_FIELD_HPP
 
+#include "engine/core/Borrowed.hpp"
 #include "engine/core/Types.hpp"
 #include "sim/Entity.hpp"
 
@@ -34,12 +35,25 @@ struct Spin
 
 namespace comp::inline life {
 
-// A thin payload carrying asteroidDeath/rubbleDeath, attached only where
-// one exists -- the asteroid field and its rubble, nothing else. The
-// death path (Battle.cpp) calls `emit` for any DeathSpawn entity.
-struct DeathSpawn
+// One rock in the field's recycle (misc.c:80-105), which keeps the
+// population constant: a solid asteroid dies into rubble, and the rubble
+// dies into a fresh asteroid built from the same mask. `mask` is what one
+// phase hands the next -- a kill detaches the Collider immediately, a frame
+// or more before the death response runs, so the mask cannot be read back
+// off that.
+struct Asteroid
 {
-	void (*emit)(Battle &, EntityId) noexcept;
+	enum class Phase : u8
+	{
+		// Solid, spinning, collidable: the asteroid proper.
+		Solid,
+		// A five-frame blast that never collides, carrying the mask across
+		// the gap. It is a timer, not a second mechanic.
+		Rubble,
+	};
+
+	Borrowed<const CollisionMask> mask = nullptr;
+	Phase phase = Phase::Solid;
 };
 
 }  // namespace comp::inline life
@@ -60,10 +74,11 @@ EntityId spawnAsteroid(Battle &b, const CollisionMask *mask);
 // first (ship.c:473-481, ship.c:456). minSeparation floor: design-notes V7.
 void placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation);
 
-// The rubble an asteroid leaves; its own death spawns a replacement,
-// keeping the field's population constant (misc.c:80-105). The field's
-// death hook -- nothing outside it calls this.
-void asteroidDeath(Battle &b, EntityId id) noexcept;
+// Moves a dead rock to its next phase: a solid one leaves rubble carrying
+// its mask, and rubble spends that mask on a replacement asteroid. Called
+// from the death path (Battle.cpp) for anything holding an Asteroid, which
+// is the field and nothing else.
+void advanceAsteroidCycle(Battle &b, EntityId id) noexcept;
 
 // Whether `id` physically overlaps any other collidable element, or any
 // player ship, where it currently stands (TimeSpaceMatterConflict,

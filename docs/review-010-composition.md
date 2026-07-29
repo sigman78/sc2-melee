@@ -151,9 +151,10 @@ the *simulation*, and says nothing about the app above it.
 | W1 | `comp::` with inline groups; the `comp` macro deleted; `melee::comp` and `melee::ctx` | **done, bit-green** — 28 files, all 32 battles matched exactly |
 | W2 | The entt surface goes: public `reg`, pass-throughs deleted, `count_` and `orderDirty_` derived | **done, bit-green** — 17 member templates deleted, ~430 call sites, two real defects found (below) |
 | W3 | `lifeSpanOf` says what it means: both dead clauses deleted, `framesLeft` asserts, `isFiniteLife` becomes `isTransient` | **done, bit-green** — both claims proved by assert over the whole suite before deletion |
-| W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | pending |
+| W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | **done, bit-green** — three tests moved off the generic payload onto the real mechanic |
 | W5 | Spawns are built, not described: eager creation with `Order` withheld; `SpawnCommand` deleted | pending |
 | W6 | Specials: `SpecialSpec` is the gate only; `PointDefence` and `Cloak` are components; `preProcess` and `hook` deleted | pending |
+| W7 | `Lifetime` stops being a counter: `{born, span}`, `ageDecrementPass` deleted | pending |
 
 W1 and W2 sweep the same files and land together, as two commits.
 
@@ -274,6 +275,77 @@ Whatever replaces `SpawnFn` keeps its purity — const view in, values out, no
 non-const path to the ship. That is a deliberate defence against a real C
 bug (`umgah.c:330-341`, with `orz.c:249-253` compensating), not an
 accident of style.
+
+### W7 — the clock census, and why `Lifetime` is the one to change
+
+W3 named `framesLeft` and `ageOf` but left the mechanism alone. A census of
+every counter in the sim says the mechanism is where the remaining problem
+is.
+
+**Seven wait gates** — `turnWait`, `thrustWait`, `weaponCounter`,
+`specialCounter`, `energyCounter`, `Guided::clock`, `Spin::countdown` — all
+"count down, act at zero, reload", in **two different policies**:
+
+```cpp
+if (c > 0) --c; else if (cond) { act(); c = period; }   // six sites
+if (c > 0) --c;  if (c == 0 && cond) act();             // gateSpecial alone
+```
+
+`gateSpecial`'s own comment says why it differs — an else-branch "adds a
+dead frame every cycle" (`ship.c:342-346`). The distinction is gameplay and
+it lives **only in prose**. `Impulse` does a third thing: it raises
+`turnWait`/`thrustWait` to a floor rather than arming them, which is the
+collision stagger.
+
+**One lifetime countdown**, `Lifetime::remaining`: the only pool decremented
+for every member every frame, and the only clock whose death detection is an
+**equality test on zero**. `Battle.cpp` names two tests that failed when it
+did not land on exactly 0, which is why `ageDecrementPass` has to exclude
+`Doomed`.
+
+**Two animation counters**, and `AnimFrame` is two different things — an age
+for `FrameDriven` flames, the raw facing for guided nukes. It unifies with
+nothing, which is what review-007's overlap 4 already found.
+
+So: **`Lifetime{born, span}`**, both stamped at attach.
+
+```
+framesLeft = born + span - frame
+age        = frame - born
+attach     = {frame, n}      // re-stamped; warp-in and explosion both restart it
+kill now   = span = age
+```
+
+- `ageDecrementPass` deletes — one of sixteen slots, and the only pass that
+  touches every transient every frame.
+- The equality-on-zero landmine becomes `age >= span`, which cannot be
+  stepped past. The `Doomed` exclusion existed only to protect that
+  equality, and goes with it.
+- `ageOf(b, id, span)` loses its parameter, so the six sites W3 left passing
+  a constant can no longer pass the wrong one.
+- `Lifetime` becomes immutable after attach, so `WeaponSpec::lifetime` --
+  already a `Lifetime` copied verbatim into the shot -- stops meaning
+  something subtly different in the spec than on the entity.
+
+**It is expected to be bit-exact**: `remaining` at frame *t* is exactly
+`span - (t - born)` on every normal path, and the paths that slam
+`remaining = 0` become `span = age`. If every read yields the same number
+the digest does not move -- a claim `--compare` settles without an argument.
+One thing to verify rather than assume: today the decrement pass freezes a
+`Doomed` entity's `remaining`, and afterwards nothing freezes `framesLeft`.
+The reap runs before the digest is taken, so nothing should read it.
+
+**The seven gates are not part of W7.** A `Countdown` type with
+`openElseTick`/`tickThenOpen`/`raiseTo` would turn that prose distinction
+into a declared one, and it is bit-exact -- but it is seven sites of four
+lines and the call sites do not obviously read better afterwards. Worth
+doing only if the diff comes out small. Grouping the ship's counters into
+structs stays rejected: review-009 disqualified `Stagger{turn, thrust}` and
+`Cooldowns{weapon, special}` because nothing operates on either pair, and a
+type *per counter* is a different proposal from a struct *per pair*.
+
+W7 goes after W5, which rewrites every spawn site -- and those are exactly
+the sites that attach `Lifetime`.
 
 ## 5. The one thing that is not bit-exact, and it is a spike
 

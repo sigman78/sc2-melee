@@ -30,25 +30,6 @@ namespace {
 			(static_cast<u16>(r) % kArena.h) & ~(kScaledOne - 1));
 }
 
-// The rubble's own death hook: put a fresh asteroid back into the field.
-// Queued as a deferred command, not an ordinary one: spawnAsteroid draws
-// its own RNG sequence, and that draw must happen at the sync point in
-// queue order -- drawing early would desynchronise the field's RNG stream
-// from whatever else the sync point still draws this frame.
-void rubbleDeath(Battle &b, EntityId id) noexcept
-{
-	const comp::StashedMask *rm = b.reg.try_get<comp::StashedMask>(id);
-	const CollisionMask *mask = rm != nullptr ? rm->mask : nullptr;
-
-	b.queueSpawn(SpawnCommand{
-			.deferred =
-					[](Battle &bb, Borrowed<const CollisionMask> m) noexcept {
-						(void)spawnAsteroid(bb, m);
-					},
-			.deferredMask = mask,
-	});
-}
-
 }  // namespace
 
 bool timeSpaceMatterConflict(Battle &b, EntityId id)
@@ -202,22 +183,42 @@ EntityId spawnAsteroid(Battle &b, const CollisionMask *mask)
 	spin.backwards = (b.rng().next() & (1u << 7)) != 0;
 
 	pos.next = pos.current;
+	// The mask rides the cycle rather than being read back off the Collider:
+	// a kill detaches that immediately, a frame or more before the death
+	// response runs.
 	Spawned s = b.spawn(Layer::Field, pos, motion, phys, mask);
-	s.with(spin).with(comp::Vitality{1}).with(comp::DeathSpawn{asteroidDeath});
-
-	// A standing copy of the birth mask, independent of the Collider: a kill
-	// detaches the Collider immediately, one frame or more before
-	// asteroidDeath runs, but asteroidDeath still needs the mask to hand on.
-	s.with(comp::StashedMask{mask});
+	s.with(spin)
+			.with(comp::Vitality{1})
+			.with(comp::Asteroid{mask, comp::Asteroid::Phase::Solid});
 	return s;
 }
 
-void asteroidDeath(Battle &b, EntityId id) noexcept
+void advanceAsteroidCycle(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
 
-	const comp::StashedMask *deadMask = b.reg.try_get<comp::StashedMask>(id);
+	// Copied out before anything queues: the phase decides what happens and
+	// the mask is what it hands on (misc.c:80-105).
+	const comp::Asteroid rock = b.reg.get<comp::Asteroid>(id);
+
+	if (rock.phase == comp::Asteroid::Phase::Rubble)
+	{
+		// Deferred, not an ordinary command: spawnAsteroid draws its own RNG
+		// sequence, and that draw must happen at the sync point in queue
+		// order -- drawing early would desynchronise the field's stream from
+		// whatever else the sync point still draws this frame.
+		b.queueSpawn(SpawnCommand{
+				.deferred =
+						[](Battle &bb,
+								Borrowed<const CollisionMask> m) noexcept {
+							(void)spawnAsteroid(bb, m);
+						},
+				.deferredMask = rock.mask,
+		});
+		return;
+	}
+
 	auto [deadPos, deadAllegiance] =
 			b.reg.get<comp::Position, comp::Allegiance>(id);
 
@@ -226,8 +227,8 @@ void asteroidDeath(Battle &b, EntityId id) noexcept
 	rPos.next = rPos.current;
 
 	// Queued, not spawned: it enters the world at the sync point and acts
-	// next frame. The rubble itself never collides -- rubbleMask just
-	// carries the asteroid's mask through to the replacement asteroid.
+	// next frame. The rubble never collides; it is a five-frame timer that
+	// carries the mask to the replacement asteroid.
 	b.queueSpawn(SpawnCommand{
 			.layer = Layer::Ordnance,
 			.position = rPos,
@@ -235,8 +236,8 @@ void asteroidDeath(Battle &b, EntityId id) noexcept
 			.effect = true,  // stationary: no Motion needed
 			.blast = true,
 			.lifetime = comp::Lifetime{5},
-			.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr,
-			.deathSpawn = rubbleDeath,
+			.asteroid =
+					comp::Asteroid{rock.mask, comp::Asteroid::Phase::Rubble},
 	});
 }
 

@@ -112,14 +112,6 @@ struct Collider
 	Borrowed<const CollisionMask> mask = nullptr;
 };
 
-// A durable copy of a birth mask, carried independently of Collider and
-// outliving it -- the asteroid field's recycle (Field.cpp). A kill detaches
-// Collider immediately; the mask survives here for the rubble/replacement.
-struct StashedMask
-{
-	Borrowed<const CollisionMask> mask = nullptr;
-};
-
 }  // namespace comp::inline matter
 
 }  // namespace uqm::sim

@@ -7,6 +7,7 @@
 #include "sim/Damage.hpp"
 #include "sim/Element.hpp"
 #include "sim/Entity.hpp"
+#include "sim/Field.hpp"
 #include "sim/Random.hpp"
 #include "sim/Ship.hpp"
 
@@ -138,15 +139,10 @@ struct SpawnCommand
 	// shot); every direct spawn site goes through Battle::spawn instead.
 	Borrowed<const CollisionMask> collider = nullptr;
 
-	// Non-null for the asteroid field's rubble (Field.cpp's asteroidDeath):
-	// carries the mask through its non-solid life for the next asteroid's
-	// death spawn -- never a Collider, or the rubble would collide.
-	Borrowed<const CollisionMask> rubbleMask = nullptr;
-
-	// Non-null attaches a DeathSpawn once the spawn lands (Field.hpp): the
-	// rubble's own payload, matching DeathSpawn::emit's signature. The
-	// asteroid's own payload attaches directly in spawnAsteroid instead.
-	void (*deathSpawn)(Battle &, EntityId) noexcept = nullptr;
+	// Set for the field's rubble (Field.cpp): the phase it lands in and the
+	// mask it carries to the replacement asteroid. Never a Collider, or the
+	// rubble would collide.
+	std::optional<comp::Asteroid> asteroid;
 
 	// Escape hatch for a spawn whose construction (e.g. RNG draws) must
 	// happen at the sync point, not at emission (Field.cpp's rubbleDeath).
@@ -359,9 +355,9 @@ private:
 	void killOverlapSpawn(EntityId id);
 	void recordSpawn(EntityId id, const comp::Allegiance &allegiance);
 
-	// The death path's two mechanisms: DeathSpawn's payload (asteroid/
-	// rubble) and SweepsOwnedOnDeath's generic sweep (ordnance) --
-	// mutually exclusive per entity, run from both death call sites.
+	// The death path's two mechanisms: the asteroid field's own cycle and
+	// SweepsOwnedOnDeath's sweep of a dead ship's ordnance -- mutually
+	// exclusive per entity, run from both death call sites.
 	void runDeathResponses(EntityId id) noexcept;
 
 	// Destroys the entity; the Order observer invalidates the sort.
