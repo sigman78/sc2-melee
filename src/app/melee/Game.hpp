@@ -57,6 +57,11 @@ struct Game
 // context<T> rather than a Game member. Device handles and frame plumbing
 // stay in Game -- ctx for those would be a service locator with extra steps.
 
+// Not components: one value per type in the registry's context, reached
+// through Battle::setContext/context. `ctx::` says which of the two a
+// name is (review-008 §5).
+namespace ctx {
+
 // -1 while the fight is on, then the surviving player, or 2 for a draw.
 // Held rather than acted on: the battle keeps stepping so the wreck and its
 // blast finish playing out, which is what the C does too.
@@ -91,6 +96,8 @@ struct BattleConfig
 	// design; wiring a mask into them would make sim/ depend on content.
 	std::array<sim::ShipSpec, 2> shipData{};
 };
+
+}  // namespace ctx
 
 // Half level: the .wav files are mastered loud enough that a dozen
 // streams would clip. With one voice per effect (platform/Audio.hpp)

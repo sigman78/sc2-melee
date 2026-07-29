@@ -83,7 +83,7 @@ void loadAssets(Game &g, const std::filesystem::path &content)
 				content.string().c_str());
 	}
 
-	BattleConfig cfg;
+	ctx::BattleConfig cfg;
 
 	// Today's fixed roster, by catalog key. What ships exist and what they
 	// load is game/Ships.cpp's business; only the match-up is decided here.
@@ -141,7 +141,7 @@ void loadAssets(Game &g, const std::filesystem::path &content)
 		}
 	}
 
-	g.battle.setContext<BattleConfig>(cfg);
+	g.battle.setContext<ctx::BattleConfig>(cfg);
 }
 
 }  // namespace uqm::melee

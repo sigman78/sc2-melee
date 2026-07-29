@@ -10,9 +10,26 @@ components it carries.
 
 ## How to read this
 
-- A type marked `comp` (the empty marker macro in each header) is a
-  registry-attached component. An empty one is a **tag**: presence is the
-  whole value.
+- **`comp::` is the whole answer to "is this a component".** Every
+  registry-attached type lives in `uqm::sim::comp` (app-side ones in
+  `uqm::melee::comp`) and nothing else does, so a use site says it without
+  the definition being in view. An empty one is a **tag**: presence is the
+  whole value. The `comp` marker macro this replaced is gone.
+- The groups below are `inline namespace`s inside `comp`, so
+  `comp::life::Doomed` and `comp::Doomed` both name it and the everyday
+  spelling is the short one. They are documentation, not addressing — a
+  component changing group must not be a tree sweep (`review-010` §2).
+
+| Group | Holds |
+| --- | --- |
+| `comp::space` | `Position`, `Beam`, `Motion`, `Order`, `Spin` |
+| `comp::matter` | `Physique`, `Collider`, `CollisionScratch`, `Planet`, `StashedMask`, `PriorSilhouette` |
+| `comp::life` | `Appearing`, `Lifetime`, `Doomed`, `Indestructible`, `SweepsOwnedOnDeath`, `DeathSpawn` |
+| `comp::owner` | `Allegiance`, `IgnoreSimilar` |
+| `comp::harm` | `Vitality`, `Warhead`, `DamageIncoming` |
+| `comp::ship` | `ShipState`, `Input`, `WarpingIn`, `Exploding`, `Cloak`, `Cloaked` |
+| `comp::shot` | `FromWeapon`, `Guided`, `AnimFrame`, `FrameDriven` |
+| `comp::look` | `Trail`, `Shadow`, `Debris`, `Blast` |
 - **Minimal composition** — a component is attached only where some pass
   reads it. An entity missing one is not incomplete; it is a thing that
   pass does not concern. `Allegiance` is the single deliberate exception,
@@ -23,6 +40,8 @@ components it carries.
   *another* entity.
 - Four values belong to the world rather than to any entity and live in the
   registry's context, reached through `Battle::setContext/context/findContext`.
+  Those are `melee::ctx::`, not `comp::` — the prefix says which of the two a
+  name is.
 - A constant that governs one component's behaviour is a `static constexpr`
   member of it — `Trail::kLife`, `WarpingIn::kFrames`, `Exploding::kLife`.
   Tags stay tags: a static member does not make a class non-empty, which

@@ -17,7 +17,7 @@ namespace {
 // caches by id and loadAssets already warmed it.
 [[nodiscard]] std::span<const platform::Sound> shipSounds(Game &g, i32 playerNr)
 {
-	const auto &roster = g.battle.context<BattleConfig>().roster;
+	const auto &roster = g.battle.context<ctx::BattleConfig>().roster;
 	if (playerNr < 0 || static_cast<usize>(playerNr) >= roster.size()
 			|| roster[static_cast<usize>(playerNr)] == nullptr)
 		return {};
@@ -38,7 +38,8 @@ void playStepSounds(Game &g)
 	{
 		i32 damage = 0;
 		for (const sim::EntityId side : {c.a.id, c.b.id})
-			if (const auto *w = g.battle.find<sim::Warhead>(side); w != nullptr)
+			if (const auto *w = g.battle.find<sim::comp::Warhead>(side);
+					w != nullptr)
 				damage = std::max(damage, w->damage);
 
 		const usize boom = std::min(slot(game::BattleSound::Damaged1)
@@ -74,15 +75,15 @@ void playStepSounds(Game &g)
 	// The explosion sound plays when it starts, not when the wreck is
 	// reaped: StartShipExplosion fires SHIP_EXPLODES as it starts burning
 	// (tactrans.c:722-727), 36 frames before the wreck disappears.
-	const auto &shipIds = g.battle.context<MatchState>().shipIds;
+	const auto &shipIds = g.battle.context<ctx::MatchState>().shipIds;
 	for (auto shipId : shipIds)
 	{
-		if (g.battle.has<AnnouncedDead>(shipId))
+		if (g.battle.has<comp::AnnouncedDead>(shipId))
 			continue;
 		auto *s = g.battle.ship(shipId);
 		if (s == nullptr || s->crew > 0)
 			continue;
-		g.battle.attach<AnnouncedDead>(shipId);
+		g.battle.attach<comp::AnnouncedDead>(shipId);
 		// shipdies.wav -- SHIP_EXPLODES (tactrans.c:723-726).
 		if (battleSnd.size() > slot(game::BattleSound::ShipExplodes))
 			g.audio.play(battleSnd[slot(game::BattleSound::ShipExplodes)],

@@ -224,7 +224,7 @@ BattleResult simulateBattle(u32 seed, std::ostream *trace)
 		{
 			if (frame % kInputPeriod == 0)
 				word[p] = inputRng[p].next();
-			if (Input *in = b.find<Input>(shipId[p]))
+			if (comp::Input *in = b.find<comp::Input>(shipId[p]))
 				in->buttons = wordToInput(word[p]);
 		}
 
@@ -240,9 +240,9 @@ BattleResult simulateBattle(u32 seed, std::ostream *trace)
 		b.eachOrdered([&](EntityId id) {
 			// A beam has no Position -- its Beam.from is what this digest
 			// folds as `current` instead, to keep the hash stable.
-			const Position *pos = b.find<Position>(id);
-			const Vec2i at =
-					pos != nullptr ? pos->current : b.find<Beam>(id)->from;
+			const comp::Position *pos = b.find<comp::Position>(id);
+			const Vec2i at = pos != nullptr ? pos->current
+											: b.find<comp::Beam>(id)->from;
 			foldI32(frameDigest, at.x);
 			foldI32(frameDigest, at.y);
 			// find<Lifetime> ? remaining : 1 -- the persistent-element value
@@ -250,7 +250,7 @@ BattleResult simulateBattle(u32 seed, std::ostream *trace)
 			// baseline; the planet's fold is 1 here, not 2 (one legal
 			// re-record).
 			foldI32(frameDigest, lifeSpanOf(b, id));
-			const ShipState *ss = b.ship(id);
+			const comp::ShipState *ss = b.ship(id);
 			if (ss != nullptr)
 			{
 				foldI32(frameDigest, ss->crew);

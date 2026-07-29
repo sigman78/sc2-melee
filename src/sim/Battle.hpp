@@ -74,18 +74,18 @@ struct SpawnEvent
 struct SpawnCommand
 {
 	Layer layer = Layer::Field;
-	Position position;
-	Motion motion;
-	Physique physique;
+	comp::Position position;
+	comp::Motion motion;
+	comp::Physique physique;
 
 	// Passed through to spawn()/spawnBeam() unchanged, same reason it is
 	// uniform there: every queued spawn gets one, no exceptions.
-	Allegiance allegiance;
+	comp::Allegiance allegiance;
 
 	// Set only for a beam: routes the drain through Battle::spawnBeam
 	// instead of Battle::spawn -- a beam carries no Position, so
 	// `position` above is never read for one.
-	std::optional<Beam> beam;
+	std::optional<comp::Beam> beam;
 
 	// Set for a decorative particle (ion trail, warp-in shadow, impact
 	// blast, rubble): routes the drain through Battle::spawnEffect instead
@@ -109,26 +109,26 @@ struct SpawnCommand
 
 	// Set for a guided weapon; the clock inside is already wound (see
 	// ShipSystems.cpp's fire block).
-	std::optional<Guided> guided;
+	std::optional<comp::Guided> guided;
 
 	bool ignoreSimilar = false;
 
 	// Set for a transient spawn: Lifetime attaches once the spawn lands,
 	// carrying the countdown for a queued FiniteLife shot, trail, blast,
 	// or spark.
-	std::optional<Lifetime> lifetime;
+	std::optional<comp::Lifetime> lifetime;
 
 	// Set only for a weapon shot (the fire block): Vitality attaches once
 	// the spawn lands, not uniformly -- attached only where it's read.
-	std::optional<Vitality> vitality;
+	std::optional<comp::Vitality> vitality;
 
 	// Set only for a weapon shot: passed to Battle::spawn, which attaches
 	// it before the spawn is recorded -- recordSpawn derives Weapon flavor
 	// from has<Warhead>, so this must already be in place by then.
-	std::optional<Warhead> warhead;
+	std::optional<comp::Warhead> warhead;
 
 	// Set only for a weapon shot: AnimFrame attaches once the spawn lands.
-	std::optional<AnimFrame> animFrame;
+	std::optional<comp::AnimFrame> animFrame;
 
 	// True stamps FrameDriven onto the shot (WeaponSpec::frameDriven):
 	// only the flame sets it, selecting animate-pass's sub-iteration.
@@ -194,29 +194,30 @@ public:
 	// Builds through make(): the Spawned it returns can still take further
 	// `.with()` calls (spawnPlayerShip's IgnoreSimilar, per-command extras
 	// in drainSpawnCommands).
-	Spawned spawn(Layer layer, Position pos = Position{},
-			Motion motion = Motion{}, Physique physique = Physique{},
+	Spawned spawn(Layer layer, comp::Position pos = comp::Position{},
+			comp::Motion motion = comp::Motion{},
+			comp::Physique physique = comp::Physique{},
 			Borrowed<const CollisionMask> collider = nullptr,
-			Allegiance allegiance = Allegiance{},
-			std::optional<Warhead> warhead = std::nullopt);
+			comp::Allegiance allegiance = comp::Allegiance{},
+			std::optional<comp::Warhead> warhead = std::nullopt);
 
 	// A beam's own spawn: no Position, Collider, Motion/Physique/
 	// PriorSilhouette/CollisionScratch, or Appearing -- a beam never moves
 	// or collides. Still gets Order and Allegiance, same as spawn().
-	Spawned spawnBeam(
-			Layer layer, Beam beam, Allegiance allegiance = Allegiance{});
+	Spawned spawnBeam(Layer layer, comp::Beam beam,
+			comp::Allegiance allegiance = comp::Allegiance{});
 
 	// A decorative particle (ion trail, warp-in shadow, impact blast,
 	// rubble): Position is set once and never touched again, so it carries
 	// none of spawn()'s collision scaffold. Still gets Order and Allegiance.
-	Spawned spawnEffect(
-			Layer layer, Position pos, Allegiance allegiance = Allegiance{});
+	Spawned spawnEffect(Layer layer, comp::Position pos,
+			comp::Allegiance allegiance = comp::Allegiance{});
 
 	// The one decoration that actually drifts (the explosion's debris):
 	// spawnEffect's shape plus Motion, so Integrate still advances it --
 	// everything spawnEffect omits stays omitted.
-	Spawned spawnEffect(Layer layer, Position pos, Motion motion,
-			Allegiance allegiance = Allegiance{});
+	Spawned spawnEffect(Layer layer, comp::Position pos, comp::Motion motion,
+			comp::Allegiance allegiance = comp::Allegiance{});
 
 	// The fluent spawn: the entity with its declared Order and nothing
 	// else; every component the caller wants is named by a .with().
@@ -260,9 +261,9 @@ public:
 	// lookup is try_get, destroy reaps every component with its entity.
 
 	// The ship component. Null for anything that is not a ship.
-	[[nodiscard]] ShipState *ship(EntityId id) noexcept;
-	[[nodiscard]] const ShipState *ship(EntityId id) const noexcept;
-	ShipState &attachShip(EntityId id, Borrowed<const ShipSpec> spec);
+	[[nodiscard]] comp::ShipState *ship(EntityId id) noexcept;
+	[[nodiscard]] const comp::ShipState *ship(EntityId id) const noexcept;
+	comp::ShipState &attachShip(EntityId id, Borrowed<const ShipSpec> spec);
 
 	// The spec a shot flies by, by value -- see FromWeapon. Use
 	// `.with(FromWeapon{spec})` on the Spawned to attach one directly.
@@ -368,14 +369,14 @@ public:
 		ensureOrdered();
 		if constexpr (sizeof...(Ts) == 0)
 		{
-			for (EntityId const id : reg_.view<Order>())
+			for (EntityId const id : reg_.view<comp::Order>())
 				fn(id);
 		}
 		else
 		{
-			auto v = reg_.view<Order, Ts...>();
-			v.template use<Order>();
-			v.each([&fn](EntityId id, Order &, auto &...rest) {
+			auto v = reg_.view<comp::Order, Ts...>();
+			v.template use<comp::Order>();
+			v.each([&fn](EntityId id, comp::Order &, auto &...rest) {
 				fn(id, rest...);
 			});
 		}
@@ -388,14 +389,14 @@ public:
 		ensureOrdered();
 		if constexpr (sizeof...(Ts) == 0)
 		{
-			for (EntityId id : reg_.view<Order>(excl))
+			for (EntityId id : reg_.view<comp::Order>(excl))
 				fn(id);
 		}
 		else
 		{
-			auto v = reg_.view<Order, Ts...>(excl);
-			v.template use<Order>();
-			v.each([&fn](EntityId id, Order &, auto &...rest) {
+			auto v = reg_.view<comp::Order, Ts...>(excl);
+			v.template use<comp::Order>();
+			v.each([&fn](EntityId id, comp::Order &, auto &...rest) {
 				fn(id, rest...);
 			});
 		}
@@ -407,8 +408,8 @@ public:
 	template <class... Ts> [[nodiscard]] auto ordered()
 	{
 		ensureOrdered();
-		auto v = reg_.view<Order, Ts...>();
-		v.template use<Order>();
+		auto v = reg_.view<comp::Order, Ts...>();
+		v.template use<comp::Order>();
 		return v;
 	}
 
@@ -449,7 +450,7 @@ private:
 	bool resolveAgainst(EntityId elem, usize elemIdx, EntityId test,
 			usize testIdx, TimeValue maxTime);
 	void killOverlapSpawn(EntityId id);
-	void recordSpawn(EntityId id, const Allegiance &allegiance);
+	void recordSpawn(EntityId id, const comp::Allegiance &allegiance);
 
 	// The death path's two mechanisms: DeathSpawn's payload (asteroid/
 	// rubble) and SweepsOwnedOnDeath's generic sweep (ordnance) --
@@ -467,7 +468,7 @@ private:
 	// The declared position every spawn gets: the caller's layer, FIFO
 	// within it. One counter, one place it advances, so make() and the
 	// spawn() family cannot drift apart on what seq means.
-	[[nodiscard]] Order nextOrder(Layer layer) noexcept;
+	[[nodiscard]] comp::Order nextOrder(Layer layer) noexcept;
 
 	entt::registry reg_;
 	// Set true by anything that adds or removes an Order -- see

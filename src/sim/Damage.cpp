@@ -12,7 +12,7 @@
 
 namespace uqm::sim {
 
-bool deltaCrew(ShipState &s, i32 delta) noexcept
+bool deltaCrew(comp::ShipState &s, i32 delta) noexcept
 {
 	if (delta > 0)
 	{
@@ -42,14 +42,14 @@ namespace {
 void accumulateDamage(
 		Battle &b, EntityId id, i32 amount, EntityId from) noexcept
 {
-	if (DamageIncoming *di = b.find<DamageIncoming>(id))
+	if (comp::DamageIncoming *di = b.find<comp::DamageIncoming>(id))
 	{
 		di->amount += amount;
 		di->lastFrom = from;
 	}
 	else
 	{
-		b.attach<DamageIncoming>(id, DamageIncoming{amount, from});
+		b.attach<comp::DamageIncoming>(id, comp::DamageIncoming{amount, from});
 	}
 }
 
@@ -60,7 +60,7 @@ void doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 	if (!b.alive(id))
 		return;
 
-	if (b.has<ShipState>(id))
+	if (b.has<comp::ShipState>(id))
 	{
 		// A crewed hull's damage stacks in DamageIncoming; Battle::step's
 		// sync point sums every source this frame into one deltaCrew call
@@ -71,13 +71,13 @@ void doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 
 	// A gravity mass is not damageable. Asked without gravity.c's `+ 1`, so a
 	// planet is immune and a fleeing ship at mass 100 is not.
-	if (isGravityMass(b.get<Physique>(id).mass))
+	if (isGravityMass(b.get<comp::Physique>(id).mass))
 		return;
 
 	// Every non-ship collidable thing that can reach here carries a
 	// Vitality (weapons, the asteroid field, the planet); a bare id with
 	// neither ShipState nor Vitality simply has nothing left to hurt.
-	Vitality *v = b.find<Vitality>(id);
+	comp::Vitality *v = b.find<comp::Vitality>(id);
 	if (v == nullptr)
 		return;
 
@@ -90,15 +90,15 @@ void doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 	// Death detected next frame (ageAndReapMarkPass), not this one -- no
 	// Doomed here, matching lifeSpan = 0 without Disappearing (misc.c:210,221
 	// has no FINITE_LIFE guard: this kills a non-aging asteroid the same way).
-	b.attachOrReplace<Lifetime>(id, Lifetime{0});
-	b.detach<Collider>(id);
+	b.attachOrReplace<comp::Lifetime>(id, comp::Lifetime{0});
+	b.detach<comp::Collider>(id);
 }
 
 void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 {
 	if (!b.alive(id))
 		return;
-	CollisionScratch &wScratch = b.get<CollisionScratch>(id);
+	comp::CollisionScratch &wScratch = b.get<comp::CollisionScratch>(id);
 
 	// "if already did effect" (weapon.c:141-142): a weapon that has raised
 	// its own Collided this frame is done, however many partners the walk
@@ -108,25 +108,26 @@ void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 
 	if (!b.alive(targetId))
 		return;
-	CollisionScratch const &targetScratch = b.get<CollisionScratch>(targetId);
+	comp::CollisionScratch const &targetScratch =
+			b.get<comp::CollisionScratch>(targetId);
 
 	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
-	const i32 damage = b.get<Physique>(id).mass;
+	const i32 damage = b.get<comp::Physique>(id).mass;
 
 	// weapon.c:145-158: hurts anything transient or at NORMAL_LIFE, except
 	// an Indestructible target -- the planet. A target that SURVIVES marks
 	// the weapon Collided ("did effect"), stopping it at the impact point.
-	if (damage > 0 && !b.has<Indestructible>(targetId)
+	if (damage > 0 && !b.has<comp::Indestructible>(targetId)
 			&& (isFiniteLife(b, targetId) || lifeSpanOf(b, targetId) == 1))
 	{
-		doDamage(b, targetId, damage, b.get<Allegiance>(id).owner);
+		doDamage(b, targetId, damage, b.get<comp::Allegiance>(id).owner);
 		if (!b.alive(id))
 			return;
 		i32 left = 0;
 		if (b.alive(targetId))
 		{
-			const ShipState *ts = b.ship(targetId);
-			const Vitality *tv = b.find<Vitality>(targetId);
+			const comp::ShipState *ts = b.ship(targetId);
+			const comp::Vitality *tv = b.find<comp::Vitality>(targetId);
 			left = ts != nullptr ? ts->crew : tv != nullptr ? tv->hitPoints : 0;
 		}
 		if (left > 0)
@@ -137,13 +138,14 @@ void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// it hasn't already stopped and isn't tough enough to pierce -- hit points
 	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame
 	// don't).
-	Vitality &wVital = b.get<Vitality>(id);
+	comp::Vitality &wVital = b.get<comp::Vitality>(id);
 	if (b.alive(targetId) && isFiniteLife(b, targetId)
 			&& (targetScratch.collided
-					|| wVital.hitPoints > b.get<Physique>(targetId).mass))
+					|| wVital.hitPoints > b.get<comp::Physique>(targetId).mass))
 		return;
 
-	auto [pos, motion, warhead] = b.get<Position, Motion, Warhead>(id);
+	auto [pos, motion, warhead] =
+			b.get<comp::Position, comp::Motion, comp::Warhead>(id);
 	const Vec2i at = pos.next;
 	const int angle = motion.velocity.travelAngle();
 
@@ -151,21 +153,21 @@ void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// NONSOLID | DISAPPEARING (weapon.c:175-181), Collided in scratch:
 	// stopped, spent, reaped this frame.
 	wScratch.collided = true;
-	b.attachOrReplace<Lifetime>(id, Lifetime{0});
-	b.attachOrReplace<Doomed>(id);
-	b.detach<Collider>(id);
+	b.attachOrReplace<comp::Lifetime>(id, comp::Lifetime{0});
+	b.attachOrReplace<comp::Doomed>(id);
+	b.detach<comp::Collider>(id);
 
 	// ilwrath.c:141-148: the flame's own bit undoes the death mark on the
 	// spot, so the fireball still draws for the frame it died on instead of
 	// vanishing at once.
 	if (warhead.lingersOnHit)
-		b.detach<Doomed>(id);
+		b.detach<comp::Doomed>(id);
 
 	// The blast, offset along the direction of travel so it sits on the
 	// surface it hit rather than inside it (weapon.c:198-208). Inherits the
 	// weapon's playerNr, no owner of its own.
-	const i32 shooterPlayerNr = b.get<Allegiance>(id).playerNr;
-	Position blastPos;
+	const i32 shooterPlayerNr = b.get<comp::Allegiance>(id).playerNr;
+	comp::Position blastPos;
 	blastPos.current = wrap(
 			Vec2i{at.x + cosine(angle, displayToWorld(warhead.blastOffset)),
 					at.y + sine(angle, displayToWorld(warhead.blastOffset))});
@@ -176,10 +178,10 @@ void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	b.queueSpawn(SpawnCommand{
 			.layer = Layer::Ordnance,
 			.position = blastPos,
-			.allegiance = Allegiance{shooterPlayerNr, kNoEntity},
+			.allegiance = comp::Allegiance{shooterPlayerNr, kNoEntity},
 			.effect = true,  // stationary: no Motion needed
 			.blast = true,
-			.lifetime = Lifetime{Blast::kLife},
+			.lifetime = comp::Lifetime{comp::Blast::kLife},
 	});
 }
 
@@ -199,17 +201,17 @@ void solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept
 	// Hitting anything solid stops this element at the impact point
 	// (ship.c:358 raises COLLISION for any non-finite other) -- which is what
 	// makes solid-on-solid exchange momentum in the step loop.
-	b.get<CollisionScratch>(id).collided = true;
+	b.get<comp::CollisionScratch>(id).collided = true;
 
-	if (!isGravityMass(b.get<Physique>(otherId).mass))
+	if (!isGravityMass(b.get<comp::Physique>(otherId).mass))
 		return;
 
 	// ship.c:364-367: damage = hit_points >> 2, floored at one. For a
 	// PLAYER_SHIP, hit_points IS crew_level (one union field,
 	// element.h:126-133); anything else here (asteroid, planet) has a Vitality
 	// instead.
-	const ShipState *ss = b.ship(id);
-	const Vitality *v = b.find<Vitality>(id);
+	const comp::ShipState *ss = b.ship(id);
+	const comp::Vitality *v = b.find<comp::Vitality>(id);
 	const i32 own = ss != nullptr ? ss->crew : v != nullptr ? v->hitPoints : 0;
 	i32 damage = own >> 2;
 	if (damage == 0)

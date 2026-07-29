@@ -118,7 +118,7 @@ the wrapper was protecting are now derived rather than maintained.
 
 | Stage | What | Proof |
 | --- | --- | --- |
-| W1 | `comp::` with inline groups; the `comp` macro deleted; `melee::comp` and `melee::ctx` | pending |
+| W1 | `comp::` with inline groups; the `comp` macro deleted; `melee::comp` and `melee::ctx` | **done, bit-green** — 28 files, all 32 battles matched exactly |
 | W2 | The entt surface goes: public `reg`, pass-throughs deleted, `count_` and `orderDirty_` derived | pending |
 | W3 | `lifeSpanOf` says what it means: both dead clauses deleted, `framesLeft` asserts, `isFiniteLife` becomes `isTransient` | pending |
 | W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | pending |

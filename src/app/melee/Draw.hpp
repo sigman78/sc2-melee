@@ -16,8 +16,6 @@ namespace uqm::game {
 struct SpriteSet;
 }
 
-#define comp
-
 namespace uqm::melee {
 
 struct Game;
@@ -34,19 +32,23 @@ constexpr Colour rgb(u32 c) noexcept
 			static_cast<u8>((c >> 8) & 0xFF), static_cast<u8>(c & 0xFF)};
 }
 
+namespace comp {
+
 // What one element draws as: a sprite set (null for a line/point effect
 // with no art) and a fallback colour for when the set failed to load or
 // none applies. The pass owns technique -- cel indexing, hotspot, tinting.
-comp struct Visual
+struct Visual
 {
 	const game::SpriteSet *sprites = nullptr;
 	Colour fallback{0xC0, 0xC0, 0xC0};
 };
 
+}  // namespace comp
+
 // What an element draws as, chosen from what it is composed of (ShipState/
 // Shadow -> ship art, Warhead -> weapon art, ...). Built once per spawned
 // element in setUp()/iterate(); resolved through Resources' cache.
-[[nodiscard]] Visual visualFor(Game &g, sim::EntityId id, i32 playerNr);
+[[nodiscard]] comp::Visual visualFor(Game &g, sim::EntityId id, i32 playerNr);
 
 // The starfield: three planes (30/60/90 stars), each scrolling at
 // 1/2^plane of the camera so nearer planes move faster (galaxy.c:37-44,
@@ -86,10 +88,12 @@ inline constexpr int kStarCount =
 // zoom-independent, so it tiles over four screens for ~45 stars in view.
 inline constexpr Extent2i kStarField = sim::kSpace * 2;
 
+namespace comp {
+
 // One entity with no Position or Order (Battle::create(), outside the sim's
 // element count), populated at setup, read only by renderStars. Positions
 // are display pixels on a per-plane torus (galaxy.c:37-44).
-comp struct Starfield
+struct Starfield
 {
 	std::array<Vec2i, kStarCount> stars{};
 };
@@ -97,7 +101,7 @@ comp struct Starfield
 // A collision event held on screen for kLife frames. App-owned (Battle::
 // create()), reaped by age in iterate() via Battle::destroy() -- never a
 // sim element, so it carries no Order and is invisible to eachOrdered.
-comp struct Mark
+struct Mark
 {
 	// How long a contact point stays on screen, in simulation frames.
 	static constexpr u64 kLife = 24;
@@ -106,13 +110,13 @@ comp struct Mark
 	u64 bornFrame = 0;
 };
 
+}  // namespace comp
+
 // Renders one frame: the ordered pipeline of semantic passes -- stars,
 // planet, asteroids, ships, projectiles, effects, marks, the HUD and,
 // ctx-gated, the collision debug overlay.
 void draw(Game &g);
 
 }  // namespace uqm::melee
-
-#undef comp
 
 #endif  // UQM2_APP_MELEE_DRAW_HPP
