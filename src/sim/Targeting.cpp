@@ -33,8 +33,10 @@ int trackShip(Battle &b, EntityId tracker, Facing &facing,
 					comp::Position &pos) {
 				if (t.playerNr == self->playerNr)
 					return;
-				// Dead ships are not targets (weapon.c:352-353).
-				if (lifeSpanOf(b, id) == 0 || ts.crew == 0)
+				// Dead ships are not targets (weapon.c:352-353). A live
+				// hull is persistent; only a burning one is counting down.
+				if ((isTransient(b, id) && framesLeft(b, id) == 0)
+						|| ts.crew == 0)
 					return;
 				// Nor cloaked ones (weapon.c:344-348). This is the whole
 				// tactical point of the Ilwrath cloak: not that it is hard to

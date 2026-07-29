@@ -89,15 +89,19 @@ namespace {
 
 }  // namespace
 
-i32 lifeSpanOf(const Battle &b, EntityId id) noexcept
+bool isTransient(const Battle &b, EntityId id) noexcept
 {
-	const comp::Lifetime *l = b.reg.try_get<comp::Lifetime>(id);
-	return l != nullptr ? l->remaining : 1;
+	return b.reg.all_of<comp::Lifetime>(id);
 }
 
-bool isFiniteLife(const Battle &b, EntityId id) noexcept
+i32 framesLeft(const Battle &b, EntityId id) noexcept
 {
-	return b.reg.try_get<comp::Lifetime>(id) != nullptr;
+	return b.reg.get<comp::Lifetime>(id).remaining;
+}
+
+i32 ageOf(const Battle &b, EntityId id, i32 span) noexcept
+{
+	return span - framesLeft(b, id);
 }
 
 Battle::Battle(u32 seed) : rng_(seed)
@@ -352,18 +356,19 @@ bool Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		return false;
 
 	// A transient element doesn't collide on its spawn frame
-	// (process.c:389-394)
-	// -- exempts FINITE_LIFE-with-Appearing on EITHER side, so a missile can't
-	// detonate on its own muzzle; lifeSpan > 1 still lets one-frame PD fire.
-	if ((isFiniteLife(*this, elemId) || isFiniteLife(*this, testId))
-			&& ((reg.all_of<comp::Appearing>(elemId)
-						&& lifeSpanOf(*this, elemId) > 1)
-					|| (reg.all_of<comp::Appearing>(testId)
-							&& lifeSpanOf(*this, testId) > 1)))
+	// (process.c:389-394) -- so a missile can't detonate on its own muzzle.
+	// More than one frame left, so one-frame PD fire still lands. The C's
+	// FINITE_LIFE guard around this was implied by the test itself and is
+	// gone (review-010 W3).
+	const auto newbornTransient = [this](EntityId id) {
+		return reg.all_of<comp::Appearing>(id) && isTransient(*this, id)
+				&& framesLeft(*this, id) > 1;
+	};
+	if (newbornTransient(elemId) || newbornTransient(testId))
 		return false;
 
 	const bool bothSolid =
-			!(isFiniteLife(*this, elemId) || isFiniteLife(*this, testId));
+			!(isTransient(*this, elemId) || isTransient(*this, testId));
 	Impact hit = sweptIntersect(bodyOf(*ePos, maskOf(reg, elemId)),
 			bodyOf(*tPos, maskOf(reg, testId)), maxTime);
 
@@ -479,7 +484,7 @@ bool Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	const bool elemHad = eScratch.collided;
 	const bool testHad = tScratch.collided;
 	const bool bothSolidNow =
-			!(isFiniteLife(*this, elemId) || isFiniteLife(*this, testId));
+			!(isTransient(*this, elemId) || isTransient(*this, testId));
 
 	CollisionEvent event;
 	event.a.id = elemId;

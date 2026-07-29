@@ -160,13 +160,19 @@ static_assert(std::is_empty_v<Trail> && std::is_empty_v<Debris>
 
 class Battle;
 
-// `remaining` if `id` has a Lifetime, else the persistent value it implies.
-// One rule, so no reader can quietly disagree with another about what an
-// absent Lifetime means.
-[[nodiscard]] i32 lifeSpanOf(const Battle &b, EntityId id) noexcept;
+// Whether `id` is transient: counting down to a death of its own. An absent
+// Lifetime means persistent, and is the only encoding of it.
+[[nodiscard]] bool isTransient(const Battle &b, EntityId id) noexcept;
 
-// Whether `id` holds a Lifetime, i.e. is transient and counting down.
-[[nodiscard]] bool isFiniteLife(const Battle &b, EntityId id) noexcept;
+// Frames of life left. Asserts a Lifetime rather than standing in a value
+// for its absence -- the C's NORMAL_LIFE stood in as 1, which reads as "one
+// frame left" and hid two dead branches until it was removed (review-010).
+// Ask isTransient first where absence is possible.
+[[nodiscard]] i32 framesLeft(const Battle &b, EntityId id) noexcept;
+
+// Frames lived, given the span it was spawned with: the counter runs down
+// and everything that animates off it counts up.
+[[nodiscard]] i32 ageOf(const Battle &b, EntityId id, i32 span) noexcept;
 
 }  // namespace uqm::sim
 

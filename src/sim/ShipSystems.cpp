@@ -408,8 +408,8 @@ void guidedShotPreProcess(Battle &b, EntityId id) noexcept
 	// Accelerates as it goes (human.c:148-157): speed climbs with life spent,
 	// capped -- a nuke chasing you a while is much harder to outrun than one
 	// just launched.
-	i32 speed = ws->speed
-			+ (ws->lifetime.remaining - lifeSpanOf(b, id)) * g->thrustScale;
+	i32 speed =
+			ws->speed + ageOf(b, id, ws->lifetime.remaining) * g->thrustScale;
 	speed = std::min(speed, g->maxSpeed);
 	b.reg.get<comp::Motion>(id).velocity.setVector(speed, pos->facing);
 }
@@ -481,7 +481,7 @@ void warpInStep(Battle &b, EntityId id) noexcept
 		const comp::Position &shipPos = b.reg.get<comp::Position>(id);
 		const Angle angle = shipPos.facing.angle();
 		const i32 back =
-				comp::WarpingIn::kImageSpacing * (lifeSpanOf(b, id) - 1);
+				comp::WarpingIn::kImageSpacing * (framesLeft(b, id) - 1);
 
 		comp::Position shadowPos;
 		shadowPos.facing = shipPos.facing;
@@ -506,7 +506,7 @@ void warpInStep(Battle &b, EntityId id) noexcept
 	if (!b.alive(id))
 		return;
 
-	if (lifeSpanOf(b, id) <= 1)
+	if (framesLeft(b, id) <= 1)
 	{
 		// Arrived: solid, visible, under its own control (tactrans.c:868-886).
 		// The Collider was never removed, so applyFacingMask's rebuild is a
@@ -570,7 +570,7 @@ void explosionStep(Battle &b, EntityId id) noexcept
 	// How many sparks this frame: the C's schedule (tactrans.c:545-575) ramps
 	// 1/3/1 over the 26 frames it spawns for, then nothing for the last ten
 	// while thrown sparks finish burning.
-	const i32 age = comp::Exploding::kLife - lifeSpanOf(b, id);
+	const i32 age = ageOf(b, id, comp::Exploding::kLife);
 	int count = 3;
 	if (age <= 2 || (age >= 20 && age <= 25))
 		count = 1;

@@ -1651,7 +1651,7 @@ void testPlanetsTakeNoDamage()
 	auto *pv = b.reg.try_get<comp::Vitality>(planetId);
 	CHECK(pv->hitPoints == 200, "a planet is not damageable, got %ld",
 			static_cast<long>(pv->hitPoints));
-	CHECK(lifeSpanOf(b, planetId) == 1, "and holds no Lifetime to kill");
+	CHECK(!isTransient(b, planetId), "and holds no Lifetime to kill");
 
 	// weaponCollision has its own target-survives check (Damage.cpp), separate
 	// from doDamage's mass guard above -- a regression in one would not be
@@ -2241,7 +2241,7 @@ void testShipWarpsInBeforeItIsSolid()
 		b.eachOrdered([&](sim::EntityId id) {
 			if (!b.reg.all_of<sim::comp::Shadow>(id))
 				return;
-			const i32 life = sim::lifeSpanOf(b, id);
+			const i32 life = sim::framesLeft(b, id);
 			if (life <= best)
 				return;
 			best = life;
