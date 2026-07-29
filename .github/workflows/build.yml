@@ -106,12 +106,12 @@ jobs:
       - name: Format
         run: |
           files=$(git ls-files 'src/*.cpp' 'src/*.hpp' 'tests/*.cpp' 'tests/*.hpp')
-          clang-format-21 --dry-run -Werror $files
+          clang-format --dry-run -Werror $files
 
       # Too slow for a pre-commit hook, which is why it lives here.
       - name: Lint
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           for f in $(git ls-files 'src/*.cpp' 'tests/*.cpp'); do
-            clang-tidy-21 -p build "$f" --quiet --warnings-as-errors='*'
+            clang-tidy -p build "$f" --quiet --warnings-as-errors='*'
           done
