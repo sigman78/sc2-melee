@@ -153,7 +153,7 @@ the *simulation*, and says nothing about the app above it.
 | W3 | `lifeSpanOf` says what it means: both dead clauses deleted, `framesLeft` asserts, `isFiniteLife` becomes `isTransient` | **done, bit-green** — both claims proved by assert over the whole suite before deletion |
 | W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | **done, bit-green** — three tests moved off the generic payload onto the real mechanic |
 | W5 | Spawns are built, not described: eager creation with `Order` withheld; `SpawnCommand` deleted | **done, bit-green** — six passes joined `Order`, one escape hatch left |
-| W6 | Specials: `SpecialSpec` is the gate only; `PointDefence` and `Cloak` are components; `preProcess` and `hook` deleted | **done, bit-green** — the spike said the batch shape is free; taking it needs a re-record, so it is a follow-up |
+| W6 | Specials: `SpecialSpec` is the gate only; `PointDefence` and `Cloak` are components; `preProcess` and `hook` deleted | **done, bit-green** — the pre-turn slot is a per-mechanic pass; the gated one needs a re-record, so it is a follow-up |
 | W7 | `Lifetime` stops being a counter: `{born, span}`, `ageDecrementPass` deleted | pending |
 
 W1 and W2 sweep the same files and land together, as two commits.
@@ -429,6 +429,44 @@ follow-up whenever that is authorised — the mechanics are already components
 with their own step functions, so it is a change to where they are called
 from and nothing else.
 
+### Measured again, same day — the *pre-turn* slot is free, and is taken
+
+The price above is the gated slot's. The pre-turn slot was never measured,
+and it turns out to cost nothing: `preTurnSpecialsPass` is bit-green, so the
+cloak is a per-mechanic pass now rather than a per-entity dispatch, and
+`runPreTurnSpecials` is gone.
+
+The catch is *where* the pass goes, and it is not the walk-order question
+this tree usually asks. Run **after** `shipMachinesPass` it diverges in 10
+of 32 battles before frame 64, flipping at least three winners. The trace
+localises it to a single number: battle 6, frame 15, the arriving Ilwrath
+holds 12 energy instead of 15 — one cloak activation, three energy, spent a
+frame early.
+
+Frame 15 is `WarpingIn::kFrames`, and `warpInStep` **removes `WarpingIn` on
+the arrival frame**. Interleaved, the `return` after `warpInStep` spends
+that ship's frame. As a separate pass, `entt::exclude<WarpingIn>` is
+evaluated after the tag it excludes on has already been erased, so the
+arriving ship takes a step the early return had denied it.
+
+**A sequenced early return is not a query predicate.** Transposing
+`for ship { if A return; if B return; mechanic }` into
+`view<Mechanic>(exclude<A, B>)` bets that nothing between the two evaluation
+points mutates `A` or `B` — and here the pass mutates its own guards. That
+is the check every future mechanic owes, and it is a different question from
+the walk-order one review-008 §6 settled.
+
+Run **before** `shipMachinesPass` the bet holds and the baseline does not
+move. For a live ship the placement is a no-op — the cloak call was all that
+remained of `shipMachinesStep` — so the only couplings left are spawn order
+and the RNG stream. The cloak spawns nothing, and it draws only on
+`trackShip`'s exactly-astern coin flip; in 1v1 that draw cannot race
+`explosionStep`'s, because a dead enemy leaves `trackShip` with no target
+and so no draw at all. **In a three-or-more-ship melee that argument is
+gone**, so the placement is bit-exact by measurement here and by
+construction nowhere. It is the first thing to re-measure when melee grows a
+third ship.
+
 ### What W6 landed
 
 `SpecialSpec` keeps the uniform half and nothing else: a cost and a
@@ -450,8 +488,9 @@ now *composes* mechanics rather than owning them:
 `equip` is still a function pointer, but a one-shot builder run at spawn
 rather than a hook run every frame — everything after it is a step over
 components. A ship reusing a mechanic costs nothing outside its own file; a
-*new* mechanic costs a component, a step, and one line in the dispatcher
-that `sim/Specials.cpp` owns. Adding a ship never edits the core.
+*new* mechanic costs a component, a step, and one query (pre-turn) or one
+line (gated) in the slot that `sim/Specials.cpp` owns. Adding a ship never
+edits the core.
 
 One behavioural detail: `Cloak` is attached at spawn now rather than lazily
 on first use, because presence is what dispatch keys on. `Cloak{0}` is the

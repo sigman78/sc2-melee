@@ -231,13 +231,21 @@ void pointDefenceStep(Battle &b, EntityId id) noexcept
 
 }  // namespace
 
-// The two dispatchers, and the whole of this file's surface: component
-// presence is the selector, so no ship is named here and the walk position
-// stays exactly where the C put it.
-void runPreTurnSpecials(Battle &b, EntityId id) noexcept
+// The two slots, and the whole of this file's surface: component presence is
+// the selector, so no ship is named here.
+//
+// The guard set is ShipMachines' three early returns as a query -- WarpingIn
+// and Appearing are presence filters, crew == 0 a value test. Ordering
+// against that pass is load-bearing; Specials.hpp says why.
+void preTurnSpecialsPass(Battle &b) noexcept
 {
-	if (b.reg.all_of<comp::Cloak>(id))
-		cloakStep(b, id);
+	b.eachOrdered<comp::Cloak, comp::ShipState>(
+			entt::exclude<comp::WarpingIn, comp::Appearing>,
+			[&b](EntityId id, comp::Cloak &, comp::ShipState &s) {
+				if (s.crew == 0)
+					return;
+				cloakStep(b, id);
+			});
 }
 
 void runGatedSpecials(Battle &b, EntityId id) noexcept

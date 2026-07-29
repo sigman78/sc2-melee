@@ -271,9 +271,9 @@ void energyRegenPass(Battle &b) noexcept
 namespace {
 
 // ShipMachines (pipeline slot 4), one ship: warping in pre-empts
-// everything, the appearing frame is its own one-time init, a dead hull
-// only burns, and only what is left of those runs the ship's own preProcess
-// hook (the Ilwrath cloak). Turn and Thrust are their own passes below.
+// everything, the appearing frame is its own one-time init, and a dead hull
+// only burns. The specials already ran, in the pass ahead of this one
+// (Specials.hpp); Turn and Thrust are their own passes below.
 void shipMachinesStep(Battle &b, EntityId id, comp::ShipState &s) noexcept
 {
 	const ShipSpec &spec = *s.spec;
@@ -301,10 +301,7 @@ void shipMachinesStep(Battle &b, EntityId id, comp::ShipState &s) noexcept
 	{
 		if (b.reg.all_of<comp::Exploding>(id))
 			explosionStep(b, id);
-		return;
 	}
-
-	runPreTurnSpecials(b, id);
 }
 
 }  // namespace
