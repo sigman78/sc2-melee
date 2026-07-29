@@ -31,19 +31,23 @@ namespace uqm::sim {
 // design-notes D5.
 struct CollisionEvent
 {
-	EntityId a = kNoEntity;
-	EntityId b = kNoEntity;
+	// One side of the contact: who, and what the response did to it.
+	struct Side
+	{
+		EntityId id = kNoEntity;
+
+		// Velocities either side of the response, in world units per frame,
+		// so a consumer can draw or measure the change without knowing the
+		// fixed-point encoding.
+		Vec2i before;
+		Vec2i after;
+	};
+
+	Side a;
+	Side b;
 
 	// Where they met, in world units.
 	Vec2i at;
-
-	// Velocities either side of the response, in world units per frame, so a
-	// consumer can draw or measure the change without knowing the fixed-point
-	// encoding.
-	Vec2i beforeA;
-	Vec2i beforeB;
-	Vec2i afterA;
-	Vec2i afterB;
 };
 
 // What SpawnEvent::kind distinguishes: the two flavors Sound.cpp's dispatch

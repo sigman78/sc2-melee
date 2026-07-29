@@ -86,7 +86,6 @@ already grouped that way:
             EntityId id = kNoEntity;
             Vec2i before;   // world units per frame
             Vec2i after;
-            [[nodiscard]] constexpr Vec2i delta() const noexcept;
         };
         Side a;
         Side b;
@@ -94,9 +93,17 @@ already grouped that way:
     };
 
 `a`, `beforeA` and `afterA` were three fields describing one entity,
-scattered. `delta()` is what `renderMarks` has always wanted — its own
-comment says "the difference *is* the response" — and the old shape could
-not express it.
+scattered.
+
+This section first argued for a `delta()` accessor on `Side`, on the
+grounds that `renderMarks` wants the difference — its comment says "the
+difference *is* the response". Reading the pass settled it the other way:
+it draws four arrows out of the contact point, one along each raw vector,
+so the difference is what the *viewer* sees between two drawn arrows, not
+a value the code computes. `delta()` would draw a fifth, different line.
+No consumer wants it, so it is not written. The grouping stands on its own
+argument: `after - before` is meaningful only within one participant,
+whether or not anything spells it today.
 
 **`ShipSpec`** gets `Battery{max, regen, wait} battery` in place of
 `maxEnergy`/`energyRegen`/`energyWait`, following `ThrustProfile thrust`,

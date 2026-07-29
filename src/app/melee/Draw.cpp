@@ -584,10 +584,10 @@ renderMarks(Game &g)
 						at.y + camera.scale(v.y * kVectorGain)},
 					r, gg, b);
 		};
-		arrow(mark.event.beforeA, 0x60, 0x60, 0x90);
-		arrow(mark.event.beforeB, 0x60, 0x60, 0x90);
-		arrow(mark.event.afterA, 0x60, 0xC0, 0xFF);
-		arrow(mark.event.afterB, 0xFF, 0xC0, 0x60);
+		arrow(mark.event.a.before, 0x60, 0x60, 0x90);
+		arrow(mark.event.b.before, 0x60, 0x60, 0x90);
+		arrow(mark.event.a.after, 0x60, 0xC0, 0xFF);
+		arrow(mark.event.b.after, 0xFF, 0xC0, 0x60);
 	});
 }
 

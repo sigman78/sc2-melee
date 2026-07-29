@@ -131,10 +131,8 @@ earthlingCruiser() noexcept
 	// raw display pixels (review-002 §5's spec-authoring rule).
 	static const ShipSpec data{
 		.maxCrew = 18,
-		.maxEnergy = 18,
-		.energyRegen = 1,
-		.energyWait = 8,
 		.thrust{.max = 24, .increment = 3},
+		.battery{.max = 18, .regen = 1, .wait = 8},
 		.thrustWait = 4,
 		.turnWait = 1,
 		.mass = 6,

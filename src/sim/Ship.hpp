@@ -139,17 +139,23 @@ struct SpecialSpec
 	i32 pointDefenceRange = 0;
 };
 
+// A ship's energy plant: what it holds and how it refills.
+struct Battery
+{
+	i32 max = 0;
+	i32 regen = 0;
+	i32 wait = 0;
+};
+
 // An immutable description of a ship type: a *value*, constructible in code,
 // not only parsed -- sis_ship.c:881-990 builds the flagship's descriptor from
 // inventory, shofixti.c:461-517 a damaged variant by copying one.
 struct ShipSpec
 {
 	i32 maxCrew = 0;
-	i32 maxEnergy = 0;
-	i32 energyRegen = 0;
-	i32 energyWait = 0;
 
 	ThrustProfile thrust;
+	Battery battery;
 	i32 thrustWait = 0;
 	i32 turnWait = 0;
 

@@ -412,7 +412,7 @@ bool
 pairCollided(const Battle &b, EntityId x, EntityId y) noexcept
 {
 	for (const CollisionEvent &ev : b.collisions())
-		if ((ev.a == x && ev.b == y) || (ev.a == y && ev.b == x))
+		if ((ev.a.id == x && ev.b.id == y) || (ev.a.id == y && ev.b.id == x))
 			return true;
 	return false;
 }

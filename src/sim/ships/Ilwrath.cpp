@@ -189,10 +189,8 @@ ilwrathAvenger() noexcept
 	// accelerates every frame and its flame is continuous.
 	static const ShipSpec data{
 		.maxCrew = 22,
-		.maxEnergy = 16,
-		.energyRegen = 4,
-		.energyWait = 4,
 		.thrust{.max = 25, .increment = 5},
+		.battery{.max = 16, .regen = 4, .wait = 4},
 		.thrustWait = 0,
 		.turnWait = 2,
 		.mass = 7,

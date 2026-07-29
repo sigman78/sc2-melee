@@ -38,7 +38,7 @@ playStepSounds(Game &g)
 	for (const sim::CollisionEvent &c : g.battle.collisions())
 	{
 		i32 damage = 0;
-		for (const sim::EntityId side : {c.a, c.b})
+		for (const sim::EntityId side : {c.a.id, c.b.id})
 			if (const auto *w = g.battle.find<sim::Warhead>(side); w != nullptr)
 				damage = std::max(damage, w->damage);
 

@@ -22,11 +22,11 @@ deltaEnergy(ShipState &s, i32 delta) noexcept
 		return false;
 
 	s.energy += delta;
-	if (s.energy > s.spec->maxEnergy)
-		s.energy = s.spec->maxEnergy;
+	if (s.energy > s.spec->battery.max)
+		s.energy = s.spec->battery.max;
 	if (s.energy < 0)
 		s.energy = 0;
-	s.energyCounter = s.spec->energyWait;
+	s.energyCounter = s.spec->battery.wait;
 	return true;
 }
 
@@ -78,9 +78,9 @@ regenEnergy(ShipState &s, const ShipSpec &spec) noexcept
 	{
 		--s.energyCounter;
 	}
-	else if (s.energy < spec.maxEnergy || spec.energyRegen < 0)
+	else if (s.energy < spec.battery.max || spec.battery.regen < 0)
 	{
-		(void)deltaEnergy(s, spec.energyRegen);
+		(void)deltaEnergy(s, spec.battery.regen);
 	}
 }
 
@@ -312,7 +312,7 @@ shipMachinesStep(Battle &b, EntityId id) noexcept
 	{
 		Input &in = *b.find<Input>(id);
 		s.crew = spec.maxCrew;
-		s.energy = spec.maxEnergy;
+		s.energy = spec.battery.max;
 		in.buttons = ShipInput::None;
 		auto [allegiance, pos] = b.get<Allegiance, Position>(id);
 		allegiance.owner = id;
@@ -508,7 +508,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		// instead, so there is no mask to lose track of and nothing to restore
 		// on arrival.
 		sp->crew = sp->spec->maxCrew;
-		sp->energy = sp->spec->maxEnergy;
+		sp->energy = sp->spec->battery.max;
 		auto [in, allegiance] = b.get<Input, Allegiance>(id);
 		in.buttons = ShipInput::None;
 		allegiance.owner = id;

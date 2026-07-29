@@ -527,11 +527,11 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			!(isFiniteLife(*this, elemId) || isFiniteLife(*this, testId));
 
 	CollisionEvent event;
-	event.a = elemId;
-	event.b = testId;
+	event.a.id = elemId;
+	event.b.id = testId;
 	event.at = elemStop;
-	event.beforeA = worldVelocityOf(*eMotion);
-	event.beforeB = worldVelocityOf(*tMotion);
+	event.a.before = worldVelocityOf(*eMotion);
+	event.b.before = worldVelocityOf(*tMotion);
 
 	// Dispatch keyed on Warhead's presence (review-007 W5, replacing the old
 	// per-element onCollision hook): has<Warhead> is a shot, everything else
@@ -594,8 +594,8 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		}
 	}
 
-	event.afterA = worldVelocityOf(*eMotion);
-	event.afterB = worldVelocityOf(*tMotion);
+	event.a.after = worldVelocityOf(*eMotion);
+	event.b.after = worldVelocityOf(*tMotion);
 	collisions_.push_back(event);
 
 	if (impulsed)
