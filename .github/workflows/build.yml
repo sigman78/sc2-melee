@@ -1,13 +1,17 @@
 name: build
 
+# A branch with a PR open matches both `push` and `pull_request`, which ran
+# the whole matrix twice. `pull_request` is the one kept: it builds the merge
+# result, which is what actually lands. `push` stays for main only, so a
+# merge is still checked.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -83,7 +87,14 @@ jobs:
       - name: Install clang tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends             clang-format clang-tidy cmake ninja-build             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev             libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev             libwayland-dev wayland-protocols libdecor-0-dev             libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
+          sudo apt-get install -y --no-install-recommends             clang-tidy cmake ninja-build             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev             libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev             libwayland-dev wayland-protocols libdecor-0-dev             libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
+
+      # Pinned, not the distro package: clang-format's output moves between
+      # releases, so "whatever the runner image ships today" disagrees with
+      # whatever formatted the tree and fails on lines nobody touched. The
+      # version here is the one .clang-format names.
+      - name: Install clang-format
+        run: pipx install 'clang-format==21.1.5'
 
       # The same check .githooks/pre-commit runs, over everything.
       - name: Format
