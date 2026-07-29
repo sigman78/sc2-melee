@@ -151,7 +151,7 @@ the *simulation*, and says nothing about the app above it.
 | W1 | `comp::` with inline groups; the `comp` macro deleted; `melee::comp` and `melee::ctx` | **done, bit-green** — 28 files, all 32 battles matched exactly |
 | W2 | The entt surface goes: public `reg`, pass-throughs deleted, `count_` and `orderDirty_` derived | **done, bit-green** — 17 member templates deleted, ~430 call sites, two real defects found (below) |
 | W3 | `lifeSpanOf` says what it means: both dead clauses deleted, `framesLeft` asserts, `isFiniteLife` becomes `isTransient` | **done, bit-green** — both claims proved by assert over the whole suite before deletion |
-| W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | pending |
+| W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | **done, bit-green** — three tests moved off the generic payload onto the real mechanic |
 | W5 | Spawns are built, not described: eager creation with `Order` withheld; `SpawnCommand` deleted | pending |
 | W6 | Specials: `SpecialSpec` is the gate only; `PointDefence` and `Cloak` are components; `preProcess` and `hook` deleted | pending |
 | W7 | `Lifetime` stops being a counter: `{born, span}`, `ageDecrementPass` deleted | pending |

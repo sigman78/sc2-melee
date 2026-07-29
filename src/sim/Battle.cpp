@@ -309,13 +309,14 @@ void Battle::killOverlapSpawn(EntityId id)
 	runDeathResponses(id);
 }
 
-// Two death mechanisms, mutually exclusive per entity: a DeathSpawn payload
-// (asteroid/rubble) or a SweepsOwnedOnDeath sweep (a dying ship's own
-// ordnance) -- so which runs first is never observable.
+// Two death mechanisms, mutually exclusive per entity: the asteroid field's
+// own cycle, or a SweepsOwnedOnDeath sweep of a dying ship's ordnance -- so
+// which runs first is never observable. Each names a mechanic; neither is a
+// hook the entity carries the code for.
 void Battle::runDeathResponses(EntityId id) noexcept
 {
-	if (const comp::DeathSpawn *ds = reg.try_get<comp::DeathSpawn>(id))
-		ds->emit(*this, id);
+	if (reg.all_of<comp::Asteroid>(id))
+		advanceAsteroidCycle(*this, id);
 	if (reg.all_of<comp::SweepsOwnedOnDeath>(id))
 		sweepDeadShipOrdnance(*this, id);
 }
@@ -816,10 +817,8 @@ void Battle::drainSpawnCommands()
 			s.with(comp::FrameDriven{});
 		if (cmd.ignoreSimilar)
 			s.with(comp::IgnoreSimilar{});
-		if (cmd.rubbleMask != nullptr)
-			s.with(comp::StashedMask{cmd.rubbleMask});
-		if (cmd.deathSpawn != nullptr)
-			s.with(comp::DeathSpawn{cmd.deathSpawn});
+		if (cmd.asteroid)
+			s.with(*cmd.asteroid);
 		// The render tags: at most one is ever set, by the effect's own spawn
 		// site.
 		if (cmd.trail)

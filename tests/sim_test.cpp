@@ -775,7 +775,6 @@ void testTheTwoShipsDifferWhereTheCDoes()
 struct Trace
 {
 	std::vector<int> preOrder;
-	std::vector<int> deaths;
 };
 Trace g_trace;
 
@@ -785,23 +784,6 @@ void recordPre(Battle &b, EntityId id) noexcept
 {
 	g_trace.preOrder.push_back(
 			static_cast<int>(b.reg.try_get<comp::Physique>(id)->mass));
-}
-
-void recordDeath(Battle &b, EntityId id) noexcept
-{
-	g_trace.deaths.push_back(
-			static_cast<int>(b.reg.try_get<comp::Physique>(id)->mass));
-}
-
-// Spawns and gives it a ShipState so it satisfies the ship gate in
-// ShipSystems.cpp. The spec is empty (no facingMasks, no crew), so
-// ShipMachines' Appearing branch has nothing to act on here.
-EntityId spawnShip(Battle &b, Layer layer = Layer::Field)
-{
-	const EntityId id = b.spawn(layer);
-	static const ShipSpec inertSpec{};
-	b.attachShip(id, &inertSpec);
-	return id;
 }
 
 void testStepVisitsInListOrder()
@@ -835,28 +817,27 @@ void testSpawnLandsAtSyncAndActsNextFrame()
 	Battle b(1);
 
 	const EntityId triggerId = b.spawn(Layer::Field);
-	b.reg.emplace<comp::Lifetime>(triggerId, comp::Lifetime{1});
-	// DeathSpawn is a generic death-response payload; production attaches it
-	// only to the asteroid field. This test wants exactly what it promises:
-	// a function run once, at death, with the battle and this id.
-	b.reg.emplace<comp::DeathSpawn>(
-			triggerId, comp::DeathSpawn{[](Battle &bb, EntityId) noexcept {
-				comp::Motion motion;
-				motion.velocity.setComponents(worldToVelocity(10), 0);
-				comp::Position pos;
-				pos.current = Vec2i{100, 100};
-				pos.next = pos.current;
-				bb.queueSpawn(SpawnCommand{
-						.layer = Layer::Field,
-						.position = pos,
-						.motion = motion,
-				});
-			}});
 
-	b.step();  // the trigger's own appearing frame: lifeSpan ages to 0
+	b.step();
 	CHECK(b.size() == 1, "setup: only the trigger exists so far");
 
-	b.step();  // the death is detected, the command queued and drained
+	// Queued, not spawned: the drain is what creates it, at this step's sync
+	// point. Emitted from outside a pass rather than inside one -- the
+	// buffer is drained at the same point either way, and what this test is
+	// about is the drain, not who filled it.
+	comp::Motion motion;
+	motion.velocity.setComponents(worldToVelocity(10), 0);
+	comp::Position pos;
+	pos.current = Vec2i{100, 100};
+	pos.next = pos.current;
+	b.queueSpawn(SpawnCommand{
+			.layer = Layer::Field,
+			.position = pos,
+			.motion = motion,
+	});
+	(void)triggerId;
+
+	b.step();  // the command is drained
 	CHECK(b.spawns().size() == 1, "the child should be a SpawnEvent this step");
 	const EntityId child = b.spawns()[0].id;
 	CHECK(b.alive(child), "the child should exist by the end of this step");
@@ -871,15 +852,26 @@ void testSpawnLandsAtSyncAndActsNextFrame()
 			static_cast<long>(b.reg.try_get<comp::Position>(child)->current.x));
 }
 
-void testFiniteLifeExpiresAndCallsDeath()
+// How many rocks stand in each phase of the field's cycle.
+[[nodiscard]] int rocksInPhase(Battle &b, comp::Asteroid::Phase want)
 {
-	g_trace = Trace{};
+	int n = 0;
+	b.reg.view<comp::Asteroid>().each([&](comp::Asteroid &rock) {
+		if (rock.phase == want)
+			++n;
+	});
+	return n;
+}
+
+void testFiniteLifeExpiresAndRunsItsDeathResponse()
+{
+	static const CollisionMask m = solid(8, 8);
 	Battle b(1);
 
-	const EntityId id = spawnShip(b);
-	b.reg.try_get<comp::Physique>(id)->mass = 7;
+	const EntityId id = b.spawn(Layer::Field);
 	b.reg.emplace<comp::Lifetime>(id, comp::Lifetime{3});
-	b.reg.emplace<comp::DeathSpawn>(id, comp::DeathSpawn{recordDeath});
+	b.reg.emplace<comp::Asteroid>(
+			id, comp::Asteroid{&m, comp::Asteroid::Phase::Solid});
 
 	// Life is spent in the pre pass and death is decided at the *start* of
 	// the frame after it reaches zero (process.c:133-141, 180-181). A
@@ -887,11 +879,14 @@ void testFiniteLifeExpiresAndCallsDeath()
 	b.step();
 	b.step();
 	b.step();
-	CHECK(b.size() == 1, "a 3-frame life survives three steps");
+	CHECK(b.alive(id), "a 3-frame life survives three steps");
 	b.step();
-	CHECK(b.size() == 0, "and is gone on the fourth");
-	CHECK(g_trace.deaths == std::vector<int>({7}),
-			"its death hook should have run exactly once");
+	CHECK(!b.alive(id), "and is gone on the fourth");
+
+	// One rubble, not two: the response runs once, when Doomed is set.
+	const int rubble = rocksInPhase(b, comp::Asteroid::Phase::Rubble);
+	CHECK(rubble == 1,
+			"its death response should have run exactly once, got %d", rubble);
 }
 
 void testMotionIntegratesAndWraps()
@@ -2002,13 +1997,6 @@ void testTurningIntoOverlapIsReverted()
 			static_cast<long>(b.ship(ship)->crew), static_cast<long>(crew));
 }
 
-int g_overlapDeaths = 0;
-
-void countOverlapDeath(Battle &, EntityId) noexcept
-{
-	++g_overlapDeaths;
-}
-
 void testSpawnInsideSomethingIsExecuted()
 {
 	// The other half of the protocol (process.c:427-449): an APPEARING solid
@@ -2031,15 +2019,15 @@ void testSpawnInsideSomethingIsExecuted()
 	const EntityId ir = b.spawn(
 			Layer::Field, rockPos, comp::Motion{}, comp::Physique{3}, &m);
 	b.reg.emplace<comp::Vitality>(ir, comp::Vitality{1});
-	b.reg.emplace<comp::DeathSpawn>(ir, comp::DeathSpawn{countOverlapDeath});
+	b.reg.emplace<comp::Asteroid>(
+			ir, comp::Asteroid{&m, comp::Asteroid::Phase::Solid});
 
-	g_overlapDeaths = 0;
 	b.step();
 
 	CHECK(!b.alive(ir),
 			"a solid spawned inside another is destroyed the same frame");
-	CHECK(g_overlapDeaths == 1, "with its death hook run, got %d",
-			g_overlapDeaths);
+	const int rubble = rocksInPhase(b, comp::Asteroid::Phase::Rubble);
+	CHECK(rubble == 1, "with its death response run, got %d rubble", rubble);
 }
 
 void testPointDefenceBurnsOwnNuke()
@@ -2500,7 +2488,7 @@ int main()
 	testDeriveSpeedStateFromVelocity();
 	testStepVisitsInListOrder();
 	testSpawnLandsAtSyncAndActsNextFrame();
-	testFiniteLifeExpiresAndCallsDeath();
+	testFiniteLifeExpiresAndRunsItsDeathResponse();
 	testMotionIntegratesAndWraps();
 	testCollisionPairsAreVisitedOnce();
 	testSpawningIsRepeatable();
