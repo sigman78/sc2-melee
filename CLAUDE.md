@@ -3,6 +3,22 @@
 A C++23 rewrite of the Ur-Quan Masters melee. Read `README.md` first for
 layout, then `docs/README.md` for where the reasoning lives.
 
+## After cloning
+
+Two settings are per-clone git config, so a fresh checkout does not have
+them and the pre-commit hook silently never runs until it does:
+
+	git config core.hooksPath .githooks
+	git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+	cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+`UQM2_CONTENT_DIR` defaults to `../sc2-uqm/sc2/content` — a sibling
+checkout of the original tree, which is also where the C sources cited
+throughout this code live (`docs/reference.md`). Without it the five
+content tests skip and everything else still runs.
+
 ## The gates — run these, believe these
 
 	export PATH="/c/utils/scoop/apps/msys2/current/mingw64/bin:$PATH"   # bash on Windows, or gcc exits 1 silently
@@ -41,6 +57,22 @@ Two invariants that are easy to break and expensive to debug:
 - Walk order is `(layer, seq)`, kept by a sorted `Order` pool. Layer order is
   gameplay; within-layer order is *determinism* — measured, not assumed
   (`src/docs/review-008` §6).
+
+## Format and lint
+
+	tools/format.sh          format the tree (clang-format)
+	tools/lint.sh            clang-tidy over everything
+	tools/lint.sh --fix      and apply what it can
+
+`.githooks/pre-commit` checks formatting only — clang-tidy costs a second
+or two per translation unit here, which is too slow to sit in front of a
+commit, so it runs in CI instead. The tree lints clean; keep it that way.
+
+Data tables (`kSineTab`, the colour ramps) are fenced with
+`// clang-format off` so they keep their hand-built shape. `clang-tidy
+--fix` is not to be trusted blindly: on the first sweep it made a method
+`static` because nothing touched `this`, and stripped a `const`. Rebuild
+after any `--fix`, and read the diff.
 
 ## Style
 
