@@ -200,6 +200,16 @@ struct BattleResult
 	std::vector<u64> checkpoints;
 };
 
+// What the digest folds for an element's life. sim/ no longer has a function
+// that answers this for a persistent element -- framesLeft asserts a Lifetime
+// on purpose -- so the C's NORMAL_LIFE stand-in lives here, at its one
+// remaining caller. The planet folds 1, not 2; changing the value moves the
+// baseline.
+[[nodiscard]] i32 foldedLifeSpan(const Battle &b, EntityId id) noexcept
+{
+	return isTransient(b, id) ? framesLeft(b, id) : 1;
+}
+
 // Runs one battle. `trace`, if non-null, gets one line per element per frame
 // -- see doTrace.
 BattleResult simulateBattle(u32 seed, std::ostream *trace)
@@ -246,11 +256,7 @@ BattleResult simulateBattle(u32 seed, std::ostream *trace)
 					: b.reg.try_get<comp::Beam>(id)->from;
 			foldI32(frameDigest, at.x);
 			foldI32(frameDigest, at.y);
-			// find<Lifetime> ? remaining : 1 -- the persistent-element value
-			// Lifetime replaces, so the digest matches bit-for-bit against the
-			// baseline; the planet's fold is 1 here, not 2 (one legal
-			// re-record).
-			foldI32(frameDigest, lifeSpanOf(b, id));
+			foldI32(frameDigest, foldedLifeSpan(b, id));
 			const comp::ShipState *ss = b.ship(id);
 			if (ss != nullptr)
 			{
@@ -260,7 +266,7 @@ BattleResult simulateBattle(u32 seed, std::ostream *trace)
 			if (trace != nullptr)
 			{
 				*trace << b.frame() << ' ' << walkIndex << ' ' << at.x << ' '
-					   << at.y << ' ' << lifeSpanOf(b, id);
+					   << at.y << ' ' << foldedLifeSpan(b, id);
 				if (ss != nullptr)
 					*trace << ' ' << ss->crew << ' ' << ss->energy;
 				*trace << '\n';

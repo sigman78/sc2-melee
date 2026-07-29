@@ -115,11 +115,12 @@ void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
 	const i32 damage = b.reg.get<comp::Physique>(id).mass;
 
-	// weapon.c:145-158: hurts anything transient or at NORMAL_LIFE, except
-	// an Indestructible target -- the planet. A target that SURVIVES marks
-	// the weapon Collided ("did effect"), stopping it at the impact point.
-	if (damage > 0 && !b.reg.all_of<comp::Indestructible>(targetId)
-			&& (isFiniteLife(b, targetId) || lifeSpanOf(b, targetId) == 1))
+	// weapon.c:145-158: hurts anything except an Indestructible target --
+	// the planet. A target that SURVIVES marks the weapon Collided ("did
+	// effect"), stopping it at the impact point. The C's "transient or at
+	// NORMAL_LIFE" half of this test was a tautology here, since
+	// Indestructible replaced the lifeSpan encoding it read (review-010 W3).
+	if (damage > 0 && !b.reg.all_of<comp::Indestructible>(targetId))
 	{
 		doDamage(b, targetId, damage, b.reg.get<comp::Allegiance>(id).owner);
 		if (!b.alive(id))
@@ -140,7 +141,7 @@ void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame
 	// don't).
 	comp::Vitality &wVital = b.reg.get<comp::Vitality>(id);
-	if (b.alive(targetId) && isFiniteLife(b, targetId)
+	if (b.alive(targetId) && isTransient(b, targetId)
 			&& (targetScratch.collided
 					|| wVital.hitPoints
 							> b.reg.get<comp::Physique>(targetId).mass))
@@ -197,7 +198,7 @@ void solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept
 
 	// ship.c:356. A transient thing hitting you is the weapon's business, not
 	// yours -- it has its own response and has already run.
-	if (isFiniteLife(b, otherId))
+	if (isTransient(b, otherId))
 		return;
 
 	// Hitting anything solid stops this element at the impact point

@@ -150,7 +150,7 @@ the *simulation*, and says nothing about the app above it.
 | --- | --- | --- |
 | W1 | `comp::` with inline groups; the `comp` macro deleted; `melee::comp` and `melee::ctx` | **done, bit-green** — 28 files, all 32 battles matched exactly |
 | W2 | The entt surface goes: public `reg`, pass-throughs deleted, `count_` and `orderDirty_` derived | **done, bit-green** — 17 member templates deleted, ~430 call sites, two real defects found (below) |
-| W3 | `lifeSpanOf` says what it means: both dead clauses deleted, `framesLeft` asserts, `isFiniteLife` becomes `isTransient` | pending |
+| W3 | `lifeSpanOf` says what it means: both dead clauses deleted, `framesLeft` asserts, `isFiniteLife` becomes `isTransient` | **done, bit-green** — both claims proved by assert over the whole suite before deletion |
 | W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | pending |
 | W5 | Spawns are built, not described: eager creation with `Order` withheld; `SpawnCommand` deleted | pending |
 | W6 | Specials: `SpecialSpec` is the gate only; `PointDefence` and `Cloak` are components; `preProcess` and `hook` deleted | pending |
@@ -167,10 +167,24 @@ two dead clauses go, its four survivors all run on entities known to hold a
 `Lifetime`, so it becomes `framesLeft`, which asserts. Debug builds are the
 suite's assertion coverage.
 
-One detail is load-bearing: `replay_test.cpp:252` folds `lifeSpanOf` into
-the digest for **every** entity, including those with no `Lifetime`, where
-it returns 1. The test keeps that exact expression spelled out, or the
-baseline moves for a reason unrelated to the change.
+One detail is load-bearing: `replay_test.cpp` folds this for **every**
+entity, including those with no `Lifetime`, where it returned 1. That
+expression is now spelled out in the test as `foldedLifeSpan`, at its one
+remaining caller — moving it into `sim/` would be re-creating the thing this
+stage deleted, and changing the value would move the baseline for a reason
+unrelated to the change.
+
+`lifeSpanOf` split three ways rather than two. `framesLeft` asserts;
+`isTransient` answers presence; and `ageOf(b, id, span)` names what six sites
+were spelling as `SPAN - lifeSpanOf(...)` — the explosion's spark schedule,
+the guided shot's acceleration, and the ion-trail, warp-shadow and debris
+ramps. Age was the third question the one function was answering, and the
+subtraction order is a thing to get wrong exactly once.
+
+**How the two claims were proved.** Not by argument alone: both conditions
+were first asserted rather than deleted, and the whole suite plus all 32
+battles ran with them live in a Debug build. Neither fired. The deletions
+followed.
 
 ### W4 — the name
 
