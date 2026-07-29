@@ -84,28 +84,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install clang tooling
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends             clang-tidy cmake ninja-build             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev             libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev             libwayland-dev wayland-protocols libdecor-0-dev             libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
+          sudo apt-get install -y --no-install-recommends             cmake ninja-build             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev             libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev             libwayland-dev wayland-protocols libdecor-0-dev             libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
 
-      # Pinned, not the distro package: clang-format's output moves between
-      # releases, so "whatever the runner image ships today" disagrees with
-      # whatever formatted the tree and fails on lines nobody touched. The
-      # version here is the one .clang-format names.
-      - name: Install clang-format
-        run: pipx install 'clang-format==21.1.5'
+      # Both tools are pinned rather than taken from the runner image, and
+      # both for the same reason: the image's clang 18 fails on this tree for
+      # version reasons alone. clang-format's output moves between releases,
+      # so it reports violations on lines nobody touched; clang-tidy 18 does
+      # not know .clang-tidy's ExcludeHeaderFilterRegex (19+) and cannot
+      # parse std::expected out of libstdc++ 13. 21 is what .clang-format
+      # names and what the tree is developed against.
+      - name: Install clang 21
+        run: |
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get install -y --no-install-recommends clang-format-21 clang-tidy-21
 
       # The same check .githooks/pre-commit runs, over everything.
       - name: Format
         run: |
           files=$(git ls-files 'src/*.cpp' 'src/*.hpp' 'tests/*.cpp' 'tests/*.hpp')
-          clang-format --dry-run -Werror $files
+          clang-format-21 --dry-run -Werror $files
 
       # Too slow for a pre-commit hook, which is why it lives here.
       - name: Lint
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           for f in $(git ls-files 'src/*.cpp' 'tests/*.cpp'); do
-            clang-tidy -p build "$f" --quiet --warnings-as-errors='*'
+            clang-tidy-21 -p build "$f" --quiet --warnings-as-errors='*'
           done
