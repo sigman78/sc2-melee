@@ -154,7 +154,7 @@ the *simulation*, and says nothing about the app above it.
 | W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | **done, bit-green** — three tests moved off the generic payload onto the real mechanic |
 | W5 | Spawns are built, not described: eager creation with `Order` withheld; `SpawnCommand` deleted | **done, bit-green** — six passes joined `Order`, one escape hatch left |
 | W6 | Specials: `SpecialSpec` is the gate only; `PointDefence` and `Cloak` are components; `preProcess` and `hook` deleted | **done, bit-green** — the pre-turn slot is a per-mechanic pass; the gated one needs a re-record, so it is a follow-up |
-| W7 | `Lifetime` stops being a counter: `{born, span}`, `ageDecrementPass` deleted | pending |
+| W7 | `Lifetime` stops being a counter: `{born, span}`, `ageDecrementPass` deleted | **blocked, priced** — not bit-exact after all; see below |
 
 W1 and W2 sweep the same files and land together, as two commits.
 
@@ -359,13 +359,51 @@ kill now   = span = age
   already a `Lifetime` copied verbatim into the shot -- stops meaning
   something subtly different in the spec than on the entity.
 
-**It is expected to be bit-exact**: `remaining` at frame *t* is exactly
-`span - (t - born)` on every normal path, and the paths that slam
-`remaining = 0` become `span = age`. If every read yields the same number
-the digest does not move -- a claim `--compare` settles without an argument.
-One thing to verify rather than assume: today the decrement pass freezes a
-`Doomed` entity's `remaining`, and afterwards nothing freezes `framesLeft`.
-The reap runs before the digest is taken, so nothing should read it.
+**It was expected to be bit-exact. It is not, and the reason is worth
+having.**
+
+`ageDecrementPass` is slot 11 of eighteen, so `remaining` **changes value
+in the middle of a frame**. Readers before it and readers after it see
+different numbers for the same entity in the same step:
+
+| Reads `remaining` | Slot | Sees |
+| --- | --- | --- |
+| `ageAndReapMarkPass` | 2 | pre-decrement |
+| `warpInStep`, `explosionStep` (via ShipMachines) | 4 | pre-decrement |
+| `guidedShotPreProcess` | 7 | pre-decrement |
+| `resolveAgainst` | 12 | **post-decrement** |
+| `Draw`, the replay digest | after the step | post-decrement |
+
+A value derived from the frame counter is constant across the step by
+construction, so no single `{born, span}` convention reproduces both
+columns. Shifting `born` by one trades which column matches.
+
+Worse, **the attach sites are themselves in different phases**, so the same
+nominal span already means different things:
+
+- `warpInStep` attaches `Lifetime{WarpingIn::kFrames}` at slot 4, *before*
+  the decrement, so the arriving ship is aged on its own attach frame.
+- `startShipExplosion` attaches `Lifetime{Exploding::kLife}` from
+  `applyDamageIncoming` at slot 14, *after* it, so the wreck is not.
+- Every spawned transient lands at slot 17, later still.
+
+So today's nominal span is not the effective one, and by how much depends on
+which slot did the attaching. A uniform rule cannot reproduce that, and
+should not want to -- **the inconsistency is the thing W7 would fix**, not
+an invariant to preserve.
+
+The price is therefore one baseline re-record, and unlike W6's that is not
+merely a walk-order reshuffle: it changes a life by a frame at one attach
+site. The outcome spread should still be small, and `--similar` would say,
+but this one deserves the question asked rather than assumed. **W7 is
+implemented nowhere and blocked on that.**
+
+The rest of the design stands unchanged and is worth keeping on the shelf:
+`ageDecrementPass` deletes, the equality-on-zero landmine becomes
+`age >= span`, `ageOf` loses its span parameter, and `Lifetime` becomes
+immutable after attach. `WeaponSpec::lifetime` would become a plain `i32`
+in the same move, since a `{born, span}` value has no meaning sitting in a
+spec.
 
 **The seven gates are not part of W7.** A `Countdown` type with
 `openElseTick`/`tickThenOpen`/`raiseTo` would turn that prose distinction
