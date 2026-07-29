@@ -28,59 +28,64 @@ calculateGravity(Battle &b, EntityId id)
 	const i32 pull = worldToVelocity(1);
 
 	bool insideAWell = false;
-	b.eachOrdered([&](EntityId other) {
-		if (insideAWell || other == id)
-			return;
+	// collidable(other) unpacked into the join: Collider is the presence
+	// filter, Doomed/WarpingIn the exclusions -- a view only ever yields live
+	// entities, so alive(other) drops with it. Physique and Position are the
+	// two fields the body reads off `other` unconditionally.
+	b.eachOrdered<Physique, Position, Collider>(
+			entt::exclude<Doomed, WarpingIn>,
+			[&](EntityId other, Physique &otherPhys, Position &otherPos, Collider &) {
+				if (insideAWell || other == id)
+					return;
 
-		if (!b.alive(other) || !b.collidable(other))
-			return;
+				// Only pairs that disagree about being a source are
+				// interesting: two planets ignore each other, and so do two
+				// ordinary elements.
+				const bool testHasGravity = isGravitySource(otherPhys.mass);
+				if (testHasGravity == selfHasGravity)
+					return;
 
-		// Only pairs that disagree about being a source are interesting: two
-		// planets ignore each other, and so do two ordinary elements.
-		const bool testHasGravity =
-				isGravitySource(b.find<Physique>(other)->mass);
-		if (testHasGravity == selfHasGravity)
-			return;
+				const Vec2i to = otherPos.current;
+				const Vec2i d = wrapDelta(from - to);
 
-		const Vec2i to = b.find<Position>(other)->current;
-		const Vec2i d = wrapDelta(from - to);
+				// The disc is measured in display pixels, and the cheap
+				// per-axis rejection comes first exactly as in the C.
+				const i32 adx = worldToDisplay(d.x < 0 ? -d.x : d.x);
+				const i32 ady = worldToDisplay(d.y < 0 ? -d.y : d.y);
+				if (adx > kGravityRadius || ady > kGravityRadius)
+					return;
+				if (adx * adx + ady * ady > kGravityRadius * kGravityRadius)
+					return;
 
-		// The disc is measured in display pixels, and the cheap per-axis
-		// rejection comes first exactly as in the C.
-		const i32 adx = worldToDisplay(d.x < 0 ? -d.x : d.x);
-		const i32 ady = worldToDisplay(d.y < 0 ? -d.y : d.y);
-		if (adx > kGravityRadius || ady > kGravityRadius)
-			return;
-		if (adx * adx + ady * ady > kGravityRadius * kGravityRadius)
-			return;
+				if (testHasGravity)
+				{
+					// We are the light one, and we are inside their well.
+					// The C breaks out here without touching anything.
+					insideAWell = true;
+					return;
+				}
 
-		if (testHasGravity)
-		{
-			// We are the light one, and we are inside their well. The C
-			// breaks out here without touching anything.
-			insideAWell = true;
-			return;
-		}
+				// `d` points from the test element toward us, so this
+				// accelerates it inward -- one world unit per frame, no
+				// falloff.
+				const int angle = arctan(d.x, d.y);
+				b.find<Motion>(other)->velocity.deltaComponents(
+						cosine(angle, pull), sine(angle, pull));
 
-		// `d` points from the test element toward us, so this accelerates it
-		// inward -- one world unit per frame, no falloff.
-		const int angle = arctan(d.x, d.y);
-		b.find<Motion>(other)->velocity.deltaComponents(
-				cosine(angle, pull), sine(angle, pull));
-
-		if (b.has<ShipState>(other))
-		{
-			// gravity.c:136-137 clears SHIP_AT_MAX_SPEED but deliberately
-			// leaves SHIP_BEYOND_MAX_SPEED alone: a ship already whipped past
-			// its maximum stays flagged as such.
-			if (ShipState *ss = b.ship(other))
-			{
-				if (ss->speed == SpeedState::AtMax)
-					ss->speed = SpeedState::Normal;
-				ss->inGravityWell = true;
-			}
-		}
-	});
+				if (b.has<ShipState>(other))
+				{
+					// gravity.c:136-137 clears SHIP_AT_MAX_SPEED but
+					// deliberately leaves SHIP_BEYOND_MAX_SPEED alone: a
+					// ship already whipped past its maximum stays flagged
+					// as such.
+					if (ShipState *ss = b.ship(other))
+					{
+						if (ss->speed == SpeedState::AtMax)
+							ss->speed = SpeedState::Normal;
+						ss->inGravityWell = true;
+					}
+				}
+			});
 
 	return insideAWell;
 }

@@ -291,15 +291,8 @@ namespace {
 // only burns, and only what is left of those runs the ship's own preProcess
 // hook (the Ilwrath cloak). Turn and Thrust are their own passes below.
 void
-shipMachinesStep(Battle &b, EntityId id) noexcept
+shipMachinesStep(Battle &b, EntityId id, ShipState &s) noexcept
 {
-	if (!b.alive(id))
-		return;
-	ShipState *sp = b.ship(id);
-	if (sp == nullptr)
-		return;
-
-	ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
 
 	if (b.has<WarpingIn>(id))
@@ -336,10 +329,8 @@ shipMachinesStep(Battle &b, EntityId id) noexcept
 void
 shipMachinesPass(Battle &b) noexcept
 {
-	b.eachOrdered([&b](EntityId id) {
-		if (b.has<ShipState>(id))
-			shipMachinesStep(b, id);
-	});
+	b.eachOrdered<ShipState>(
+			[&b](EntityId id, ShipState &s) { shipMachinesStep(b, id, s); });
 }
 
 void
@@ -397,10 +388,8 @@ fireAndSpecialGatePass(Battle &b) noexcept
 void
 guidedSteerPass(Battle &b) noexcept
 {
-	b.eachOrdered([&b](EntityId id) {
-		if (b.has<Guided>(id))
-			guidedShotPreProcess(b, id);
-	});
+	b.eachOrdered<Guided>(
+			[&b](EntityId id, Guided &) { guidedShotPreProcess(b, id); });
 }
 
 void
