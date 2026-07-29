@@ -19,16 +19,30 @@ if ! command -v clang-tidy > /dev/null; then
 	exit 0
 fi
 
-# What this push adds, against the upstream default branch. A branch with no
-# merge base (a fresh clone, a detached head) lints nothing rather than
-# guessing at the whole tree.
-base=$(git merge-base HEAD origin/main 2> /dev/null || true)
-if [ -z "$base" ]; then
-	echo "pre-push: no merge base with origin/main; skipping lint" >&2
-	exit 0
-fi
+# What this push adds, per ref git is actually pushing -- read from stdin,
+# not from HEAD, because `git push origin main:main` from a feature branch
+# checkout would otherwise lint the branch instead of what is being sent.
+#
+# A ref the remote does not have yet reports an all-zero remote sha; the
+# range is then taken against origin/main, and a ref with no merge base at
+# all (a fresh clone, a detached head) lints nothing rather than guessing at
+# the whole tree.
+kZero=0000000000000000000000000000000000000000
+changed=""
+while read -r _localRef localSha _remoteRef remoteSha; do
+	[ "$localSha" = "$kZero" ] && continue  # a deletion
+	if [ "$remoteSha" = "$kZero" ]; then
+		base=$(git merge-base "$localSha" origin/main 2> /dev/null || true)
+	else
+		base=$remoteSha
+	fi
+	[ -z "$base" ] && continue
+	changed="$changed$(git diff --name-only --diff-filter=ACMR \
+		"$base" "$localSha" -- 'src/*.cpp' 'tests/*.cpp')
+"
+done
 
-changed=$(git diff --name-only --diff-filter=ACMR "$base" HEAD -- 'src/*.cpp' 'tests/*.cpp')
+changed=$(printf '%s' "$changed" | grep -v '^$' | sort -u || true)
 [ -z "$changed" ] && exit 0
 
 if [ ! -f "${SC2M_BUILD_DIR:-build}/compile_commands.json" ]; then
