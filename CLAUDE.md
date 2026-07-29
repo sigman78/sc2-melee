@@ -14,7 +14,7 @@ layout, then `docs/README.md` for where the reasoning lives.
 meant to be behaviour-preserving must leave it bit-exact. It is the thing
 that makes large refactors safe here, so:
 
-- **Never re-record the baseline.** `replay_test --trace` *writes to its file
+- **Never re-record the baseline unless asked.** `replay_test --trace` *writes to its file
   argument* — only `--compare` and `--compare-first` may ever be pointed at
   `tests/baselines/replay.base`.
 - **Never change a test expectation to make something pass.** Rewriting *how*

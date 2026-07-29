@@ -30,7 +30,6 @@ endif()
 
 include(cmake/Dependencies.cmake)
 
-
 # Vendored, and compiled quietly: third-party sources are not ours to warn
 # about.
 add_subdirectory(third_party/miniz)

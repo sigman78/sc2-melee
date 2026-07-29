@@ -29,6 +29,15 @@ FetchContent_Declare(SDL3
 )
 FetchContent_MakeAvailable(SDL3)
 
+# Dependencies are not what you step through. Compiling SDL3 without debug
+# info costs nothing in a debug session and takes tens of megabytes off every
+# statically linked executable.
+foreach(_dep SDL3-static SDL3-shared SDL_uclibc)
+	if(TARGET ${_dep})
+		target_compile_options(${_dep} PRIVATE $<$<CONFIG:Debug>:-g0>)
+	endif()
+endforeach()
+
 add_library(sc2m_sdl INTERFACE)
 target_link_libraries(sc2m_sdl INTERFACE SDL3::SDL3)
 add_library(sc2m::SDL ALIAS sc2m_sdl)
