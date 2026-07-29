@@ -10,6 +10,7 @@
 #include "sim/World.hpp"
 
 #include <array>
+#include <numeric>
 
 namespace uqm::game {
 struct SpriteSet;
@@ -25,6 +26,15 @@ struct Colour
 {
 	u8 r, g, b;
 };
+
+// A colour packed as 0xRRGGBB, the form the C's own tables are quoted in.
+constexpr Colour
+rgb(u32 c) noexcept
+{
+	return Colour{static_cast<u8>((c >> 16) & 0xFF),
+			static_cast<u8>((c >> 8) & 0xFF),
+			static_cast<u8>(c & 0xFF)};
+}
 
 // What one element draws as: a sprite set (null for a line/point effect with
 // no art) and a fallback colour for when the set failed to load or none
@@ -49,9 +59,38 @@ comp struct Visual
 // not const here.
 [[nodiscard]] Visual visualFor(Game &g, sim::EntityId id, i32 playerNr);
 
-// Total stars across all three parallax planes; see Draw.cpp for the field
-// itself.
-inline constexpr int kStarCount = 30 + 60 + 90;
+// The starfield: three planes (30/60/90 stars), each scrolling at
+// 1/2^plane of the camera so nearer planes move faster (galaxy.c:37-44,
+// 405-407); plane 0 is nearest -- biggest, brightest, fastest.
+inline constexpr int kStarPlanes = 3;
+
+// One parallax plane's star data.
+struct StarPlane
+{
+	i32 count;
+
+	// Fallback only, for when the art is missing: the cels carry their own
+	// colour and brightness already graded by plane, which is why they draw
+	// as frames rather than silhouettes.
+	Colour colour;
+
+	// Cel per plane -- 11x11 near, 5x5 mid, a pixel far, one size down from
+	// star_frame_ofs's ordering (galaxy.c:316): the 11x11 cel is too large
+	// for a background at this resolution.
+	usize cel;
+};
+
+inline constexpr std::array<StarPlane, kStarPlanes> kStarsPerPlane{{
+		{30, rgb(0x949CFC), 0},
+		{60, rgb(0x808CFC), 2},
+		{90, rgb(0xA4ACFC), 2},
+}};
+
+// Total stars across all three parallax planes, folded from kStarsPerPlane
+// so the two cannot disagree.
+inline constexpr int kStarCount = std::accumulate(kStarsPerPlane.begin(),
+		kStarsPerPlane.end(), 0,
+		[](int sum, const StarPlane &p) { return sum + p.count; });
 
 // How large a patch the field tiles over, in display pixels. The C varies
 // on-screen density with zoom (galaxy.c:248-259); this field is

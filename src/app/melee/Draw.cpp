@@ -39,15 +39,6 @@ namespace uqm::melee {
 
 namespace {
 
-// A colour packed as 0xRRGGBB, the form the C's own tables are quoted in.
-constexpr Colour
-rgb(u32 c) noexcept
-{
-	return Colour{static_cast<u8>((c >> 16) & 0xFF),
-			static_cast<u8>((c >> 8) & 0xFF),
-			static_cast<u8>(c & 0xFF)};
-}
-
 // A 3x5 digit font (one bit per pixel), not the game's real font --
 // wiring FontDir in means atlases and kerning for two numbers per
 // player. Scaffolding until the M2 status panel uses real fonts.
@@ -102,26 +93,6 @@ drawNumber(platform::Platform &w, i32 value, Vec2i rightTop,
 		x -= 4 * scale;
 	} while (value != 0);
 }
-
-// The starfield: three planes (30/60/90 stars), each scrolling at
-// 1/2^plane of the camera so nearer planes move faster (galaxy.c:37-44,
-// 405-407); plane 0 is nearest -- biggest, brightest, fastest.
-inline constexpr int kStarPlanes = 3;
-inline constexpr std::array<int, kStarPlanes> kStarsPerPlane{{30, 60, 90}};
-
-// Fallback only, for when the art is missing: the cels carry their own
-// colour and brightness already graded by plane, which is why they draw
-// as frames rather than silhouettes.
-inline constexpr std::array<Colour, kStarPlanes> kStarColours{{
-		rgb(0x949CFC),
-		rgb(0x808CFC),
-		rgb(0xA4ACFC),
-}};
-
-// Cel per plane -- 11x11 near, 5x5 mid, a pixel far, one size down from
-// star_frame_ofs's ordering (galaxy.c:316): the 11x11 cel is too large
-// for a background at this resolution.
-inline constexpr std::array<usize, kStarPlanes> kStarCels{{0, 2, 2}};
 
 // cycle_ion_trail's colour table (tactrans.c:757-770), 5-bit RGB widened
 // to 8: yellow-white at the muzzle through red to near-black, one step
@@ -308,8 +279,9 @@ renderStars(Game &g)
 		for (int plane = 0; plane < kStarPlanes; ++plane)
 		{
 			const auto p = static_cast<usize>(plane);
-			const usize count = static_cast<usize>(kStarsPerPlane[p]);
-			const Colour c = kStarColours[p];
+			const StarPlane &sp = kStarsPerPlane[p];
+			const usize count = static_cast<usize>(sp.count);
+			const Colour c = sp.colour;
 
 			// World to display is a shift of two; the plane's own slowdown is
 			// another `plane` on top of it.
@@ -318,7 +290,7 @@ renderStars(Game &g)
 
 			const game::SpriteSet *art =
 					&g.content.sprites(g.window, game::kMeleeArt.stars);
-			const usize cel = kStarCels[p];
+			const usize cel = sp.cel;
 			const bool haveArt = art != nullptr && cel < art->frames.size()
 					&& cel < art->masks.size();
 
