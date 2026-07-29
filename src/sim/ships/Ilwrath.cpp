@@ -44,140 +44,6 @@ usize spawnAvengerPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 	return 1;
 }
 
-// LOOK_AHEAD (ilwrath.c:37): how many frames of both velocities the cloaked
-// auto-aim leads the target by.
-constexpr int kCloakAimLookAhead = 4;
-
-namespace {
-
-// The ambush snap (ilwrath.c:281-342): firing from full black aims at
-// where the nearest enemy will be. TrackShip picks the target; the facing
-// it steps is thrown away and recomputed from a four-frame lead.
-void cloakedAutoAim(Battle &b, EntityId id) noexcept
-{
-	if (!b.alive(id))
-		return;
-	comp::Position *pos = &b.reg.get<comp::Position>(id);
-
-	Facing facing = pos->facing;
-	EntityId targetId = kNoEntity;
-	if (trackShip(b, id, facing, &targetId) < 0)
-		return;
-
-	if (!b.alive(targetId) || !b.alive(id))
-		return;
-	pos = &b.reg.get<comp::Position>(id);
-	const comp::Position &targetPos = b.reg.get<comp::Position>(targetId);
-
-	// GetNextVelocityComponents on *copies* (ilwrath.c:292-296): the lead is
-	// a question, not a step, and must not disturb either error accumulator.
-	Velocity tv = b.reg.get<comp::Motion>(targetId).velocity;
-	Velocity ov = b.reg.get<comp::Motion>(id).velocity;
-	const Vec2i dT = tv.advance(kCloakAimLookAhead);
-	const Vec2i dO = ov.advance(kCloakAimLookAhead);
-
-	// Raw deltas, no WRAP_DELTA -- the C computes these unwrapped
-	// (ilwrath.c:297-300), so an ambush across the seam aims the long way
-	// round. Faithful, not an oversight.
-	const i32 dx = (targetPos.current.x + dT.x) - (pos->current.x + dO.x);
-	const i32 dy = (targetPos.current.y + dT.y) - (pos->current.y + dO.y);
-
-	pos->facing = Angle(arctan(dx, dy)).facing();
-
-	// And the ship may not immediately turn away from its own snap
-	// (ilwrath.c:335-336).
-	comp::ShipState *s = b.ship(id);
-	if (s->turnWait == 0)
-		s->turnWait = 1;
-
-	applyFacingMask(b, id, pos->facing, *s->spec);
-}
-
-}  // namespace
-
-void ilwrathPreProcess(Battle &b, EntityId id) noexcept
-{
-	if (!b.alive(id))
-		return;
-	comp::ShipState *sp = b.ship(id);
-	if (sp == nullptr)
-		return;
-
-	comp::ShipState &s = *sp;
-	const ShipSpec &spec = *s.spec;
-	const comp::Input &in = b.reg.get<comp::Input>(id);
-
-	// ilwrath_preprocess (ilwrath.c:232-394): the Cloak component's level
-	// stands in for the prim type/colour, its walk direction derived fresh
-	// each frame. OBJECT_CLOAKED is the Cloaked tag, kept in sync with this
-	// level at this function's end -- only ships that run this hook carry
-	// either.
-	comp::Cloak *c = b.reg.try_get<comp::Cloak>(id);
-	if (c == nullptr)
-		c = &b.reg.emplace<comp::Cloak>(id);
-
-	// The C masks SPECIAL out of a *local* flags copy when an uncloak step
-	// runs (ilwrath.c:346), which suppresses the activation block below for
-	// that frame only. A local mirrors that exactly.
-	bool specialMasked = false;
-
-	if (c->level > 0)  // the prim is STAMPFILL: the machine is engaged
-	{
-		const bool weaponDischarge = any(in.buttons & ShipInput::Weapon)
-				&& s.energy >= spec.weapon.energyCost;
-
-		if (weaponDischarge
-				|| (s.specialCounter == 0
-						&& (any(in.buttons & ShipInput::Special)
-								|| c->level < comp::Cloak::kFullLevel)))
-		{
-			// One step toward visible (ilwrath.c:250-348). Firing is the only
-			// trigger that works mid-debounce; a key press needs the counter
-			// spent, so an interrupted ramp keeps unwinding out on its own.
-			if (c->level == comp::Cloak::kFullLevel && weaponDischarge)
-			{
-				// Stepping off BLACK under fire is the ambush.
-				cloakedAutoAim(b, id);
-				if (!b.alive(id))
-					return;
-			}
-			--c->level;  // reaching 0 is the C's SetPrimType(STAMP)
-
-			// Every uncloak step zeroes the debounce (ilwrath.c:347): re-cloak
-			// is available the moment the ship is solid again, and SPECIAL is
-			// masked this frame so the same press can't also activate below.
-			s.specialCounter = 0;
-			specialMasked = true;
-		}
-		else if (c->level < comp::Cloak::kFullLevel)
-		{
-			// One step toward black (ilwrath.c:349-374). At black, nothing:
-			// the ship stays hidden until something above fires.
-			++c->level;
-		}
-	}
-
-	// Activation (ilwrath.c:377-393): SPECIAL with the debounce spent, paying
-	// energy every time -- no free toggle-off, no half-price re-cloak. Restarts
-	// at white even from mid-fade, though only reachable from solid in
-	// practice.
-	if (!specialMasked && any(in.buttons & ShipInput::Special)
-			&& s.specialCounter == 0
-			&& deltaEnergy(s, -spec.special.energyCost))
-	{
-		c->level = 1;  // WHITE, the walk's first colour
-		s.specialCounter = spec.special.wait;
-	}
-
-	// The Cloaked tag is this machine's own invariant to keep: it is the
-	// sole writer of `level`, so every other reader just asks has<Cloaked>
-	// instead of re-deriving OBJECT_CLOAKED itself.
-	if (c->level == comp::Cloak::kFullLevel)
-		b.reg.emplace_or_replace<comp::Cloaked>(id);
-	else
-		b.reg.remove<comp::Cloaked>(id);
-}
-
 const ShipSpec &ilwrathAvenger() noexcept
 {
 	// ilwrath.c:27-53. THRUST_WAIT 0 and WEAPON_WAIT 0: the Avenger
@@ -205,11 +71,13 @@ const ShipSpec &ilwrathAvenger() noexcept
 			.special{
 					.wait = 13,
 					.energyCost = 3,
-					// No post hook: the cloak is the ship's preProcess, winning
-					// the energy race against the same frame's shot (see
-					// ShipSpec).
+					// The cloak runs in the pre-turn slot, winning the energy
+					// race against the same frame's shot (Specials.hpp).
 			},
-			.preProcess = ilwrathPreProcess,
+			.equip =
+					[](Battle &b, EntityId id) noexcept {
+						b.reg.emplace<comp::Cloak>(id);
+					},
 	};
 	return data;
 }

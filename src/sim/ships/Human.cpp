@@ -36,89 +36,6 @@ usize spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 	return 1;
 }
 
-void cruiserSpecial(Battle &b, EntityId id) noexcept
-{
-	const comp::Allegiance *shipAllegiance =
-			b.reg.try_get<comp::Allegiance>(id);
-	if (shipAllegiance == nullptr)
-		return;
-	comp::ShipState *sp = b.ship(id);
-	if (sp == nullptr)
-		return;
-
-	const ShipSpec &spec = *sp->spec;
-	const i32 range = spec.special.pointDefenceRange;
-	if (range <= 0)
-		return;
-
-	const Vec2i from = b.reg.get<comp::Position>(id).next;
-	bool paid = false;
-	bool cannotAfford = false;
-
-	// Every shot in range, not just the nearest: the C walks the whole list
-	// and fires at each, paying once for the volley (human.c:225-236) -- a
-	// Cruiser surrounded by fire clears all of it, or none if it can't afford
-	// it.
-	b.eachOrdered<comp::Physique, comp::Position>(
-			[&](EntityId other, comp::Physique &otherPhys,
-					comp::Position &otherPos) {
-				if (cannotAfford || shipAllegiance == nullptr || other == id)
-					return;
-
-				if (!b.collidable(other))
-					return;
-				if (b.reg.all_of<comp::Cloaked>(other))
-					return;  // human.c:203-204
-
-				// No ownership test -- the C has none (human.c:203-204): the
-				// Cruiser pays for and shoots down its OWN in-flight nukes in
-				// range, a real tactical constraint.
-
-				// A deliberate divergence from the C, which will fire on a
-				// planet that just absorbs it (do_damage exempts gravity
-				// masses).
-				if (isGravityMass(otherPhys.mass))
-					return;
-
-				const Vec2i tNext = otherPos.next;
-				const Vec2i dv = wrapDelta(tNext - from);
-				const i32 dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
-				const i32 dy = worldToDisplay(dv.y < 0 ? -dv.y : dv.y);
-				if (dx > range || dy > range
-						|| dx * dx + dy * dy > range * range)
-					return;
-
-				if (!paid)
-				{
-					if (!deltaEnergy(*sp, -spec.special.energyCost))
-					{
-						cannotAfford =
-								true;  // cannot afford it, so nothing burns
-						return;
-					}
-					sp->specialCounter = spec.special.wait;
-					paid = true;
-				}
-
-				doDamage(b, other, 1, id);
-
-				// The beam is decorative -- only the damage above is real,
-				// deterministic geometry. LASER_LIFE is 1 (weapon.c:52);
-				// Beam{from,to} carries the ends, not motion -- this entity has
-				// no Position.
-				const Vec2i beamTo = tNext;
-
-				// In the walk at the sync point: it draws its one frame of
-				// life the step after this one, one frame later than the C's
-				// same-step catch-up gave it.
-				b.spawnBeam(Layer::Ordnance, comp::Beam{from, beamTo},
-						 comp::Allegiance{shipAllegiance->playerNr, id})
-						.with(comp::Lifetime{1});
-
-				shipAllegiance = b.reg.try_get<comp::Allegiance>(id);
-			});
-}
-
 const ShipSpec &earthlingCruiser() noexcept
 {
 	// human.c:26-55. Speeds store post-DISPLAY_TO_WORLD values; offsets
@@ -152,9 +69,13 @@ const ShipSpec &earthlingCruiser() noexcept
 			.special{
 					.wait = 9,
 					.energyCost = 4,
-					.hook = cruiserSpecial,
-					.pointDefenceRange = 100,  // LASER_RANGE, display px
 			},
+			.equip =
+					[](Battle &b, EntityId id) noexcept {
+						// LASER_RANGE (human.c:55), in display pixels.
+						b.reg.emplace<comp::PointDefence>(
+								id, comp::PointDefence{100});
+					},
 	};
 	return data;
 }

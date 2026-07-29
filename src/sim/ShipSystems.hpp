@@ -23,9 +23,9 @@ EntityId spawnPlayerShip(Battle &b, const ShipSpec &spec,
 // energy.
 void energyRegenPass(Battle &b) noexcept;
 
-// ShipMachines (pipeline slot 4): WarpingIn/Appearing/dead-hull dispatch,
-// plus the ship's own preProcess hook (the Ilwrath cloak) for everything
-// else. Turn and Thrust are their own passes below.
+// ShipMachines (pipeline slot 4): WarpingIn/Appearing/dead-hull dispatch.
+// The pre-turn specials run in their own pass just ahead of this one, and
+// the order between them is load-bearing (Specials.hpp).
 void shipMachinesPass(Battle &b) noexcept;
 
 // Turn then Thrust (pipeline slot 5, two passes). Same skip list as

@@ -14,9 +14,8 @@ class Battle;
 [[nodiscard]] usize spawnCruiserPrimary(
 		const ShipView &ship, std::span<Spawn> out) noexcept;
 
-// The Cruiser's point-defence laser (human.c:161-260): burns down every enemy
-// shot in range, paying once for the volley.
-void cruiserSpecial(Battle &b, EntityId id) noexcept;
+// The Cruiser equips PointDefence; the laser that burns shots in range is a
+// mechanic, not this ship's hook (Specials.hpp).
 
 const ShipSpec &earthlingCruiser() noexcept;
 

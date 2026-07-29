@@ -27,7 +27,7 @@ components it carries.
 | `comp::life` | `Appearing`, `Lifetime`, `Doomed`, `Indestructible`, `SweepsOwnedOnDeath`, `Asteroid` |
 | `comp::owner` | `Allegiance`, `IgnoreSimilar` |
 | `comp::harm` | `Vitality`, `Warhead`, `DamageIncoming` |
-| `comp::ship` | `ShipState`, `Input`, `WarpingIn`, `Exploding`, `Cloak`, `Cloaked` |
+| `comp::ship` | `ShipState`, `Input`, `WarpingIn`, `Exploding`, `Cloak`, `Cloaked`, `PointDefence` |
 | `comp::shot` | `FromWeapon`, `Guided`, `AnimFrame`, `FrameDriven` |
 | `comp::look` | `Trail`, `Shadow`, `Debris`, `Blast` |
 - **Minimal composition** — a component is attached only where some pass
@@ -127,13 +127,16 @@ damage site branches on ship-vs-not before it reads either.
 | --- | --- | --- |
 | `ShipState{spec, crew, energy, counters, speed, inGravityWell, turnWait, thrustWait}` | everything mutable about a ship | ships |
 | `Input{buttons}` | this frame's intent | ships |
-| `Cloak{level}` | how far into the cloak ramp | the Ilwrath, lazily on first use |
+| `Cloak{level}` | how far into the cloak ramp | a ship equipped with one, attached at spawn |
+| `PointDefence{range}` | how far the burn reaches, in display pixels | a ship equipped with one, attached at spawn |
 | `Cloaked` | fully cloaked — invisible to eye and targeting | maintained solely by the cloak machine |
 | `WarpingIn` | materialising, not yet solid | ships during arrival |
 | `Exploding` | burning down | a dying ship |
 
 Optional phases are component presence; there is no phase enum and no
-per-instance hook.
+per-instance hook. A special's *effect* is a component too: the ship
+composes `Cloak` or `PointDefence` through `ShipSpec::equip`, and the
+mechanic that steps it (`sim/Specials.cpp`) never names a ship.
 
 ## Ordnance
 

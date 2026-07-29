@@ -1284,46 +1284,51 @@ void testFiringPostponesEnergyRegen()
 			static_cast<long>(b.ship(id)->energy));
 }
 
-int g_specialFires = 0;
-
-void countingSpecial(Battle &b, EntityId id) noexcept
-{
-	auto *s = b.ship(id);
-	if (s == nullptr)
-		return;
-	++g_specialFires;
-	s->specialCounter = s->spec->special.wait;
-}
-
 void testSpecialFiresTheFrameItsCounterExpires()
 {
 	// The C decrements special_counter and then lets the ship code see the
 	// result (ship.c:342-346), so a held special re-fires every special.wait
 	// frames -- the frame the counter reaches zero, not the one after.
+	//
+	// Counted through point defence, since the gate no longer takes an
+	// arbitrary hook: its beam is one Laser SpawnEvent per volley, and the
+	// mechanic re-arms the counter, which is what makes the period visible.
+	static const CollisionMask targetMask = solid(4, 4);
 	static ShipSpec const d = [] {
 		ShipSpec d_ = earthlingCruiser();
 		d_.special.wait = 3;
 		d_.special.energyCost = 0;
-		d_.special.hook = countingSpecial;
 		return d_;
 	}();
 
 	Battle b(1);
 	const EntityId id = spawnPlayerShip(
 			b, d, nullptr, Vec2i{2000, 2000}, Facing(0), 0, /*warpIn=*/false);
-	b.step();  // Appearing frame
 
-	g_specialFires = 0;
-	b.reg.try_get<comp::Input>(id)->buttons = ShipInput::Special;
+	// A durable target inside LASER_RANGE: a volley burns one hit point, so
+	// this one outlives the test and every frame gets a fair chance to fire.
+	comp::Position targetPos;
+	targetPos.current = targetPos.next = Vec2i{2200, 2000};
+	const EntityId target = b.spawn(Layer::Ordnance, targetPos, comp::Motion{},
+			comp::Physique{1}, &targetMask);
+	b.reg.emplace<comp::Vitality>(target, comp::Vitality{50});
+
+	b.step();  // Appearing frame; ShipMachines forces Input::None on it
+
+	int fires = 0;
+	b.reg.get<comp::Input>(id).buttons = ShipInput::Special;
 	for (int i = 0; i < 4; ++i)
+	{
 		b.step();
+		for (const SpawnEvent &sp : b.spawns())
+			if (sp.kind == SpawnFlavor::Laser)
+				++fires;
+	}
 
-	// Fires on the 1st step (counter 0) and again on the 4th, when the
-	// counter set to 3 has just been decremented to 0 -- a period of
-	// special.wait, not special.wait + 1.
-	CHECK(g_specialFires == 2,
-			"a held special with wait 3 should fire twice in 4 frames, got %d",
-			g_specialFires);
+	// Frame 1 fires with the counter already at zero and re-arms it to 3;
+	// frames 2 and 3 spend it; frame 4 lands on zero and fires again.
+	CHECK(fires == 2, "a wait of 3 should fire twice in four frames, got %d",
+			fires);
 }
 
 void testOpposingMissilesDestroyEachOther()

@@ -5,6 +5,7 @@
 #include "engine/core/Types.hpp"
 #include "sim/Battle.hpp"
 #include "sim/Damage.hpp"
+#include "sim/Specials.hpp"
 #include "sim/Targeting.hpp"
 #include "sim/Trig.hpp"
 
@@ -56,6 +57,11 @@ EntityId spawnPlayerShip(Battle &b, const ShipSpec &spec,
 	if (warpIn)
 		s.with(comp::WarpingIn{});
 	b.attachShip(s.id(), &spec);
+
+	// Whatever mechanics this ship type composes, attached once here rather
+	// than looked up every frame (ShipSpec::equip).
+	if (spec.equip != nullptr)
+		spec.equip(b, s.id());
 	return s;
 }
 
@@ -236,17 +242,13 @@ void fireWeapon(Battle &b, EntityId id, comp::ShipState &s,
 // SPECIAL: the engine only ticks the counter (ship.c:342-343). Decrement
 // first, then test the just-decremented value (ship.c:342-346) -- gating
 // in an else-branch instead adds a dead frame every cycle.
-void gateSpecial(Battle &b, EntityId id, comp::ShipState &s,
-		const ShipSpec &spec) noexcept
+void gateSpecial(Battle &b, EntityId id, comp::ShipState &s) noexcept
 {
 	const comp::Input &in = b.reg.get<comp::Input>(id);
 	if (s.specialCounter > 0)
 		--s.specialCounter;
-	if (s.specialCounter == 0 && any(in.buttons & ShipInput::Special)
-			&& spec.special.hook != nullptr)
-	{
-		spec.special.hook(b, id);
-	}
+	if (s.specialCounter == 0 && any(in.buttons & ShipInput::Special))
+		runGatedSpecials(b, id);
 }
 
 void warpInStep(Battle &b, EntityId id) noexcept;
@@ -269,9 +271,9 @@ void energyRegenPass(Battle &b) noexcept
 namespace {
 
 // ShipMachines (pipeline slot 4), one ship: warping in pre-empts
-// everything, the appearing frame is its own one-time init, a dead hull
-// only burns, and only what is left of those runs the ship's own preProcess
-// hook (the Ilwrath cloak). Turn and Thrust are their own passes below.
+// everything, the appearing frame is its own one-time init, and a dead hull
+// only burns. The specials already ran, in the pass ahead of this one
+// (Specials.hpp); Turn and Thrust are their own passes below.
 void shipMachinesStep(Battle &b, EntityId id, comp::ShipState &s) noexcept
 {
 	const ShipSpec &spec = *s.spec;
@@ -299,11 +301,7 @@ void shipMachinesStep(Battle &b, EntityId id, comp::ShipState &s) noexcept
 	{
 		if (b.reg.all_of<comp::Exploding>(id))
 			explosionStep(b, id);
-		return;
 	}
-
-	if (spec.preProcess != nullptr)
-		spec.preProcess(b, id);
 }
 
 }  // namespace
@@ -353,7 +351,7 @@ void fireAndSpecialGatePass(Battle &b) noexcept
 				if (s.crew == 0)
 					return;
 				fireWeapon(b, id, s, *s.spec);
-				gateSpecial(b, id, s, *s.spec);
+				gateSpecial(b, id, s);
 			});
 }
 

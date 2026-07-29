@@ -383,7 +383,10 @@ void renderShips(Game &g)
 
 		// Cloak tint (ilwrath.c:250-285): Cloaked is the full-black
 		// invisible step (the tag holds iff level is full); the 1..5
-		// tint ramp reads Cloak.level directly.
+		// tint ramp reads Cloak.level directly. Level 0 is solid and is
+		// the common case -- an equipped ship carries a Cloak from spawn
+		// (ShipSpec::equip), so `level > 0` is the draw-normally test, not
+		// a guard against a missing component.
 		if (const sim::comp::Cloak *cloak =
 						g.battle.reg.try_get<sim::comp::Cloak>(id))
 		{

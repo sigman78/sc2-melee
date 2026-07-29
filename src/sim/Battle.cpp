@@ -8,6 +8,7 @@
 #include "sim/Gravity.hpp"
 #include "sim/Impulse.hpp"
 #include "sim/ShipSystems.hpp"
+#include "sim/Specials.hpp"
 #include "sim/World.hpp"
 
 #include <cassert>
@@ -846,6 +847,10 @@ void Battle::step()
 	capturePriorPass();
 	ageAndReapMarkPass();
 	energyRegenPass(*this);
+	// Ahead of ShipMachines, which is where an arriving ship loses WarpingIn:
+	// the exclusion these mechanics gate on has to still be attached when the
+	// query tests it (Specials.hpp).
+	preTurnSpecialsPass(*this);
 	shipMachinesPass(*this);
 	turnPass(*this);
 	thrustPass(*this);

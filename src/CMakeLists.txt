@@ -29,6 +29,7 @@ add_library(sc2m_content STATIC
 	sim/Gravity.cpp
 	sim/Impulse.cpp
 	sim/ShipSystems.cpp
+	sim/Specials.cpp
 	sim/ships/Human.cpp
 	sim/ships/Ilwrath.cpp
 	sim/Spawn.cpp
