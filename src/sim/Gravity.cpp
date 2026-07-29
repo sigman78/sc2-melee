@@ -14,12 +14,12 @@ bool calculateGravity(Battle &b, EntityId id)
 	if (!b.alive(id))
 		return false;
 
-	const bool selfHasGravity =
-			b.collidable(id) && isGravitySource(b.get<comp::Physique>(id).mass);
+	const bool selfHasGravity = b.collidable(id)
+			&& isGravitySource(b.reg.get<comp::Physique>(id).mass);
 
 	// Gravity runs before Integrate touches anyone's `next` this frame --
 	// `current` is the one consistent snapshot every entity shares.
-	const Vec2i from = b.get<comp::Position>(id).current;
+	const Vec2i from = b.reg.get<comp::Position>(id).current;
 
 	const i32 pull = worldToVelocity(1);
 
@@ -69,7 +69,7 @@ bool calculateGravity(Battle &b, EntityId id)
 				otherMotion.velocity.deltaComponents(
 						cosine(angle, pull), sine(angle, pull));
 
-				if (b.has<comp::ShipState>(other))
+				if (b.reg.all_of<comp::ShipState>(other))
 				{
 					// gravity.c:136-137 clears SHIP_AT_MAX_SPEED but
 					// deliberately leaves SHIP_BEYOND_MAX_SPEED alone: a ship
@@ -90,7 +90,7 @@ void gravityPass(Battle &b)
 {
 	// The well is whichever entity carries Planet, not whichever entity's
 	// mass happens to clear kGravityMass -- there is only ever one.
-	b.view<comp::Planet>().each([&b](EntityId id) {
+	b.reg.view<comp::Planet>().each([&b](EntityId id) {
 		if (b.collidable(id))
 			(void)calculateGravity(b, id);
 	});

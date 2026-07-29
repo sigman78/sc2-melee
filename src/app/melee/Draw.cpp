@@ -160,7 +160,7 @@ constexpr std::array<Colour, 6> kCloakRamp{{
 void drawFacingSprite(
 		Game &g, const sim::comp::Position &pos, const comp::Visual &v)
 {
-	const game::Camera &camera = g.battle.context<game::Camera>();
+	const game::Camera &camera = g.battle.reg.ctx().get<game::Camera>();
 	const Vec2i at = camera.toScreen(pos.current);
 	const game::SpriteSet *set = v.sprites;
 	const usize cel = set != nullptr
@@ -191,7 +191,7 @@ comp::Visual visualFor(Game &g, sim::EntityId id, i32 playerNr)
 
 	// The owner's definition, for the art that is the ship's own (the ship
 	// itself, and the shadow it sheds while warping in, which borrows it).
-	const auto &roster = b.context<ctx::BattleConfig>().roster;
+	const auto &roster = b.reg.ctx().get<ctx::BattleConfig>().roster;
 	const game::ShipDef *def =
 			playerNr >= 0 && static_cast<usize>(playerNr) < roster.size()
 			? roster[static_cast<usize>(playerNr)]
@@ -208,36 +208,37 @@ comp::Visual visualFor(Game &g, sim::EntityId id, i32 playerNr)
 	// keyed on here (Planet/Trail/Shadow/Debris/Blast/Spin, plus Cloaked in
 	// renderShips) are attached at each one's own spawn site.
 
-	if (b.has<sim::comp::ShipState>(id) || b.has<sim::comp::Shadow>(id))
+	if (b.reg.all_of<sim::comp::ShipState>(id)
+			|| b.reg.all_of<sim::comp::Shadow>(id))
 		return def != nullptr
 				? sprite(def->art.ship,
 						  playerNr == 0 ? Colour{0x40, 0xC0, 0xFF}
 										: Colour{0xFF, 0x60, 0x40})
 				: comp::Visual{nullptr, Colour{0xC0, 0xC0, 0xC0}};
 
-	if (b.has<sim::comp::Beam>(id))
+	if (b.reg.all_of<sim::comp::Beam>(id))
 		return comp::Visual{nullptr, Colour{0xC0, 0xC0, 0xC0}};
 
-	if (b.has<sim::comp::Warhead>(id))
+	if (b.reg.all_of<sim::comp::Warhead>(id))
 		return def != nullptr
 				? sprite(def->art.weapon, Colour{0xFF, 0xE0, 0x60})
 				: comp::Visual{nullptr, Colour{0xFF, 0xE0, 0x60}};
 
-	if (b.has<sim::comp::Trail>(id))
+	if (b.reg.all_of<sim::comp::Trail>(id))
 		return comp::Visual{nullptr, Colour{0xC0, 0xC0, 0xC0}};
 
-	if (b.has<sim::comp::Debris>(id))
+	if (b.reg.all_of<sim::comp::Debris>(id))
 		return sprite(game::kMeleeArt.boom, Colour{0xC0, 0xC0, 0xC0});
 
-	if (b.has<sim::comp::Blast>(id))
+	if (b.reg.all_of<sim::comp::Blast>(id))
 		return sprite(
 				playerNr < 0 ? game::kMeleeArt.boom : game::kMeleeArt.blast,
 				Colour{0xFF, 0xFF, 0xC0});
 
-	if (b.has<sim::comp::Spin>(id))
+	if (b.reg.all_of<sim::comp::Spin>(id))
 		return sprite(game::kMeleeArt.asteroid, Colour{0x90, 0x88, 0x78});
 
-	if (b.has<sim::comp::Planet>(id))
+	if (b.reg.all_of<sim::comp::Planet>(id))
 		return sprite(game::kMeleeArt.planet, Colour{0x60, 0x90, 0x50});
 
 	return comp::Visual{nullptr, Colour{0xC0, 0xC0, 0xC0}};
@@ -250,7 +251,7 @@ namespace {
 // Starfield: no Position/Order, so an unordered view, not eachOrdered.
 void renderStars(Game &g)
 {
-	const game::Camera &camera = g.battle.context<game::Camera>();
+	const game::Camera &camera = g.battle.reg.ctx().get<game::Camera>();
 	const Vec2i centre = camera.centre();
 
 	const auto wrapTo = [](i32 v, i32 n) {
@@ -258,8 +259,8 @@ void renderStars(Game &g)
 		return v < 0 ? v + n : v;
 	};
 
-	g.battle.view<comp::Starfield>().each([&](sim::EntityId,
-												  comp::Starfield &sf) {
+	g.battle.reg.view<comp::Starfield>().each([&](sim::EntityId,
+													  comp::Starfield &sf) {
 		usize first = 0;
 		for (int plane = 0; plane < kStarPlanes; ++plane)
 		{
@@ -344,7 +345,7 @@ void renderShips(Game &g)
 								  sim::comp::ShipState &s, comp::Visual &v) {
 		// A ship that has not arrived yet is not drawn -- only the
 		// shadows it sheds are (tactrans.c:863).
-		if (!g.battle.has<sim::comp::Collider>(id) && s.crew > 0)
+		if (!g.battle.reg.all_of<sim::comp::Collider>(id) && s.crew > 0)
 			return;
 
 		// A dying ship keeps its own hull for the first fifteen
@@ -356,7 +357,7 @@ void renderShips(Game &g)
 						>= sim::comp::Exploding::kHullVanishAge)
 			return;
 
-		const game::Camera &camera = g.battle.context<game::Camera>();
+		const game::Camera &camera = g.battle.reg.ctx().get<game::Camera>();
 		const Vec2i at = camera.toScreen(pos.current);
 		const game::SpriteSet *set = v.sprites;
 		const usize cel = set != nullptr
@@ -383,9 +384,10 @@ void renderShips(Game &g)
 		// Cloak tint (ilwrath.c:250-285): Cloaked is the full-black
 		// invisible step (the tag holds iff level is full); the 1..5
 		// tint ramp reads Cloak.level directly.
-		if (const sim::comp::Cloak *cloak = g.battle.find<sim::comp::Cloak>(id))
+		if (const sim::comp::Cloak *cloak =
+						g.battle.reg.try_get<sim::comp::Cloak>(id))
 		{
-			if (g.battle.has<sim::comp::Cloaked>(id))
+			if (g.battle.reg.all_of<sim::comp::Cloaked>(id))
 				return;
 			const i32 level = cloak->level;
 			if (level > 0 && static_cast<usize>(level) < kCloakRamp.size()
@@ -410,11 +412,12 @@ void renderProjectiles(Game &g)
 	g.battle.eachOrdered<sim::comp::Position, sim::comp::Warhead, comp::Visual>(
 			[&g](sim::EntityId id, sim::comp::Position &pos,
 					sim::comp::Warhead &, comp::Visual &v) {
-				const game::Camera &camera = g.battle.context<game::Camera>();
+				const game::Camera &camera =
+						g.battle.reg.ctx().get<game::Camera>();
 				const Vec2i at = camera.toScreen(pos.current);
 				const game::SpriteSet *set = v.sprites;
 				const sim::comp::AnimFrame *anim =
-						g.battle.find<sim::comp::AnimFrame>(id);
+						g.battle.reg.try_get<sim::comp::AnimFrame>(id);
 
 				// A weapon draws the cel AnimFrame names -- the facing for a
 				// directional missile, the animation frame for the flame.
@@ -444,19 +447,19 @@ void renderProjectiles(Game &g)
 						Vec2i{at.x - off.x, at.y - off.y}, dest);
 			});
 
-	g.battle.eachOrdered<sim::comp::Beam>(
-			[&g](sim::EntityId, sim::comp::Beam &beam) {
-				const game::Camera &camera = g.battle.context<game::Camera>();
-				g.window.drawLine(camera.toScreen(beam.from),
-						camera.toScreen(beam.to), 0xFF, 0xFF, 0xFF);
-			});
+	g.battle.eachOrdered<sim::comp::Beam>([&g](sim::EntityId,
+												  sim::comp::Beam &beam) {
+		const game::Camera &camera = g.battle.reg.ctx().get<game::Camera>();
+		g.window.drawLine(camera.toScreen(beam.from), camera.toScreen(beam.to),
+				0xFF, 0xFF, 0xFF);
+	});
 }
 
 // The Trail/Shadow/Debris/Blast tags, in that declared order; each keeps
 // its own seq order within its pass.
 void renderEffects(Game &g)
 {
-	const game::Camera &camera = g.battle.context<game::Camera>();
+	const game::Camera &camera = g.battle.reg.ctx().get<game::Camera>();
 
 	// Ion trail: a single point stepping through the colour ramp as it ages.
 	// Lifetime::remaining counts down, so the ramp index counts up.
@@ -538,13 +541,13 @@ void renderEffects(Game &g)
 // carries no Order.
 void renderMarks(Game &g)
 {
-	if (!g.battle.context<ctx::DebugToggles>().overlay)
+	if (!g.battle.reg.ctx().get<ctx::DebugToggles>().overlay)
 		return;
 
-	const game::Camera &camera = g.battle.context<game::Camera>();
+	const game::Camera &camera = g.battle.reg.ctx().get<game::Camera>();
 	constexpr i32 kVectorGain = 8;
 
-	g.battle.view<comp::Mark>().each([&](sim::EntityId, comp::Mark &mark) {
+	g.battle.reg.view<comp::Mark>().each([&](sim::EntityId, comp::Mark &mark) {
 		const Vec2i at = camera.toScreen(mark.event.at);
 		g.window.drawLine(Vec2i{at.x - 4, at.y - 4}, Vec2i{at.x + 4, at.y + 4},
 				0xFF, 0x30, 0x30);
@@ -577,7 +580,7 @@ void renderHud(Game &g)
 	constexpr std::array<Colour, 2> kCrewColours{
 			{{0x40, 0xC0, 0xFF}, {0xFF, 0x60, 0x40}}};
 
-	const auto &shipIds = g.battle.context<ctx::MatchState>().shipIds;
+	const auto &shipIds = g.battle.reg.ctx().get<ctx::MatchState>().shipIds;
 	for (usize p = 0; p < shipIds.size(); ++p)
 	{
 		const sim::comp::ShipState *s = g.battle.ship(shipIds[p]);
@@ -601,10 +604,10 @@ void renderHud(Game &g)
 // DebugToggles.overlay.
 void renderOverlay(Game &g)
 {
-	if (!g.battle.context<ctx::DebugToggles>().overlay)
+	if (!g.battle.reg.ctx().get<ctx::DebugToggles>().overlay)
 		return;
 
-	const game::Camera &camera = g.battle.context<game::Camera>();
+	const game::Camera &camera = g.battle.reg.ctx().get<game::Camera>();
 	g.battle.eachOrdered<sim::comp::Position, sim::comp::Collider>(
 			[&g, &camera](sim::EntityId, sim::comp::Position &pos,
 					sim::comp::Collider &c) {

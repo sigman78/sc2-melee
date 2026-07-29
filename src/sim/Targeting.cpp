@@ -12,13 +12,13 @@ namespace uqm::sim {
 int trackShip(Battle &b, EntityId tracker, Facing &facing,
 		EntityId *outTarget) noexcept
 {
-	auto *const self = b.find<comp::Allegiance>(tracker);
+	auto *const self = b.reg.try_get<comp::Allegiance>(tracker);
 	if (self == nullptr)
 		return -1;
 
 	// GuidedSteer runs before Integrate, so `current` is the frame's one
 	// consistent snapshot for every tracker and every target alike.
-	const Vec2i from = b.get<comp::Position>(tracker).current;
+	const Vec2i from = b.reg.get<comp::Position>(tracker).current;
 
 	int bestDelta = 0;
 	i32 bestDistance = 0;
@@ -39,7 +39,7 @@ int trackShip(Battle &b, EntityId tracker, Facing &facing,
 				// Nor cloaked ones (weapon.c:344-348). This is the whole
 				// tactical point of the Ilwrath cloak: not that it is hard to
 				// see, but that a guided weapon has nothing to steer toward.
-				if (b.has<comp::Cloaked>(id))
+				if (b.reg.all_of<comp::Cloaked>(id))
 					return;
 
 				const Vec2i to = pos.current;

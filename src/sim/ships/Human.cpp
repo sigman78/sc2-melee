@@ -38,7 +38,8 @@ usize spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 
 void cruiserSpecial(Battle &b, EntityId id) noexcept
 {
-	const comp::Allegiance *shipAllegiance = b.find<comp::Allegiance>(id);
+	const comp::Allegiance *shipAllegiance =
+			b.reg.try_get<comp::Allegiance>(id);
 	if (shipAllegiance == nullptr)
 		return;
 	comp::ShipState *sp = b.ship(id);
@@ -50,7 +51,7 @@ void cruiserSpecial(Battle &b, EntityId id) noexcept
 	if (range <= 0)
 		return;
 
-	const Vec2i from = b.get<comp::Position>(id).next;
+	const Vec2i from = b.reg.get<comp::Position>(id).next;
 	bool paid = false;
 	bool cannotAfford = false;
 
@@ -66,7 +67,7 @@ void cruiserSpecial(Battle &b, EntityId id) noexcept
 
 				if (!b.collidable(other))
 					return;
-				if (b.has<comp::Cloaked>(other))
+				if (b.reg.all_of<comp::Cloaked>(other))
 					return;  // human.c:203-204
 
 				// No ownership test -- the C has none (human.c:203-204): the
@@ -118,7 +119,7 @@ void cruiserSpecial(Battle &b, EntityId id) noexcept
 						.lifetime = comp::Lifetime{1},
 				});
 
-				shipAllegiance = b.find<comp::Allegiance>(id);
+				shipAllegiance = b.reg.try_get<comp::Allegiance>(id);
 			});
 }
 

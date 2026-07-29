@@ -163,15 +163,25 @@ class Battle
 public:
 	explicit Battle(u32 seed);
 
+	// The Order observers below hold `this`, so a Battle stays where it was
+	// built.
+	Battle(const Battle &) = delete;
+	Battle &operator=(const Battle &) = delete;
+
 	[[nodiscard]] Rng &rng() noexcept { return rng_; }
 
 	// The generation check a stale handle fails. Declared order lives in
 	// Order (Entity.hpp), read through eachOrdered below.
 	[[nodiscard]] bool alive(EntityId id) const noexcept
 	{
-		return reg_.valid(id);
+		return reg.valid(id);
 	}
-	[[nodiscard]] usize size() const noexcept { return count_; }
+	// The Order pool is the element count: make() is the only thing that
+	// attaches one, so nothing has to keep a parallel counter honest.
+	[[nodiscard]] usize size() const noexcept
+	{
+		return reg.view<comp::Order>().size();
+	}
 
 	// CollidingElement (collide.h:31-33): a Collider, not Doomed, and not
 	// WarpingIn -- a ship warping in keeps its Collider (ShipSystems.cpp)
@@ -257,8 +267,12 @@ public:
 		return spawns_;
 	}
 
-	// Components are registry pools keyed by the entity: attach is emplace,
-	// lookup is try_get, destroy reaps every component with its entity.
+	// The world. Public, and reached directly: emplace/try_get/get/all_of/
+	// remove/view/ctx are entt's vocabulary, and wrapping it one API at a
+	// time is what this replaced (review-010 §3). What stays on Battle is
+	// what has semantics of its own -- the ordered walk, the spawn family,
+	// and the two named component accessors below.
+	entt::registry reg;
 
 	// The ship component. Null for anything that is not a ship.
 	[[nodiscard]] comp::ShipState *ship(EntityId id) noexcept;
@@ -269,93 +283,6 @@ public:
 	// `.with(FromWeapon{spec})` on the Spawned to attach one directly.
 	[[nodiscard]] Borrowed<const WeaponSpec> weaponSpec(
 			EntityId id) const noexcept;
-
-	// The typed component surface: every component type goes through
-	// these instead of naming entt::registry directly.
-	// decltype(auto), not T&: entt's emplace returns void for an empty
-	// (tag) component -- WarpingIn, Exploding -- since there is nothing to
-	// reference.
-	template <class T, class... Args>
-	decltype(auto) attach(EntityId id, Args &&...args)
-	{
-		return reg_.emplace<T>(id, std::forward<Args>(args)...);
-	}
-	// For a site that cannot promise the component is absent -- e.g. a
-	// weapon mid-flight already has a Lifetime, and doDamage's non-ship
-	// branch must overwrite it rather than assert.
-	template <class T, class... Args>
-	decltype(auto) attachOrReplace(EntityId id, Args &&...args)
-	{
-		return reg_.emplace_or_replace<T>(id, std::forward<Args>(args)...);
-	}
-	template <class T> [[nodiscard]] T *find(EntityId id) noexcept
-	{
-		return reg_.valid(id) ? reg_.try_get<T>(id) : nullptr;
-	}
-	template <class T> [[nodiscard]] const T *find(EntityId id) const noexcept
-	{
-		return reg_.valid(id) ? reg_.try_get<T>(id) : nullptr;
-	}
-	// Asserts every Ts is attached and returns references (a tuple for
-	// several) -- for a site where presence is already guaranteed. find<T>
-	// stays the null-returning form for a site that must still ask.
-	template <class... Ts> [[nodiscard]] decltype(auto) get(EntityId id)
-	{
-		return reg_.get<Ts...>(id);
-	}
-	template <class T> [[nodiscard]] bool has(EntityId id) const noexcept
-	{
-		return reg_.valid(id) && reg_.all_of<T>(id);
-	}
-	template <class T> void detach(EntityId id) { reg_.remove<T>(id); }
-
-	// The singleton surface: one value per type, belonging to the world
-	// rather than to any entity (camera, match state, config). Same rule
-	// as the component surface: entt::registry never escapes Battle.
-	template <class T> T &setContext(T v)
-	{
-		return reg_.ctx().insert_or_assign(std::move(v));
-	}
-	template <class T> [[nodiscard]] T &context()
-	{
-		return reg_.ctx().get<T>();
-	}
-	template <class T> [[nodiscard]] const T &context() const
-	{
-		return reg_.ctx().get<T>();
-	}
-	// For a reader that runs before the value is installed, or when its
-	// absence is itself the answer.
-	template <class T> [[nodiscard]] T *findContext() noexcept
-	{
-		return reg_.ctx().find<T>();
-	}
-	template <class T> [[nodiscard]] const T *findContext() const noexcept
-	{
-		return reg_.ctx().find<T>();
-	}
-
-	// entt's own view vocabulary, not a hand-rolled fraction of it: the
-	// caller gets iterators, use<>, size_hint and storage through the view.
-	// entt::registry itself never escapes Battle -- only the view does.
-	template <class... Ts> [[nodiscard]] auto view()
-	{
-		return reg_.view<Ts...>();
-	}
-	template <class... Ts> [[nodiscard]] auto view() const
-	{
-		return reg_.view<const Ts...>();
-	}
-	template <class... Ts, class... Xs>
-	[[nodiscard]] auto view(entt::exclude_t<Xs...> excl)
-	{
-		return reg_.view<Ts...>(excl);
-	}
-	template <class... Ts, class... Xs>
-	[[nodiscard]] auto view(entt::exclude_t<Xs...> excl) const
-	{
-		return reg_.view<const Ts...>(excl);
-	}
 
 	// The declared-order walk: the Order pool stays sorted ascending by
 	// (Order.layer, Order.seq); ensureOrdered() re-sorts only when
@@ -369,12 +296,12 @@ public:
 		ensureOrdered();
 		if constexpr (sizeof...(Ts) == 0)
 		{
-			for (EntityId const id : reg_.view<comp::Order>())
+			for (EntityId const id : reg.view<comp::Order>())
 				fn(id);
 		}
 		else
 		{
-			auto v = reg_.view<comp::Order, Ts...>();
+			auto v = reg.view<comp::Order, Ts...>();
 			v.template use<comp::Order>();
 			v.each([&fn](EntityId id, comp::Order &, auto &...rest) {
 				fn(id, rest...);
@@ -389,12 +316,12 @@ public:
 		ensureOrdered();
 		if constexpr (sizeof...(Ts) == 0)
 		{
-			for (EntityId id : reg_.view<comp::Order>(excl))
+			for (EntityId id : reg.view<comp::Order>(excl))
 				fn(id);
 		}
 		else
 		{
-			auto v = reg_.view<comp::Order, Ts...>(excl);
+			auto v = reg.view<comp::Order, Ts...>(excl);
 			v.template use<comp::Order>();
 			v.each([&fn](EntityId id, comp::Order &, auto &...rest) {
 				fn(id, rest...);
@@ -402,27 +329,7 @@ public:
 		}
 	}
 
-	// The same sorted-and-driven view eachOrdered iterates internally,
-	// handed back instead of walked -- for a caller that wants entt's own
-	// iterator/size_hint surface over the declared order.
-	template <class... Ts> [[nodiscard]] auto ordered()
-	{
-		ensureOrdered();
-		auto v = reg_.view<comp::Order, Ts...>();
-		v.template use<comp::Order>();
-		return v;
-	}
-
 private:
-	// The world itself, for component types the typed surface above does
-	// not cover. Private: everything outside Battle goes through
-	// attach/find/has/detach instead.
-	[[nodiscard]] entt::registry &registry() noexcept { return reg_; }
-	[[nodiscard]] const entt::registry &registry() const noexcept
-	{
-		return reg_;
-	}
-
 	// The batch pipeline: one function per slot, run in this fixed order
 	// from step(). Later passes see earlier writes -- the sequence itself
 	// is the ordering contract.
@@ -457,25 +364,31 @@ private:
 	// mutually exclusive per entity, run from both death call sites.
 	void runDeathResponses(EntityId id) noexcept;
 
-	// Destroys the entity and updates count_.
+	// Destroys the entity; the Order observer invalidates the sort.
 	void removeElement(EntityId id) noexcept;
 
 	// Re-sorts the Order pool by (layer, seq) iff a spawn or destroy has
-	// touched it since the last sort -- make() and removeElement set
-	// orderDirty_, so a steady-state frame sorts nothing.
+	// touched it since the last sort -- the observers below raise the flag,
+	// so a steady-state frame sorts nothing.
 	void ensureOrdered();
+
+	// Connected to on_construct/on_destroy<Order> in the constructor: the
+	// sort key's own pool says when the walk is stale, so no spawn or
+	// destroy path has to remember to.
+	void markOrderDirty(entt::registry &, EntityId) noexcept
+	{
+		orderDirty_ = true;
+	}
 
 	// The declared position every spawn gets: the caller's layer, FIFO
 	// within it. One counter, one place it advances, so make() and the
 	// spawn() family cannot drift apart on what seq means.
 	[[nodiscard]] comp::Order nextOrder(Layer layer) noexcept;
 
-	entt::registry reg_;
-	// Set true by anything that adds or removes an Order -- see
-	// ensureOrdered(). Starts true: an empty pool has nothing to sort, but
-	// false would risk skipping the first real one.
+	// Set true by markOrderDirty -- see ensureOrdered(). Starts true: an
+	// empty pool has nothing to sort, but false would risk skipping the
+	// first real one.
 	bool orderDirty_ = true;
-	usize count_ = 0;
 	Rng rng_;
 	u64 frame_ = 0;
 	u64 nextSeq_ = 0;
@@ -511,9 +424,9 @@ public:
 	{
 		using U = std::decay_t<T>;
 		if constexpr (std::is_empty_v<U>)
-			b_.attach<U>(id_);
+			b_.reg.emplace<U>(id_);
 		else
-			b_.attach<U>(id_, std::forward<T>(value));
+			b_.reg.emplace<U>(id_, std::forward<T>(value));
 		return *this;
 	}
 

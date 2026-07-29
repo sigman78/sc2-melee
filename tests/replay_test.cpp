@@ -224,7 +224,7 @@ BattleResult simulateBattle(u32 seed, std::ostream *trace)
 		{
 			if (frame % kInputPeriod == 0)
 				word[p] = inputRng[p].next();
-			if (comp::Input *in = b.find<comp::Input>(shipId[p]))
+			if (comp::Input *in = b.reg.try_get<comp::Input>(shipId[p]))
 				in->buttons = wordToInput(word[p]);
 		}
 
@@ -240,9 +240,10 @@ BattleResult simulateBattle(u32 seed, std::ostream *trace)
 		b.eachOrdered([&](EntityId id) {
 			// A beam has no Position -- its Beam.from is what this digest
 			// folds as `current` instead, to keep the hash stable.
-			const comp::Position *pos = b.find<comp::Position>(id);
-			const Vec2i at = pos != nullptr ? pos->current
-											: b.find<comp::Beam>(id)->from;
+			const comp::Position *pos = b.reg.try_get<comp::Position>(id);
+			const Vec2i at = pos != nullptr
+					? pos->current
+					: b.reg.try_get<comp::Beam>(id)->from;
 			foldI32(frameDigest, at.x);
 			foldI32(frameDigest, at.y);
 			// find<Lifetime> ? remaining : 1 -- the persistent-element value

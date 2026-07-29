@@ -37,7 +37,7 @@ namespace {
 // from whatever else the sync point still draws this frame.
 void rubbleDeath(Battle &b, EntityId id) noexcept
 {
-	const comp::StashedMask *rm = b.find<comp::StashedMask>(id);
+	const comp::StashedMask *rm = b.reg.try_get<comp::StashedMask>(id);
 	const CollisionMask *mask = rm != nullptr ? rm->mask : nullptr;
 
 	b.queueSpawn(SpawnCommand{
@@ -53,18 +53,18 @@ void rubbleDeath(Battle &b, EntityId id) noexcept
 
 bool timeSpaceMatterConflict(Battle &b, EntityId id)
 {
-	const comp::Collider *selfCollider = b.find<comp::Collider>(id);
+	const comp::Collider *selfCollider = b.reg.try_get<comp::Collider>(id);
 	if (!b.alive(id) || selfCollider == nullptr)
 		return false;
 
-	const Vec2i selfAt = b.get<comp::Position>(id).current;
+	const Vec2i selfAt = b.reg.get<comp::Position>(id).current;
 	const Body a{selfCollider->mask, selfAt, selfAt};
 
 	// Order-independent: a plain OR over every other element, so the walk
 	// need not be the spine -- an unordered view is enough, and keeps
 	// entt::registry out of this file.
 	bool conflict = false;
-	b.view<comp::Collider, comp::Position>().each(
+	b.reg.view<comp::Collider, comp::Position>().each(
 			[&](EntityId other, comp::Collider &tCollider,
 					comp::Position &pos) {
 				if (conflict || other == id)
@@ -73,7 +73,8 @@ bool timeSpaceMatterConflict(Battle &b, EntityId id)
 				// A player ship counts even when it is not collidable --
 				// gravity.c:175 calls that "ship in transition", to stop a
 				// planet materialising on top of a ship still warping in.
-				if (!b.collidable(other) && !b.has<comp::ShipState>(other))
+				if (!b.collidable(other)
+						&& !b.reg.all_of<comp::ShipState>(other))
 					return;
 
 				const Body other_{tCollider.mask, pos.current, pos.current};
@@ -95,23 +96,25 @@ void placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 	const auto farEnough = [&b, id](i32 want) {
 		if (want <= 0)
 			return true;
-		const Vec2i selfAt = b.get<comp::Position>(id).current;
+		const Vec2i selfAt = b.reg.get<comp::Position>(id).current;
 		bool tooClose = false;
 		// ShipState is a required join too, but left as a manual has<>: a
 		// full join would force binding a ShipState& this loop never uses.
-		b.view<comp::Position>().each([&](EntityId other, comp::Position &pos) {
-			if (tooClose || other == id || !b.has<comp::ShipState>(other))
-				return;
-			const Vec2i d = wrapDelta(pos.current - selfAt);
-			if (d.x * d.x + d.y * d.y < want * want)
-				tooClose = true;
-		});
+		b.reg.view<comp::Position>().each(
+				[&](EntityId other, comp::Position &pos) {
+					if (tooClose || other == id
+							|| !b.reg.all_of<comp::ShipState>(other))
+						return;
+					const Vec2i d = wrapDelta(pos.current - selfAt);
+					if (d.x * d.x + d.y * d.y < want * want)
+						tooClose = true;
+				});
 		return !tooClose;
 	};
 
 	for (int tries = 0;; ++tries)
 	{
-		comp::Position &pos = b.get<comp::Position>(id);
+		comp::Position &pos = b.reg.get<comp::Position>(id);
 		pos.current = wrap(Vec2i{
 				displayAlignX(b.rng().next()), displayAlignY(b.rng().next())});
 		pos.next = pos.current;
@@ -149,13 +152,14 @@ EntityId spawnPlanet(Battle &b, const CollisionMask *mask)
 
 	do
 	{
-		comp::Position &pos = b.get<comp::Position>(id);
+		comp::Position &pos = b.reg.get<comp::Position>(id);
 		pos.current = wrap(Vec2i{
 				displayAlignX(b.rng().next()), displayAlignY(b.rng().next())});
 		pos.next = pos.current;
 	} while (calculateGravity(b, id) || timeSpaceMatterConflict(b, id));
 
-	b.get<comp::Physique>(id).mass = b.get<comp::Vitality>(id).hitPoints;
+	b.reg.get<comp::Physique>(id).mass =
+			b.reg.get<comp::Vitality>(id).hitPoints;
 	return id;
 }
 
@@ -213,9 +217,9 @@ void asteroidDeath(Battle &b, EntityId id) noexcept
 	if (!b.alive(id))
 		return;
 
-	const comp::StashedMask *deadMask = b.find<comp::StashedMask>(id);
+	const comp::StashedMask *deadMask = b.reg.try_get<comp::StashedMask>(id);
 	auto [deadPos, deadAllegiance] =
-			b.get<comp::Position, comp::Allegiance>(id);
+			b.reg.get<comp::Position, comp::Allegiance>(id);
 
 	comp::Position rPos;
 	rPos.current = deadPos.current;

@@ -141,7 +141,7 @@ void loadAssets(Game &g, const std::filesystem::path &content)
 		}
 	}
 
-	g.battle.setContext<ctx::BattleConfig>(cfg);
+	g.battle.reg.ctx().insert_or_assign(cfg);
 }
 
 }  // namespace uqm::melee

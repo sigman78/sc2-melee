@@ -57,7 +57,7 @@ void cloakedAutoAim(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
-	comp::Position *pos = &b.get<comp::Position>(id);
+	comp::Position *pos = &b.reg.get<comp::Position>(id);
 
 	Facing facing = pos->facing;
 	EntityId targetId = kNoEntity;
@@ -66,13 +66,13 @@ void cloakedAutoAim(Battle &b, EntityId id) noexcept
 
 	if (!b.alive(targetId) || !b.alive(id))
 		return;
-	pos = &b.get<comp::Position>(id);
-	const comp::Position &targetPos = b.get<comp::Position>(targetId);
+	pos = &b.reg.get<comp::Position>(id);
+	const comp::Position &targetPos = b.reg.get<comp::Position>(targetId);
 
 	// GetNextVelocityComponents on *copies* (ilwrath.c:292-296): the lead is
 	// a question, not a step, and must not disturb either error accumulator.
-	Velocity tv = b.get<comp::Motion>(targetId).velocity;
-	Velocity ov = b.get<comp::Motion>(id).velocity;
+	Velocity tv = b.reg.get<comp::Motion>(targetId).velocity;
+	Velocity ov = b.reg.get<comp::Motion>(id).velocity;
 	const Vec2i dT = tv.advance(kCloakAimLookAhead);
 	const Vec2i dO = ov.advance(kCloakAimLookAhead);
 
@@ -105,16 +105,16 @@ void ilwrathPreProcess(Battle &b, EntityId id) noexcept
 
 	comp::ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
-	const comp::Input &in = b.get<comp::Input>(id);
+	const comp::Input &in = b.reg.get<comp::Input>(id);
 
 	// ilwrath_preprocess (ilwrath.c:232-394): the Cloak component's level
 	// stands in for the prim type/colour, its walk direction derived fresh
 	// each frame. OBJECT_CLOAKED is the Cloaked tag, kept in sync with this
 	// level at this function's end -- only ships that run this hook carry
 	// either.
-	comp::Cloak *c = b.find<comp::Cloak>(id);
+	comp::Cloak *c = b.reg.try_get<comp::Cloak>(id);
 	if (c == nullptr)
-		c = &b.attach<comp::Cloak>(id);
+		c = &b.reg.emplace<comp::Cloak>(id);
 
 	// The C masks SPECIAL out of a *local* flags copy when an uncloak step
 	// runs (ilwrath.c:346), which suppresses the activation block below for
@@ -173,9 +173,9 @@ void ilwrathPreProcess(Battle &b, EntityId id) noexcept
 	// sole writer of `level`, so every other reader just asks has<Cloaked>
 	// instead of re-deriving OBJECT_CLOAKED itself.
 	if (c->level == comp::Cloak::kFullLevel)
-		b.attachOrReplace<comp::Cloaked>(id);
+		b.reg.emplace_or_replace<comp::Cloaked>(id);
 	else
-		b.detach<comp::Cloaked>(id);
+		b.reg.remove<comp::Cloaked>(id);
 }
 
 const ShipSpec &ilwrathAvenger() noexcept

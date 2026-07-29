@@ -38,10 +38,10 @@ void applyFacingMask(
 		return;
 	const usize i = static_cast<usize>(facing.raw()) % spec.facingMasks.size();
 	const CollisionMask *mask = &spec.facingMasks[i];
-	if (comp::Collider *c = b.find<comp::Collider>(id))
+	if (comp::Collider *c = b.reg.try_get<comp::Collider>(id))
 		c->mask = mask;
 	else
-		b.attach<comp::Collider>(id, mask);
+		b.reg.emplace<comp::Collider>(id, mask);
 }
 
 EntityId spawnPlayerShip(Battle &b, const ShipSpec &spec,
@@ -81,14 +81,14 @@ void regenEnergy(comp::ShipState &s, const ShipSpec &spec) noexcept
 void turnShip(Battle &b, EntityId id, comp::ShipState &s,
 		const ShipSpec &spec) noexcept
 {
-	const comp::Input &in = b.get<comp::Input>(id);
+	const comp::Input &in = b.reg.get<comp::Input>(id);
 	if (s.turnWait > 0)
 	{
 		--s.turnWait;
 	}
 	else if (any(in.buttons & (ShipInput::Left | ShipInput::Right)))
 	{
-		comp::Position &pos = b.get<comp::Position>(id);
+		comp::Position &pos = b.reg.get<comp::Position>(id);
 		const int delta = any(in.buttons & ShipInput::Left) ? -1 : 1;
 		pos.facing += delta;
 		s.turnWait = spec.turnWait;
@@ -101,14 +101,14 @@ void turnShip(Battle &b, EntityId id, comp::ShipState &s,
 void applyThrustInput(Battle &b, EntityId id, comp::ShipState &s,
 		const ShipSpec &spec) noexcept
 {
-	const comp::Input &in = b.get<comp::Input>(id);
+	const comp::Input &in = b.reg.get<comp::Input>(id);
 	if (s.thrustWait > 0)
 	{
 		--s.thrustWait;
 	}
 	else if (any(in.buttons & ShipInput::Thrust))
 	{
-		auto [pos, motion] = b.get<comp::Position, comp::Motion>(id);
+		auto [pos, motion] = b.reg.get<comp::Position, comp::Motion>(id);
 		const Facing facing = pos.facing;
 		s.speed = thrust(motion.velocity, facing, spec.thrust,
 				ThrustState{s.speed, s.inGravityWell});
@@ -123,7 +123,7 @@ void applyThrustInput(Battle &b, EntityId id, comp::ShipState &s,
 		// and not while FULLY cloaked (ship.c:271 gates on OBJECT_CLOAKED, true
 		// only at black) -- a half-faded ship still emits one
 		// (tactrans.c:792-832).
-		if (!b.has<comp::Cloaked>(id))
+		if (!b.reg.all_of<comp::Cloaked>(id))
 			spawnIonTrail(b, id);
 	}
 }
@@ -133,7 +133,7 @@ void applyThrustInput(Battle &b, EntityId id, comp::ShipState &s,
 void fireWeapon(Battle &b, EntityId id, comp::ShipState &s,
 		const ShipSpec &spec) noexcept
 {
-	const comp::Input &in = b.get<comp::Input>(id);
+	const comp::Input &in = b.reg.get<comp::Input>(id);
 	if (s.weaponCounter > 0)
 	{
 		--s.weaponCounter;
@@ -141,12 +141,13 @@ void fireWeapon(Battle &b, EntityId id, comp::ShipState &s,
 	else if (any(in.buttons & ShipInput::Weapon)
 			&& deltaEnergy(s, -spec.weapon.energyCost))
 	{
-		auto [shipPos, shipMotion] = b.get<comp::Position, comp::Motion>(id);
+		auto [shipPos, shipMotion] =
+				b.reg.get<comp::Position, comp::Motion>(id);
 		ShipView view;
 		view.position = shipPos.next;
 		view.velocity = shipMotion.velocity;
 		view.facing = shipPos.facing;
-		view.playerNr = b.get<comp::Allegiance>(id).playerNr;
+		view.playerNr = b.reg.get<comp::Allegiance>(id).playerNr;
 		view.weaponSpeed = spec.weapon.speed;
 		view.weaponLife = spec.weapon.lifetime.remaining;
 		view.weaponDamage = spec.weapon.warhead.damage;
@@ -243,7 +244,7 @@ void fireWeapon(Battle &b, EntityId id, comp::ShipState &s,
 void gateSpecial(Battle &b, EntityId id, comp::ShipState &s,
 		const ShipSpec &spec) noexcept
 {
-	const comp::Input &in = b.get<comp::Input>(id);
+	const comp::Input &in = b.reg.get<comp::Input>(id);
 	if (s.specialCounter > 0)
 		--s.specialCounter;
 	if (s.specialCounter == 0 && any(in.buttons & ShipInput::Special)
@@ -262,7 +263,7 @@ void energyRegenPass(Battle &b) noexcept
 {
 	// WarpingIn/Appearing are presence filters, so they belong in the query
 	// exclusion; crew == 0 is a value test and stays in the body.
-	b.view<comp::ShipState>(entt::exclude<comp::WarpingIn, comp::Appearing>)
+	b.reg.view<comp::ShipState>(entt::exclude<comp::WarpingIn, comp::Appearing>)
 			.each([](comp::ShipState &s) {
 				if (s.crew == 0)
 					return;
@@ -280,19 +281,20 @@ void shipMachinesStep(Battle &b, EntityId id, comp::ShipState &s) noexcept
 {
 	const ShipSpec &spec = *s.spec;
 
-	if (b.has<comp::WarpingIn>(id))
+	if (b.reg.all_of<comp::WarpingIn>(id))
 	{
 		warpInStep(b, id);
 		return;
 	}
 
-	if (b.has<comp::Appearing>(id))
+	if (b.reg.all_of<comp::Appearing>(id))
 	{
-		comp::Input &in = b.get<comp::Input>(id);
+		comp::Input &in = b.reg.get<comp::Input>(id);
 		s.crew = spec.maxCrew;
 		s.energy = spec.battery.max;
 		in.buttons = ShipInput::None;
-		auto [allegiance, pos] = b.get<comp::Allegiance, comp::Position>(id);
+		auto [allegiance, pos] =
+				b.reg.get<comp::Allegiance, comp::Position>(id);
 		allegiance.owner = id;
 		applyFacingMask(b, id, pos.facing, spec);
 		return;
@@ -300,7 +302,7 @@ void shipMachinesStep(Battle &b, EntityId id, comp::ShipState &s) noexcept
 
 	if (s.crew == 0)
 	{
-		if (b.has<comp::Exploding>(id))
+		if (b.reg.all_of<comp::Exploding>(id))
 			explosionStep(b, id);
 		return;
 	}
@@ -324,7 +326,7 @@ void turnPass(Battle &b) noexcept
 	// WarpingIn/Appearing are presence filters in the query's exclude;
 	// crew == 0 is a value test and stays in the body. Order-free: turning
 	// has no cross-entity or spawn-ordering dependency.
-	b.view<comp::ShipState>(entt::exclude<comp::WarpingIn, comp::Appearing>)
+	b.reg.view<comp::ShipState>(entt::exclude<comp::WarpingIn, comp::Appearing>)
 			.each([&b](EntityId id, comp::ShipState &s) {
 				if (s.crew == 0)
 					return;
@@ -370,9 +372,9 @@ void guidedShotPreProcess(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
-	comp::Position *pos = &b.get<comp::Position>(id);
+	comp::Position *pos = &b.reg.get<comp::Position>(id);
 	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
-	comp::Guided *g = b.find<comp::Guided>(id);
+	comp::Guided *g = b.reg.try_get<comp::Guided>(id);
 	if (ws == nullptr || g == nullptr)
 		return;
 
@@ -387,17 +389,17 @@ void guidedShotPreProcess(Battle &b, EntityId id) noexcept
 		(void)trackShip(b, id, facing);
 		if (!b.alive(id))
 			return;
-		pos = &b.get<comp::Position>(id);
+		pos = &b.reg.get<comp::Position>(id);
 		pos->facing = facing;
 		g->clock = g->trackWait;
 
 		// The mask follows the facing too, or a steering nuke's rect keeps the
 		// launch cel's size while the sprite changes cel. AnimFrame is the cel
 		// the renderer draws.
-		b.get<comp::AnimFrame>(id).n = pos->facing.raw();
+		b.reg.get<comp::AnimFrame>(id).n = pos->facing.raw();
 		if (!ws->masks.empty())
 		{
-			if (comp::Collider *c = b.find<comp::Collider>(id))
+			if (comp::Collider *c = b.reg.try_get<comp::Collider>(id))
 				c->mask = &ws->masks[static_cast<usize>(pos->facing.raw())
 						% ws->masks.size()];
 		}
@@ -409,20 +411,20 @@ void guidedShotPreProcess(Battle &b, EntityId id) noexcept
 	i32 speed = ws->speed
 			+ (ws->lifetime.remaining - lifeSpanOf(b, id)) * g->thrustScale;
 	speed = std::min(speed, g->maxSpeed);
-	b.get<comp::Motion>(id).velocity.setVector(speed, pos->facing);
+	b.reg.get<comp::Motion>(id).velocity.setVector(speed, pos->facing);
 }
 
 void spawnIonTrail(Battle &b, EntityId ship) noexcept
 {
 	if (!b.alive(ship))
 		return;
-	const comp::Position &shipPos = b.get<comp::Position>(ship);
+	const comp::Position &shipPos = b.reg.get<comp::Position>(ship);
 
 	// Behind the ship, along the reverse of its facing. The C offsets by the
 	// sprite's height so the exhaust leaves the hull rather than the hotspot
 	// (tactrans.c:808-812); the collision mask stands in for the frame rect.
 	const Angle angle = shipPos.facing.angle().opposite();
-	const comp::Collider *hull = b.find<comp::Collider>(ship);
+	const comp::Collider *hull = b.reg.try_get<comp::Collider>(ship);
 	const i32 back = hull != nullptr
 			? displayToWorld(static_cast<i32>(hull->mask->size().h) / 2)
 			: 0;
@@ -456,18 +458,19 @@ void warpInStep(Battle &b, EntityId id) noexcept
 	if (sp == nullptr)
 		return;
 
-	if (b.has<comp::Appearing>(id))
+	if (b.reg.all_of<comp::Appearing>(id))
 	{
 		// Arriving: invisible, untouchable, on a clock (tactrans.c:858-866).
 		// The Collider stays attached throughout -- collidable() excludes it
 		// by WarpingIn instead, so there's nothing to restore on arrival.
 		sp->crew = sp->spec->maxCrew;
 		sp->energy = sp->spec->battery.max;
-		auto [in, allegiance] = b.get<comp::Input, comp::Allegiance>(id);
+		auto [in, allegiance] = b.reg.get<comp::Input, comp::Allegiance>(id);
 		in.buttons = ShipInput::None;
 		allegiance.owner = id;
-		b.attach<comp::Lifetime>(id, comp::Lifetime{comp::WarpingIn::kFrames});
-		b.get<comp::Motion>(id).velocity.zero();
+		b.reg.emplace<comp::Lifetime>(
+				id, comp::Lifetime{comp::WarpingIn::kFrames});
+		b.reg.get<comp::Motion>(id).velocity.zero();
 		return;
 	}
 
@@ -475,7 +478,7 @@ void warpInStep(Battle &b, EntityId id) noexcept
 	// hull copy behind the arrival point, shrinking by TRANSITION_SPEED per
 	// frame left (tactrans.c:938-950); it never carries a Collider.
 	{
-		const comp::Position &shipPos = b.get<comp::Position>(id);
+		const comp::Position &shipPos = b.reg.get<comp::Position>(id);
 		const Angle angle = shipPos.facing.angle();
 		const i32 back =
 				comp::WarpingIn::kImageSpacing * (lifeSpanOf(b, id) - 1);
@@ -491,7 +494,8 @@ void warpInStep(Battle &b, EntityId id) noexcept
 				.position = shadowPos,
 				// Picks which ship's sprites to draw; no owner of its own.
 				.allegiance =
-						comp::Allegiance{b.get<comp::Allegiance>(id).playerNr,
+						comp::Allegiance{
+								b.reg.get<comp::Allegiance>(id).playerNr,
 								kNoEntity},
 				.effect = true,  // stationary: no Motion needed
 				.shadow = true,
@@ -507,11 +511,11 @@ void warpInStep(Battle &b, EntityId id) noexcept
 		// Arrived: solid, visible, under its own control (tactrans.c:868-886).
 		// The Collider was never removed, so applyFacingMask's rebuild is a
 		// refresh, not a reattach; a spec with no facingMasks leaves it as is.
-		b.detach<comp::Lifetime>(id);  // NORMAL_LIFE: persistent again
-		auto [motion, pos] = b.get<comp::Motion, comp::Position>(id);
+		b.reg.remove<comp::Lifetime>(id);  // NORMAL_LIFE: persistent again
+		auto [motion, pos] = b.reg.get<comp::Motion, comp::Position>(id);
 		motion.velocity.zero();
 		applyFacingMask(b, id, pos.facing, *sp->spec);
-		b.detach<comp::WarpingIn>(id);
+		b.reg.remove<comp::WarpingIn>(id);
 	}
 }
 
@@ -524,14 +528,14 @@ void sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 {
 	// Every live entity has an Allegiance (uniform attach), so requiring it
 	// in eachOrdered<Allegiance> is exact -- no null check needed.
-	b.eachOrdered<comp::Allegiance>(
-			[&b, id](EntityId other, comp::Allegiance &a) {
-				if (other == id || !(a.owner == id))
-					return;
-				b.attachOrReplace<comp::Lifetime>(other, comp::Lifetime{0});
-				b.attachOrReplace<comp::Doomed>(other);
-				b.detach<comp::Collider>(other);
-			});
+	b.eachOrdered<comp::Allegiance>([&b, id](EntityId other,
+											comp::Allegiance &a) {
+		if (other == id || !(a.owner == id))
+			return;
+		b.reg.emplace_or_replace<comp::Lifetime>(other, comp::Lifetime{0});
+		b.reg.emplace_or_replace<comp::Doomed>(other);
+		b.reg.remove<comp::Collider>(other);
+	});
 }
 
 void startShipExplosion(Battle &b, EntityId id) noexcept
@@ -542,18 +546,18 @@ void startShipExplosion(Battle &b, EntityId id) noexcept
 	// The ship becomes its own explosion rather than vanishing
 	// (tactrans.c:703-728): stops dead, loses energy, stops colliding, and
 	// burns for a fixed number of frames.
-	b.get<comp::Motion>(id).velocity.zero();
+	b.reg.get<comp::Motion>(id).velocity.zero();
 	if (comp::ShipState *sp = b.ship(id))
 		sp->energy = 0;
 	// A dying ship draws ByFacing (Draw.cpp), not ByFrame, so there is no
 	// AnimFrame to reset.
-	b.detach<comp::Doomed>(id);
-	b.attach<comp::Lifetime>(id, comp::Lifetime{comp::Exploding::kLife});
-	b.detach<comp::Collider>(id);
-	if (!b.has<comp::SweepsOwnedOnDeath>(id))
-		b.attach<comp::SweepsOwnedOnDeath>(id);
-	if (!b.has<comp::Exploding>(id))
-		b.attach<comp::Exploding>(id);
+	b.reg.remove<comp::Doomed>(id);
+	b.reg.emplace<comp::Lifetime>(id, comp::Lifetime{comp::Exploding::kLife});
+	b.reg.remove<comp::Collider>(id);
+	if (!b.reg.all_of<comp::SweepsOwnedOnDeath>(id))
+		b.reg.emplace<comp::SweepsOwnedOnDeath>(id);
+	if (!b.reg.all_of<comp::Exploding>(id))
+		b.reg.emplace<comp::Exploding>(id);
 }
 
 namespace {
@@ -574,11 +578,11 @@ void explosionStep(Battle &b, EntityId id) noexcept
 		count = 2;
 	if (age > 25)
 	{
-		b.detach<comp::Exploding>(id);
+		b.reg.remove<comp::Exploding>(id);
 		return;
 	}
 
-	const Vec2i from = b.get<comp::Position>(id).current;
+	const Vec2i from = b.reg.get<comp::Position>(id).current;
 	for (int n = 0; n < count; ++n)
 	{
 		// Scattered around the hull: random bearing, up to 8 display pixels

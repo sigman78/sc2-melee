@@ -66,7 +66,7 @@ re-grouping one header edit instead of a tree sweep.
 | Group | Holds |
 | --- | --- |
 | `comp::space` | `Position`, `Beam`, `Motion`, `Order`, `Spin` |
-| `comp::matter` | `Physique`, `Collider`, `CollisionScratch`, `Planet`, `StashedMask` |
+| `comp::matter` | `Physique`, `Collider`, `CollisionScratch`, `Planet`, `StashedMask`, `PriorSilhouette` |
 | `comp::life` | `Appearing`, `Lifetime`, `Doomed`, `Indestructible`, `SweepsOwnedOnDeath`, `DeathSpawn` |
 | `comp::owner` | `Allegiance`, `IgnoreSimilar` |
 | `comp::harm` | `Vitality`, `Warhead`, `DamageIncoming` |
@@ -87,20 +87,30 @@ model. `Sfx::` has one member and it is app-side. `Cleanup::` and
 
 ## 3. The entt surface
 
-`view` ×4, `context` ×4, `ordered`, `attach`, `attachOrReplace`, `get` and
-`detach` are pure pass-throughs. `find` and `has` add a `valid(id)` check —
-real, since `try_get` on a stale handle is undefined — but most call sites
-already open with `if (!b.alive(id)) return;`. `eachOrdered` is the only
-wrapper with a mechanism behind it, and `ordered<Ts...>()` already exposes
-that mechanism as a view.
+`view` ×4, `context` ×4, `attach`, `attachOrReplace`, `get` and `detach` are
+pure pass-throughs. `find` and `has` add a `valid(id)` check — real, since
+`try_get` on a stale handle is undefined — but most call sites already open
+with `if (!b.alive(id)) return;`. `eachOrdered` is the only wrapper with a
+mechanism behind it: the sort, plus eliding `Order` from the callback so 36
+call sites need no edit.
+
+`ordered<Ts...>()` turned out to have **zero callers** — review-008 V2 added
+it as the view form of the same mechanism and nothing ever wanted it. It is
+deleted rather than kept for symmetry.
 
 So: `entt::registry reg` becomes a public member, every pass-through is
-deleted, and what stays is what has semantics — `ordered`, the `spawn`
+deleted, and what stays is what has semantics — `eachOrdered`, the `spawn`
 family, `alive`, `collidable`, `queueSpawn`, `step`, `rng`.
+
+`ship()` and `weaponSpec()` stay, which is a line worth stating rather than
+leaving as an omission. They are named accessors for one component each,
+not registry vocabulary: keeping them gates access to no entt API, and
+`weaponSpec` handles the absent-`FromWeapon` case its two callers would
+otherwise repeat. If they should go too, it is a one-line follow-up.
 
 Two changes make that safe rather than merely permitted:
 
-- `count_` is deleted; `size()` reads `reg.storage<Order>().size()`, which
+- `count_` is deleted; `size()` reads `reg.view<comp::Order>().size()`, which
   is what the counter already tracked. An outside `destroy` can no longer
   desynchronise it.
 - `orderDirty_` stops being set by hand. `on_construct<Order>` and
@@ -114,12 +124,32 @@ reversal is deliberate: the query vocabulary is entt's, this codebase will
 need more of it than a wrapper set can anticipate, and the two invariants
 the wrapper was protecting are now derived rather than maintained.
 
+### What W2 found
+
+Deleting `find`/`has` removes a `valid(id)` check that two app sites were
+silently relying on, and **both are live paths, not hypotheticals.**
+`MatchState::shipIds` outlives its ships — the wreck is reaped once it
+finishes burning — so `Game.cpp`'s per-step input write and `Sound.cpp`'s
+death-stinger check were both reading a stale handle through the wrapper's
+guard. Under the wrapper they read as false/null; direct, they are
+undefined. Both now ask `alive()` first, which says the thing the wrapper
+was hiding.
+
+Nothing else in the tree stores an entity id across frames: `Mark` holds a
+`CollisionEvent` but never looks its ids up, `Allegiance::owner` and
+`DamageIncoming::lastFrom` are compared and stored but never dereferenced,
+and every other lookup runs on an id from the walk it is inside.
+
+The suite did not catch either one — `sim_test` and `replay_test` never
+build a `MatchState` — which is worth recording: the replay baseline proves
+the *simulation*, and says nothing about the app above it.
+
 ## 4. Stages
 
 | Stage | What | Proof |
 | --- | --- | --- |
 | W1 | `comp::` with inline groups; the `comp` macro deleted; `melee::comp` and `melee::ctx` | **done, bit-green** — 28 files, all 32 battles matched exactly |
-| W2 | The entt surface goes: public `reg`, pass-throughs deleted, `count_` and `orderDirty_` derived | pending |
+| W2 | The entt surface goes: public `reg`, pass-throughs deleted, `count_` and `orderDirty_` derived | **done, bit-green** — 17 member templates deleted, ~430 call sites, two real defects found (below) |
 | W3 | `lifeSpanOf` says what it means: both dead clauses deleted, `framesLeft` asserts, `isFiniteLife` becomes `isTransient` | pending |
 | W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | pending |
 | W5 | Spawns are built, not described: eager creation with `Order` withheld; `SpawnCommand` deleted | pending |
