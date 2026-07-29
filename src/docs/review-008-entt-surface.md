@@ -195,11 +195,55 @@ the counter-argument stronger: most frames resolve no collisions at all,
 the Pkunk phoenix is one unbuilt ship, and "different" may not mean "worse"
 or even "noticeable".
 
-**This is measurable, and should be measured rather than debated.** The
-replay harness already records per battle: winner, end frame, crew lost per
-side, shots and collisions. Relaxing the comparator to layer-only and
-running the 32 battles reports exactly how many change outcome, and by how
-much. A result of "2 of 32 change winner" and one of "19 of 32" argue for
-different designs. Until that runs, `seq` stays — not because the gameplay
-claim is proven, but because the ordering is load-bearing for the gate that
-protects every other change in flight.
+### Measured, 2026-07-28 — SiGMan was right
+
+Relaxing the comparator to layer-only would have been the obvious
+experiment and the wrong one: that order is not deterministic (`std::sort`
+is unstable over equal keys, and the pool underneath it reorders on every
+destroy), so it would have measured noise. The experiment run instead keeps
+a **total, deterministic** order and merely picks a different one — `seq`
+descending within layer, layers still ascending. `--similar` against the
+existing baseline, all 32 battles:
+
+| Measure | Baseline | Reversed order |
+| --- | --- | --- |
+| winner | — | **32/32 agree** |
+| crew lost, summed \|diff\| | 734 total | **0** |
+| shots | 24910 | **24910** |
+| collisions | 399 | **399** |
+| end frame, median \|diff\| | median 2129.5 | **0.0** |
+
+Every observable outcome is *identical*. Not similar — identical.
+
+The digest, meanwhile, diverges in all 32 battles, before frame 64 in every
+one. That is not a contradiction: the digest folds entity state **in walk
+order**, so reversing the walk changes the hash by construction. The hash
+was measuring the walk, not the state. The outcome columns are what measure
+the state, and they did not move.
+
+Why the sim is order-invariant here is visible in its own numbers: 399
+collisions across 32 battles of ~2130 frames each is roughly twelve
+contacts per battle, so within-frame ordering almost never has two
+interactions to sequence. Where it does, `resolveAgainst`'s
+`all_of<ShipState>(testId)` branch normalises ship-vs-anything response
+order — the ship responds first whichever side it is on — and the momentum
+exchange itself is symmetric.
+
+**So within-layer FIFO is not load-bearing for gameplay.** The claim this
+section opened with was wrong, and the prediction that replaced it — that
+chaos would make outcomes diverge widely — was also wrong.
+
+`seq` still stays, for the reason that survives: it is the tiebreak that
+makes the sort **total and deterministic**. entt's pool order is not stable
+under swap-and-pop deletion or tombstone reuse, so without it the walk
+would vary run to run and the replay harness protecting every other change
+would stop meaning anything. `layer` keeps its own separate justification —
+declared strata, and the Pkunk phoenix that will need to preprocess ahead
+of a dying ship.
+
+The useful consequence: the walk order is now known to be a free parameter
+for gameplay. Changing it costs one baseline re-record and nothing else.
+
+One caveat on scope: this is the two-ship melee with the current roster. A
+denser fight — more ships, or a weapon that fills the field with ordnance —
+would raise the collision density that makes this result hold.
