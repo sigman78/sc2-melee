@@ -16,25 +16,28 @@ calculateGravity(Battle &b, EntityId id)
 		return false;
 
 	const bool selfHasGravity =
-			b.collidable(id) && isGravitySource(b.find<Physique>(id)->mass);
+			b.collidable(id) && isGravitySource(b.get<Physique>(id).mass);
 
 	// Doc §2 refinement 1: gravity now runs as its own pipeline pass right
 	// after GuidedSteer, before Integrate has touched anyone's `next` this
 	// frame -- `current` is the one consistent snapshot every entity shares
 	// at that point, so there is no more "which half of the walk already
 	// moved" flag to consult.
-	const Vec2i from = b.find<Position>(id)->current;
+	const Vec2i from = b.get<Position>(id).current;
 
 	const i32 pull = worldToVelocity(1);
 
 	bool insideAWell = false;
 	// collidable(other) unpacked into the join: Collider is the presence
 	// filter, Doomed/WarpingIn the exclusions -- a view only ever yields live
-	// entities, so alive(other) drops with it. Physique and Position are the
-	// two fields the body reads off `other` unconditionally.
-	b.eachOrdered<Physique, Position, Collider>(
+	// entities, so alive(other) drops with it. Physique, Position and Motion
+	// are the fields the body reads off `other` unconditionally -- Motion
+	// joins rather than finds because every Collider carries one (both attach
+	// together in Battle::spawn, and nothing ever detaches Motion alone).
+	b.eachOrdered<Physique, Position, Collider, Motion>(
 			entt::exclude<Doomed, WarpingIn>,
-			[&](EntityId other, Physique &otherPhys, Position &otherPos, Collider &) {
+			[&](EntityId other, Physique &otherPhys, Position &otherPos,
+					Collider &, Motion &otherMotion) {
 				if (insideAWell || other == id)
 					return;
 
@@ -69,7 +72,7 @@ calculateGravity(Battle &b, EntityId id)
 				// accelerates it inward -- one world unit per frame, no
 				// falloff.
 				const int angle = arctan(d.x, d.y);
-				b.find<Motion>(other)->velocity.deltaComponents(
+				otherMotion.velocity.deltaComponents(
 						cosine(angle, pull), sine(angle, pull));
 
 				if (b.has<ShipState>(other))

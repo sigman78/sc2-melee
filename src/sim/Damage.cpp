@@ -75,7 +75,7 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 
 	// A gravity mass is not damageable. Asked without gravity.c's `+ 1`, so a
 	// planet is immune and a fleeing ship at mass 100 is not.
-	if (isGravityMass(b.find<Physique>(id)->mass))
+	if (isGravityMass(b.get<Physique>(id).mass))
 		return;
 
 	// Every non-ship collidable thing that can reach here carries a
@@ -104,7 +104,7 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 {
 	if (!b.alive(id))
 		return;
-	CollisionScratch &wScratch = *b.find<CollisionScratch>(id);
+	CollisionScratch &wScratch = b.get<CollisionScratch>(id);
 
 	// "if already did effect" (weapon.c:141-142): a weapon that has raised
 	// its own Collided this frame is done, however many partners the walk
@@ -114,10 +114,10 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 
 	if (!b.alive(targetId))
 		return;
-	CollisionScratch &targetScratch = *b.find<CollisionScratch>(targetId);
+	CollisionScratch &targetScratch = b.get<CollisionScratch>(targetId);
 
 	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
-	const i32 damage = b.find<Physique>(id)->mass;
+	const i32 damage = b.get<Physique>(id).mass;
 
 	// weapon.c:145-158: hurts anything transient or at NORMAL_LIFE (excludes
 	// something already dying), except an Indestructible target -- the
@@ -127,7 +127,7 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	if (damage > 0 && !b.has<Indestructible>(targetId)
 			&& (isFiniteLife(b, targetId) || lifeSpanOf(b, targetId) == 1))
 	{
-		doDamage(b, targetId, damage, b.find<Allegiance>(id)->owner);
+		doDamage(b, targetId, damage, b.get<Allegiance>(id).owner);
 		if (!b.alive(id))
 			return;
 		i32 left = 0;
@@ -146,18 +146,18 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame don't).
 	// The weapon's own hit points are its Vitality now, same as any other
 	// non-ship collidable.
-	Vitality *wVital = b.find<Vitality>(id);
+	Vitality &wVital = b.get<Vitality>(id);
 	if (b.alive(targetId)
 			&& isFiniteLife(b, targetId)
 			&& (targetScratch.collided
-					|| wVital->hitPoints > b.find<Physique>(targetId)->mass))
+					|| wVital.hitPoints > b.get<Physique>(targetId).mass))
 		return;
 
 	auto [pos, motion, warhead] = b.get<Position, Motion, Warhead>(id);
 	const Vec2i at = pos.next;
 	const int angle = motion.velocity.travelAngle();
 
-	wVital->hitPoints = 0;
+	wVital.hitPoints = 0;
 	// NONSOLID | DISAPPEARING (weapon.c:175-181), Collided in scratch:
 	// stopped, spent, reaped this frame.
 	wScratch.collided = true;
@@ -175,7 +175,7 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// surface it hit rather than inside it (weapon.c:198-208). Inherits the
 	// weapon's playerNr, no owner of its own (never set on the old Element
 	// either).
-	const i32 shooterPlayerNr = b.find<Allegiance>(id)->playerNr;
+	const i32 shooterPlayerNr = b.get<Allegiance>(id).playerNr;
 	Position blastPos;
 	blastPos.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(warhead.blastOffset)),
 			at.y + sine(angle, displayToWorld(warhead.blastOffset))});
@@ -211,9 +211,9 @@ solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept
 	// Hitting anything solid stops this element at the impact point
 	// (ship.c:358 raises COLLISION for any non-finite other) -- which is what
 	// makes solid-on-solid exchange momentum in the step loop.
-	b.find<CollisionScratch>(id)->collided = true;
+	b.get<CollisionScratch>(id).collided = true;
 
-	if (!isGravityMass(b.find<Physique>(otherId)->mass))
+	if (!isGravityMass(b.get<Physique>(otherId).mass))
 		return;
 
 	// ship.c:364-367: damage = hit_points >> 2, floored at one. For a

@@ -62,7 +62,7 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 	if (!b.alive(id) || selfCollider == nullptr)
 		return false;
 
-	const Vec2i selfAt = b.find<Position>(id)->current;
+	const Vec2i selfAt = b.get<Position>(id).current;
 	const Body a{selfCollider->mask, selfAt, selfAt};
 
 	// Order-independent: a plain OR over every other element, so the walk
@@ -103,7 +103,7 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 	const auto farEnough = [&b, id](i32 want) {
 		if (want <= 0)
 			return true;
-		const Vec2i selfAt = b.find<Position>(id)->current;
+		const Vec2i selfAt = b.get<Position>(id).current;
 		bool tooClose = false;
 		// ShipState is a required join too, but left as a manual has<>:
 		// joining it would force the callback to bind a ShipState& this
@@ -122,10 +122,10 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 
 	for (int tries = 0;; ++tries)
 	{
-		Position *pos = b.find<Position>(id);
-		pos->current = wrap(Vec2i{displayAlignX(b.rng().next()),
+		Position &pos = b.get<Position>(id);
+		pos.current = wrap(Vec2i{displayAlignX(b.rng().next()),
 				displayAlignY(b.rng().next())});
-		pos->next = pos->current;
+		pos.next = pos.current;
 
 		if (calculateGravity(b, id) || timeSpaceMatterConflict(b, id))
 			continue;
@@ -161,13 +161,13 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 
 	do
 	{
-		Position *pos = b.find<Position>(id);
-		pos->current = wrap(Vec2i{displayAlignX(b.rng().next()),
+		Position &pos = b.get<Position>(id);
+		pos.current = wrap(Vec2i{displayAlignX(b.rng().next()),
 				displayAlignY(b.rng().next())});
-		pos->next = pos->current;
+		pos.next = pos.current;
 	} while (calculateGravity(b, id) || timeSpaceMatterConflict(b, id));
 
-	b.find<Physique>(id)->mass = b.find<Vitality>(id)->hitPoints;
+	b.get<Physique>(id).mass = b.get<Vitality>(id).hitPoints;
 	return id;
 }
 

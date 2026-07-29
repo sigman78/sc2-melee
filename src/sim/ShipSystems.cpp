@@ -89,14 +89,14 @@ regenEnergy(ShipState &s, const ShipSpec &spec) noexcept
 void
 turnShip(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 {
-	const Input &in = *b.find<Input>(id);
+	const Input &in = b.get<Input>(id);
 	if (s.turnWait > 0)
 	{
 		--s.turnWait;
 	}
 	else if (any(in.buttons & (ShipInput::Left | ShipInput::Right)))
 	{
-		Position &pos = *b.find<Position>(id);
+		Position &pos = b.get<Position>(id);
 		const int delta = any(in.buttons & ShipInput::Left) ? -1 : 1;
 		pos.facing += delta;
 		s.turnWait = spec.turnWait;
@@ -110,7 +110,7 @@ void
 applyThrustInput(Battle &b, EntityId id, ShipState &s,
 		const ShipSpec &spec) noexcept
 {
-	const Input &in = *b.find<Input>(id);
+	const Input &in = b.get<Input>(id);
 	if (s.thrustWait > 0)
 	{
 		--s.thrustWait;
@@ -140,7 +140,7 @@ applyThrustInput(Battle &b, EntityId id, ShipState &s,
 void
 fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 {
-	const Input &in = *b.find<Input>(id);
+	const Input &in = b.get<Input>(id);
 	if (s.weaponCounter > 0)
 	{
 		--s.weaponCounter;
@@ -153,7 +153,7 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 		view.position = shipPos.next;
 		view.velocity = shipMotion.velocity;
 		view.facing = shipPos.facing;
-		view.playerNr = b.find<Allegiance>(id)->playerNr;
+		view.playerNr = b.get<Allegiance>(id).playerNr;
 		view.weaponSpeed = spec.weapon.speed;
 		view.weaponLife = spec.weapon.lifetime.remaining;
 		view.weaponDamage = spec.weapon.warhead.damage;
@@ -255,7 +255,7 @@ void
 gateSpecial(Battle &b, EntityId id, ShipState &s,
 		const ShipSpec &spec) noexcept
 {
-	const Input &in = *b.find<Input>(id);
+	const Input &in = b.get<Input>(id);
 	if (s.specialCounter > 0)
 		--s.specialCounter;
 	if (s.specialCounter == 0 && any(in.buttons & ShipInput::Special)
@@ -303,7 +303,7 @@ shipMachinesStep(Battle &b, EntityId id, ShipState &s) noexcept
 
 	if (b.has<Appearing>(id))
 	{
-		Input &in = *b.find<Input>(id);
+		Input &in = b.get<Input>(id);
 		s.crew = spec.maxCrew;
 		s.energy = spec.battery.max;
 		in.buttons = ShipInput::None;
@@ -397,7 +397,7 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
-	Position *pos = b.find<Position>(id);
+	Position *pos = &b.get<Position>(id);
 	Borrowed<const WeaponSpec> ws = b.weaponSpec(id);
 	Guided *g = b.find<Guided>(id);
 	if (ws == nullptr || g == nullptr)
@@ -415,14 +415,14 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 		(void)trackShip(b, id, facing);
 		if (!b.alive(id))
 			return;
-		pos = b.find<Position>(id);
+		pos = &b.get<Position>(id);
 		pos->facing = facing;
 		g->clock = g->trackWait;
 
 		// The mask follows the facing too, or a steering nuke's rect keeps the
 		// launch cel's size while the sprite changes cel. AnimFrame is the cel
 		// the renderer draws.
-		b.find<AnimFrame>(id)->n = pos->facing.raw();
+		b.get<AnimFrame>(id).n = pos->facing.raw();
 		if (!ws->masks.empty())
 		{
 			if (Collider *c = b.find<Collider>(id))
@@ -438,7 +438,7 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 			+ (ws->lifetime.remaining - lifeSpanOf(b, id)) * g->thrustScale;
 	if (speed > g->maxSpeed)
 		speed = g->maxSpeed;
-	b.find<Motion>(id)->velocity.setVector(speed, pos->facing);
+	b.get<Motion>(id).velocity.setVector(speed, pos->facing);
 }
 
 void
@@ -446,7 +446,7 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 {
 	if (!b.alive(ship))
 		return;
-	const Position &shipPos = *b.find<Position>(ship);
+	const Position &shipPos = b.get<Position>(ship);
 
 	// Behind the ship, along the reverse of its facing. The C offsets by the
 	// sprite's height so the exhaust leaves the hull rather than the hotspot
@@ -502,7 +502,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		in.buttons = ShipInput::None;
 		allegiance.owner = id;
 		b.attach<Lifetime>(id, Lifetime{WarpingIn::kFrames});
-		b.find<Motion>(id)->velocity.zero();
+		b.get<Motion>(id).velocity.zero();
 		return;
 	}
 
@@ -512,7 +512,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 	// It never carries a Collider -- it was never collidable, and app/melee's
 	// Draw.cpp draws it hull-sized straight from content, not from here.
 	{
-		const Position &shipPos = *b.find<Position>(id);
+		const Position &shipPos = b.get<Position>(id);
 		const Angle angle = shipPos.facing.angle();
 		const i32 back = WarpingIn::kImageSpacing * (lifeSpanOf(b, id) - 1);
 
@@ -526,7 +526,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 				.layer = Layer::Background,
 				.position = shadowPos,
 				// Picks which ship's sprites to draw; no owner of its own.
-				.allegiance = Allegiance{b.find<Allegiance>(id)->playerNr, kNoEntity},
+				.allegiance = Allegiance{b.get<Allegiance>(id).playerNr, kNoEntity},
 				.effect = true,  // stationary: no Motion needed (review-007 W5)
 				.shadow = true,
 				.lifetime = Lifetime{Trail::kLife},
@@ -585,7 +585,7 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	// The ship becomes its own explosion rather than vanishing
 	// (tactrans.c:703-728): stops dead, loses energy, stops colliding, and
 	// burns for a fixed number of frames.
-	b.find<Motion>(id)->velocity.zero();
+	b.get<Motion>(id).velocity.zero();
 	if (ShipState *sp = b.ship(id))
 		sp->energy = 0;
 	// A dying ship draws ByFacing (Draw.cpp), not ByFrame, so it never had
@@ -622,7 +622,7 @@ explosionStep(Battle &b, EntityId id) noexcept
 		return;
 	}
 
-	const Vec2i from = b.find<Position>(id)->current;
+	const Vec2i from = b.get<Position>(id).current;
 	for (int n = 0; n < count; ++n)
 	{
 		// Scattered around the hull: random bearing, up to 8 display pixels out, a

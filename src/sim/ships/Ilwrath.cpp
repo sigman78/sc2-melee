@@ -59,7 +59,7 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
-	Position *pos = b.find<Position>(id);
+	Position *pos = &b.get<Position>(id);
 
 	Facing facing = pos->facing;
 	EntityId targetId;
@@ -68,13 +68,13 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 
 	if (!b.alive(targetId) || !b.alive(id))
 		return;
-	pos = b.find<Position>(id);
-	const Position &targetPos = *b.find<Position>(targetId);
+	pos = &b.get<Position>(id);
+	const Position &targetPos = b.get<Position>(targetId);
 
 	// GetNextVelocityComponents on *copies* (ilwrath.c:292-296): the lead is
 	// a question, not a step, and must not disturb either error accumulator.
-	Velocity tv = b.find<Motion>(targetId)->velocity;
-	Velocity ov = b.find<Motion>(id)->velocity;
+	Velocity tv = b.get<Motion>(targetId).velocity;
+	Velocity ov = b.get<Motion>(id).velocity;
 	const Vec2i dT = tv.advance(kCloakAimLookAhead);
 	const Vec2i dO = ov.advance(kCloakAimLookAhead);
 
@@ -108,7 +108,7 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 
 	ShipState &s = *sp;
 	const ShipSpec &spec = *s.spec;
-	const Input &in = *b.find<Input>(id);
+	const Input &in = b.get<Input>(id);
 
 	// ilwrath_preprocess (ilwrath.c:232-394): the Cloak component's level
 	// stands in for the prim type/colour, its walk direction derived fresh

@@ -22,7 +22,7 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 	// every target alike -- the old read-`next`-if-already-preprocessed
 	// dance existed only because the interleaved walk moved half the list
 	// before the other half looked.
-	const Vec2i from = b.find<Position>(tracker)->current;
+	const Vec2i from = b.get<Position>(tracker).current;
 
 	int bestDelta = 0;
 	i32 bestDistance = 0;

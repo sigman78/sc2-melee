@@ -52,7 +52,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 	if (range <= 0)
 		return;
 
-	const Vec2i from = b.find<Position>(id)->next;
+	const Vec2i from = b.get<Position>(id).next;
 	bool paid = false;
 	bool cannotAfford = false;
 
