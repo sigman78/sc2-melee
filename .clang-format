@@ -1,8 +1,9 @@
 # LLVM's defaults, changed only where this project has a stated reason.
 # docs/cpp-conventions.md is the prose; this file is what the tool enforces.
 #
-# Formatted with clang-format 21.1.5, which CI pins. Output moves between
-# releases -- a different major will report violations on lines nobody
+# The version this tree is formatted with is pinned in tools/clang-env.sh,
+# which CI installs and the format/lint scripts warn about. Output moves
+# between releases -- a different major reports violations on lines nobody
 # touched, and reformatting to satisfy it breaks the next person.
 ---
 Language: Cpp

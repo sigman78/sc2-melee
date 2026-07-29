@@ -89,19 +89,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends             cmake ninja-build             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev             libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev             libwayland-dev wayland-protocols libdecor-0-dev             libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
 
-      # Both tools are pinned rather than taken from the runner image, and
-      # both for the same reason: the image's clang 18 fails on this tree for
-      # version reasons alone. clang-format's output moves between releases,
-      # so it reports violations on lines nobody touched; clang-tidy 18 does
-      # not know .clang-tidy's ExcludeHeaderFilterRegex (19+) and cannot
-      # parse std::expected out of libstdc++ 13. 21 is what .clang-format
-      # names and what the tree is developed against.
-      - name: Install clang 21
-        run: |
-          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 21
-          sudo apt-get install -y --no-install-recommends clang-format-21 clang-tidy-21
+      # Pinned, not the runner image's: its clang 18 fails on this tree for
+      # version reasons alone -- clang-format's output moves between majors,
+      # so it flags lines nobody touched, and clang-tidy 18 rejects
+      # .clang-tidy's ExcludeHeaderFilterRegex (19+) and cannot parse
+      # std::expected out of libstdc++ 13.
+      #
+      # Wheels rather than apt.llvm.org: the same binaries, installed in
+      # seconds instead of minutes, and available on every platform, so a
+      # developer can hold the exact version CI holds. tools/clang-env.sh
+      # names them and warns when a local tool drifts.
+      - name: Install pinned clang tooling
+        run: pipx install clang-format==21.1.5 && pipx install clang-tidy==21.1.6
 
       # The same check .githooks/pre-commit runs, over everything.
       - name: Format

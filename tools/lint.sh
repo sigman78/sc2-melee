@@ -7,6 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source tools/clang-env.sh
+sc2m_check_clang_version clang-tidy "$SC2M_CLANG_TIDY_VERSION"
 build=${SC2M_BUILD_DIR:-build}
 [ -f "$build/compile_commands.json" ] || {
 	echo "no $build/compile_commands.json -- configure with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON" >&2
