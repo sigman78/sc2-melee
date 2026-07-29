@@ -37,7 +37,7 @@ struct Game
 {
 	platform::Platform window{"The Ur-Quan Masters -- melee",
 			Extent2u{static_cast<u32>(sim::kSpace.w),
-				static_cast<u32>(sim::kSpace.h)},
+					static_cast<u32>(sim::kSpace.h)},
 			3};
 
 	sim::Battle battle{battleSeed()};

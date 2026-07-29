@@ -1,10 +1,10 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 
 #include "app/melee/Game.hpp"
+
 #include "app/melee/Assets.hpp"
 #include "app/melee/Draw.hpp"
 #include "app/melee/Sound.hpp"
-
 #include "engine/core/Types.hpp"
 #include "game/Melee.hpp"
 #include "sim/Damage.hpp"
@@ -24,13 +24,11 @@ namespace uqm::melee {
 namespace {
 
 using uqm::input::Button;
-using uqm::input::InputAccumulator;
 
 // What the accumulator reports, in the simulation's vocabulary. Lives here
 // because only this layer knows both. Left beats right (battle.c:201-204's
 // else-if): pressing both doesn't turn twice as fast, or not at all.
-[[nodiscard]] sim::ShipInput
-toShipInput(input::Buttons b) noexcept
+[[nodiscard]] sim::ShipInput toShipInput(input::Buttons b) noexcept
 {
 	sim::ShipInput in = sim::ShipInput::None;
 	if (b.test(Button::Left))
@@ -48,20 +46,19 @@ toShipInput(input::Buttons b) noexcept
 
 }  // namespace
 
-u32
-battleSeed()
+u32 battleSeed()
 {
 	const auto t = static_cast<u64>(
 			std::chrono::steady_clock::now().time_since_epoch().count());
 	const auto seed = static_cast<u32>((t ^ (t >> 32)) & 0x7FFFFFFFu) | 1u;
-	std::fprintf(stderr, "battle seed: %lu\n", static_cast<unsigned long>(seed));
+	std::fprintf(
+			stderr, "battle seed: %lu\n", static_cast<unsigned long>(seed));
 	return seed;
 }
 
 namespace {
 
-void
-setUpBattle(Game &g)
+void setUpBattle(Game &g)
 {
 	auto &cfg = g.battle.context<BattleConfig>();
 	auto &match = g.battle.context<MatchState>();
@@ -109,7 +106,7 @@ setUpBattle(Game &g)
 	for (Vec2i &s : sf.stars)
 		s = Vec2i{static_cast<i32>(g.battle.rng().next() % kStarField.w),
 				static_cast<i32>(g.battle.rng().next() % kStarField.h)};
-	g.battle.attach<Starfield>(g.battle.create(), std::move(sf));
+	g.battle.attach<Starfield>(g.battle.create(), sf);
 
 	// Asteroids first, then the planet -- init.c:228-233's order. The planet's
 	// placement loop rejects anything it would overlap, so it has to be able
@@ -121,8 +118,7 @@ setUpBattle(Game &g)
 
 }  // namespace
 
-void
-setUp(Game &g, const std::filesystem::path &content)
+void setUp(Game &g, const std::filesystem::path &content)
 {
 	g.battle.setContext<MatchState>(MatchState{});
 	g.battle.setContext<DebugToggles>(DebugToggles{});
@@ -140,8 +136,7 @@ setUp(Game &g, const std::filesystem::path &content)
 			});
 }
 
-void
-iterate(Game &g)
+void iterate(Game &g)
 {
 	if (!g.window.pump(g.players, platform::defaultBindings()))
 	{
@@ -195,13 +190,14 @@ iterate(Game &g)
 
 	// Drop what has aged out, so the registry doesn't grow unbounded with the
 	// overlay off -- Marks are app-owned, aged out here rather than via the
-	// sim's Doomed/reap protocol. Collected first: destroying mid-view isn't safe.
+	// sim's Doomed/reap protocol. Collected first: destroying mid-view isn't
+	// safe.
 	std::vector<sim::EntityId> agedOut;
 	g.battle.view<Mark>().each([&](sim::EntityId id, Mark &m) {
 		if (g.battle.frame() - m.bornFrame > Mark::kLife)
 			agedOut.push_back(id);
 	});
-	for (sim::EntityId id : agedOut)
+	for (sim::EntityId const id : agedOut)
 		g.battle.destroy(id);
 
 	// A ship is gone when its element is: doDamage zeroes life_span and the

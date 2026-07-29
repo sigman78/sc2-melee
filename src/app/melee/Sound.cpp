@@ -1,8 +1,8 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 
 #include "app/melee/Sound.hpp"
-#include "app/melee/Game.hpp"
 
+#include "app/melee/Game.hpp"
 #include "engine/core/Types.hpp"
 #include "game/Melee.hpp"
 
@@ -15,20 +15,19 @@ namespace {
 
 // The owner's sound set, by definition. A lookup, not a load: Resources
 // caches by id and loadAssets already warmed it.
-[[nodiscard]] std::span<const platform::Sound>
-shipSounds(Game &g, i32 playerNr)
+[[nodiscard]] std::span<const platform::Sound> shipSounds(Game &g, i32 playerNr)
 {
 	const auto &roster = g.battle.context<BattleConfig>().roster;
 	if (playerNr < 0 || static_cast<usize>(playerNr) >= roster.size()
 			|| roster[static_cast<usize>(playerNr)] == nullptr)
 		return {};
-	return g.content.sounds(g.audio, roster[static_cast<usize>(playerNr)]->art.sounds);
+	return g.content.sounds(
+			g.audio, roster[static_cast<usize>(playerNr)]->art.sounds);
 }
 
 }  // namespace
 
-void
-playStepSounds(Game &g)
+void playStepSounds(Game &g)
 {
 	const std::span<const platform::Sound> battleSnd =
 			g.content.sounds(g.audio, game::kMeleeArt.battleSounds);
@@ -42,8 +41,7 @@ playStepSounds(Game &g)
 			if (const auto *w = g.battle.find<sim::Warhead>(side); w != nullptr)
 				damage = std::max(damage, w->damage);
 
-		const usize boom = std::min(
-				slot(game::BattleSound::Damaged1)
+		const usize boom = std::min(slot(game::BattleSound::Damaged1)
 						+ static_cast<usize>(damage >> 1),
 				slot(game::BattleSound::Damaged6Plus));
 		if (battleSnd.size() > boom)
@@ -60,8 +58,7 @@ playStepSounds(Game &g)
 			// both the Primary slot of their owner's own .snd.
 			const auto set = shipSounds(g, sp.playerNr);
 			if (set.size() > slot(game::ShipSound::Primary))
-				g.audio.play(set[slot(game::ShipSound::Primary)],
-						kEffectGain);
+				g.audio.play(set[slot(game::ShipSound::Primary)], kEffectGain);
 		}
 		else if (sp.kind == sim::SpawnFlavor::Laser)
 		{
@@ -69,8 +66,8 @@ playStepSounds(Game &g)
 			// (human.c:232-234).
 			const auto set = shipSounds(g, sp.playerNr);
 			if (set.size() > slot(game::ShipSound::Secondary))
-				g.audio.play(set[slot(game::ShipSound::Secondary)],
-						kEffectGain);
+				g.audio.play(
+						set[slot(game::ShipSound::Secondary)], kEffectGain);
 		}
 	}
 
@@ -78,14 +75,14 @@ playStepSounds(Game &g)
 	// reaped: StartShipExplosion fires SHIP_EXPLODES as it starts burning
 	// (tactrans.c:722-727), 36 frames before the wreck disappears.
 	const auto &shipIds = g.battle.context<MatchState>().shipIds;
-	for (usize p = 0; p < shipIds.size(); ++p)
+	for (auto shipId : shipIds)
 	{
-		if (g.battle.has<AnnouncedDead>(shipIds[p]))
+		if (g.battle.has<AnnouncedDead>(shipId))
 			continue;
-		auto s = g.battle.ship(shipIds[p]);
+		auto *s = g.battle.ship(shipId);
 		if (s == nullptr || s->crew > 0)
 			continue;
-		g.battle.attach<AnnouncedDead>(shipIds[p]);
+		g.battle.attach<AnnouncedDead>(shipId);
 		// shipdies.wav -- SHIP_EXPLODES (tactrans.c:723-726).
 		if (battleSnd.size() > slot(game::BattleSound::ShipExplodes))
 			g.audio.play(battleSnd[slot(game::BattleSound::ShipExplodes)],

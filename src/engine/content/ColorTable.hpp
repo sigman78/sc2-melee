@@ -5,6 +5,7 @@
 
 #include "Bytes.hpp"
 #include "ContentError.hpp"
+
 #include "engine/core/Geometry.hpp"
 #include "engine/core/Types.hpp"
 
@@ -22,8 +23,8 @@ struct Rgb
 	friend constexpr bool operator==(const Rgb &, const Rgb &) = default;
 };
 
-inline constexpr usize kPaletteSize = 256;   // NUMBER_OF_PLUTVALS
-inline constexpr usize kRgbSize = 3;         // PLUTVAL_BYTE_SIZE
+inline constexpr usize kPaletteSize = 256;  // NUMBER_OF_PLUTVALS
+inline constexpr usize kRgbSize = 3;        // PLUTVAL_BYTE_SIZE
 
 // A palette is a fixed-size value: 256 x 3 bytes, no allocation, trivially
 // copyable, and byte-for-byte the file's own layout
@@ -59,7 +60,10 @@ public:
 	constexpr ColorTableEntry() = default;
 
 	// Colormap slots for Palettes; palette indices for PartialPalette.
-	[[nodiscard]] constexpr ClosedRangeU8 range() const noexcept { return range_; }
+	[[nodiscard]] constexpr ClosedRangeU8 range() const noexcept
+	{
+		return range_;
+	}
 	[[nodiscard]] constexpr ColorTableShape shape() const noexcept
 	{
 		return shape_;
@@ -86,8 +90,8 @@ public:
 	{
 		assert(shape_ == ColorTableShape::PartialPalette && i < colorCount());
 		return Rgb{readU8(payload_, i * kRgbSize),
-			readU8(payload_, i * kRgbSize + 1),
-			readU8(payload_, i * kRgbSize + 2)};
+				readU8(payload_, i * kRgbSize + 1),
+				readU8(payload_, i * kRgbSize + 2)};
 	}
 
 	friend std::expected<ColorTableEntry, ContentError> parseColorTableEntry(

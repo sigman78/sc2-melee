@@ -6,6 +6,7 @@
 #include "Bytes.hpp"
 #include "ColorTable.hpp"
 #include "ContentError.hpp"
+
 #include "engine/core/Geometry.hpp"
 #include "engine/core/Types.hpp"
 
@@ -19,7 +20,8 @@ enum class PixelFormat : u8
 {
 	// One byte per pixel, valid only against a palette -- the PNG's own PLTE
 	// is just a preview; the game colours with the .ani's colormap slot
-	// instead. Keeping art indexed instead of always decoding to RGBA is the point.
+	// instead. Keeping art indexed instead of always decoding to RGBA is the
+	// point.
 	Indexed8,
 
 	// Straight RGBA, for images that cannot stay indexed: greyscale, true
@@ -56,10 +58,7 @@ public:
 	// Indexed8 only. The palette is a fixed array, not a vector: a PLTE holds
 	// at most 256 entries, so its size is part of the format.
 	[[nodiscard]] const Palette &palette() const noexcept { return palette_; }
-	[[nodiscard]] usize paletteSize() const noexcept
-	{
-		return paletteSize_;
-	}
+	[[nodiscard]] usize paletteSize() const noexcept { return paletteSize_; }
 	// -1 when the image has no transparent index.
 	[[nodiscard]] i32 transparentIndex() const noexcept
 	{
@@ -82,10 +81,7 @@ public:
 	{
 		return sourceColorType_;
 	}
-	[[nodiscard]] u8 sourceBitDepth() const noexcept
-	{
-		return sourceBitDepth_;
-	}
+	[[nodiscard]] u8 sourceBitDepth() const noexcept { return sourceBitDepth_; }
 
 	friend std::expected<PngImage, ContentError> decodePng(Bytes);
 

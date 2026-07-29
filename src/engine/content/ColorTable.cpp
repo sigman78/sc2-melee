@@ -8,8 +8,7 @@
 
 namespace uqm::content {
 
-Palette
-ColorTableEntry::palette(usize i) const noexcept
+Palette ColorTableEntry::palette(usize i) const noexcept
 {
 	assert(shape_ == ColorTableShape::Palettes && i < paletteCount());
 	Palette out;
@@ -20,8 +19,8 @@ ColorTableEntry::palette(usize i) const noexcept
 	return out;
 }
 
-std::expected<ColorTableEntry, ContentError>
-parseColorTableEntry(Bytes bytes, ColorTableShape shape)
+std::expected<ColorTableEntry, ContentError> parseColorTableEntry(
+		Bytes bytes, ColorTableShape shape)
 {
 	using enum ContentErrorCode;
 
@@ -45,7 +44,8 @@ parseColorTableEntry(Bytes bytes, ColorTableShape shape)
 	// Exact, not "at least". A wrong-shape read is the failure this type
 	// exists to prevent, and slack is how it would slip through.
 	if (payload.size() != want)
-		return std::unexpected(ContentError{WrongSize, 0, want, payload.size()});
+		return std::unexpected(
+				ContentError{WrongSize, 0, want, payload.size()});
 
 	ColorTableEntry entry;
 	entry.range_ = range;

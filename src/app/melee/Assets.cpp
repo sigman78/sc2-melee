@@ -1,8 +1,8 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 
 #include "app/melee/Assets.hpp"
-#include "app/melee/Game.hpp"
 
+#include "app/melee/Game.hpp"
 #include "engine/core/Types.hpp"
 #include "game/Melee.hpp"
 #include "game/Ships.hpp"
@@ -16,8 +16,7 @@
 
 namespace uqm::melee {
 
-std::filesystem::path
-findContent(const std::filesystem::path &override_)
+std::filesystem::path findContent(const std::filesystem::path &override_)
 {
 	namespace fs = std::filesystem;
 
@@ -30,7 +29,8 @@ findContent(const std::filesystem::path &override_)
 		return override_;  // the user said so; do not second-guess it
 
 	std::error_code ec;
-	for (fs::path start : {fs::current_path(ec), platform::executableDirectory()})
+	for (fs::path start :
+			{fs::current_path(ec), platform::executableDirectory()})
 	{
 		for (int up = 0; up < 6 && !start.empty(); ++up)
 		{
@@ -46,17 +46,18 @@ findContent(const std::filesystem::path &override_)
 	return {};
 }
 
-void
-loadAssets(Game &g, const std::filesystem::path &content)
+void loadAssets(Game &g, const std::filesystem::path &content)
 {
 	if (content.empty())
 	{
 		std::fprintf(stderr,
 				"content: not found.\n"
-				"  Looked for sc2/content/uqm.rmp beside the executable and in\n"
+				"  Looked for sc2/content/uqm.rmp beside the executable and "
+				"in\n"
 				"  the working directory, and upward from both.\n"
 				"  Pass it explicitly:  sc2m-melee <path-to>/sc2/content\n"
-				"  Continuing without art -- everything will be a rectangle.\n");
+				"  Continuing without art -- everything will be a "
+				"rectangle.\n");
 	}
 	else
 	{
@@ -133,7 +134,7 @@ loadAssets(Game &g, const std::filesystem::path &content)
 		}
 	}
 
-	g.battle.setContext<BattleConfig>(std::move(cfg));
+	g.battle.setContext<BattleConfig>(cfg);
 }
 
 }  // namespace uqm::melee

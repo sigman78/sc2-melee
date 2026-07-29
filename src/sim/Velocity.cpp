@@ -6,9 +6,7 @@
 
 namespace uqm::sim {
 
-void
-Velocity::setAxis(i32 v, i32 &vector, i32 &incr,
-		i32 &fract) noexcept
+void Velocity::setAxis(i32 v, i32 &vector, i32 &incr, i32 &fract) noexcept
 {
 	if (v >= 0)
 	{
@@ -26,8 +24,7 @@ Velocity::setAxis(i32 v, i32 &vector, i32 &incr,
 	fract = remainder(v);
 }
 
-void
-Velocity::setComponents(i32 dx, i32 dy) noexcept
+void Velocity::setComponents(i32 dx, i32 dy) noexcept
 {
 	const int angle = arctan(dx, dy);
 	if (angle == kFullCircle)
@@ -47,8 +44,7 @@ Velocity::setComponents(i32 dx, i32 dy) noexcept
 	travelAngle_ = angle;
 }
 
-void
-Velocity::setVector(i32 magnitude, Facing facing) noexcept
+void Velocity::setVector(i32 magnitude, Facing facing) noexcept
 {
 	const int angle = facing.angle().raw();
 	travelAngle_ = angle;
@@ -65,15 +61,13 @@ Velocity::setVector(i32 magnitude, Facing facing) noexcept
 	// zero still remembers which way the object was pointed.
 }
 
-void
-Velocity::deltaComponents(i32 dx, i32 dy) noexcept
+void Velocity::deltaComponents(i32 dx, i32 dy) noexcept
 {
 	const Vec2i now = current();
 	setComponents(dx + now.x, dy + now.y);
 }
 
-Vec2i
-Velocity::advance(int frames) noexcept
+Vec2i Velocity::advance(int frames) noexcept
 {
 	Vec2i out;
 

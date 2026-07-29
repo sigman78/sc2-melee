@@ -17,30 +17,26 @@ namespace uqm {
 
 inline constexpr std::string_view kAsciiSpace = " \t\r\n";
 
-[[nodiscard]] constexpr bool
-isSpace(char c) noexcept
+[[nodiscard]] constexpr bool isSpace(char c) noexcept
 {
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 }
 
-[[nodiscard]] constexpr std::string_view
-trimLeft(std::string_view s) noexcept
+[[nodiscard]] constexpr std::string_view trimLeft(std::string_view s) noexcept
 {
 	while (!s.empty() && isSpace(s.front()))
 		s.remove_prefix(1);
 	return s;
 }
 
-[[nodiscard]] constexpr std::string_view
-trimRight(std::string_view s) noexcept
+[[nodiscard]] constexpr std::string_view trimRight(std::string_view s) noexcept
 {
 	while (!s.empty() && isSpace(s.back()))
 		s.remove_suffix(1);
 	return s;
 }
 
-[[nodiscard]] constexpr std::string_view
-trim(std::string_view s) noexcept
+[[nodiscard]] constexpr std::string_view trim(std::string_view s) noexcept
 {
 	return trimLeft(trimRight(s));
 }
@@ -48,8 +44,8 @@ trim(std::string_view s) noexcept
 // Splits off the next line, advancing `text`. The newline is consumed; any
 // '\r' before it is left on the returned view, because content is CRLF and
 // whether that matters is the caller's business, not this function's.
-[[nodiscard]] constexpr std::string_view
-nextLine(std::string_view &text) noexcept
+[[nodiscard]] constexpr std::string_view nextLine(
+		std::string_view &text) noexcept
 {
 	const usize nl = text.find('\n');
 	if (nl == std::string_view::npos)
@@ -66,9 +62,7 @@ nextLine(std::string_view &text) noexcept
 // `fn(line, lineNumber)` for each line, 1-based. Taking a callable rather
 // than returning a container is the whole point: no vector, no strings, and
 // the loop body sits next to its only use.
-template <class Fn>
-constexpr void
-forEachLine(std::string_view text, Fn &&fn)
+template <class Fn> constexpr void forEachLine(std::string_view text, Fn &&fn)
 {
 	usize lineNo = 0;
 	while (!text.empty())
@@ -81,9 +75,7 @@ forEachLine(std::string_view text, Fn &&fn)
 // Splits on runs of whitespace, calling `fn(field)`. Matches what
 // sscanf("%s ...") does, which is what the .ani format is specified in terms
 // of.
-template <class Fn>
-constexpr void
-forEachField(std::string_view line, Fn &&fn)
+template <class Fn> constexpr void forEachField(std::string_view line, Fn &&fn)
 {
 	usize i = 0;
 	while (i < line.size())
@@ -102,8 +94,7 @@ forEachField(std::string_view line, Fn &&fn)
 // success. std::from_chars, so no locale and no allocation.
 template <class T>
 	requires std::integral<T>
-[[nodiscard]] inline bool
-parseInt(std::string_view s, T &out) noexcept
+[[nodiscard]] inline bool parseInt(std::string_view s, T &out) noexcept
 {
 	const char *begin = s.data();
 	const char *end = begin + s.size();

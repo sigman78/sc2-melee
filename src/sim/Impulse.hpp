@@ -37,10 +37,10 @@ inline constexpr i32 kCollisionThrustWait = 3;  // collide.h:29
 // Applies the collision response to both elements, assumed already placed at
 // their impact positions by the sweep. aShip/bShip are non-null iff that side
 // is a ship, for the turn/thrust stagger (collide.c:111-116).
-void applyImpulse(const Position &aPos, Motion &aMotion,
-		const Physique &aPhys, ShipState *aShip, CollisionScratch &aScratch,
-		const Position &bPos, Motion &bMotion, const Physique &bPhys,
-		ShipState *bShip, CollisionScratch &bScratch) noexcept;
+void applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
+		ShipState *aShip, CollisionScratch &aScratch, const Position &bPos,
+		Motion &bMotion, const Physique &bPhys, ShipState *bShip,
+		CollisionScratch &bScratch) noexcept;
 
 }  // namespace uqm::sim
 

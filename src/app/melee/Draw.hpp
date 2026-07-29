@@ -28,12 +28,10 @@ struct Colour
 };
 
 // A colour packed as 0xRRGGBB, the form the C's own tables are quoted in.
-constexpr Colour
-rgb(u32 c) noexcept
+constexpr Colour rgb(u32 c) noexcept
 {
 	return Colour{static_cast<u8>((c >> 16) & 0xFF),
-			static_cast<u8>((c >> 8) & 0xFF),
-			static_cast<u8>(c & 0xFF)};
+			static_cast<u8>((c >> 8) & 0xFF), static_cast<u8>(c & 0xFF)};
 }
 
 // What one element draws as: a sprite set (null for a line/point effect
@@ -79,9 +77,9 @@ inline constexpr std::array<StarPlane, kStarPlanes> kStarsPerPlane{{
 
 // Total stars across all three parallax planes, folded from kStarsPerPlane
 // so the two cannot disagree.
-inline constexpr int kStarCount = std::accumulate(kStarsPerPlane.begin(),
-		kStarsPerPlane.end(), 0,
-		[](int sum, const StarPlane &p) { return sum + p.count; });
+inline constexpr int kStarCount =
+		std::accumulate(kStarsPerPlane.begin(), kStarsPerPlane.end(), 0,
+				[](int sum, const StarPlane &p) { return sum + p.count; });
 
 // How large a patch the field tiles over, in display pixels. The C varies
 // on-screen density with zoom (galaxy.c:248-259); this field is

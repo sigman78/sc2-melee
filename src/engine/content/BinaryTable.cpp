@@ -12,8 +12,7 @@ constexpr usize kPrefixSize = 4;
 constexpr usize kHeaderSize = 8;  // count + extra
 }  // namespace
 
-std::expected<BinaryTable, ContentError>
-parseBinaryTable(Bytes bytes)
+std::expected<BinaryTable, ContentError> parseBinaryTable(Bytes bytes)
 {
 	using enum ContentErrorCode;
 
@@ -55,8 +54,7 @@ parseBinaryTable(Bytes bytes)
 	usize at = headerWords * 4;
 	for (u32 i = 0; i < count; ++i)
 	{
-		const auto len =
-				readU32BE(data, kHeaderSize + usize{i} * 4);
+		const auto len = readU32BE(data, kHeaderSize + usize{i} * 4);
 		if (!fits(data, at, len))
 		{
 			return std::unexpected(
@@ -71,8 +69,8 @@ parseBinaryTable(Bytes bytes)
 	// rather than tolerating.
 	if (at != data.size())
 	{
-		return std::unexpected(ContentError{TrailingBytes,
-				static_cast<u32>(at), data.size(), at});
+		return std::unexpected(ContentError{
+				TrailingBytes, static_cast<u32>(at), data.size(), at});
 	}
 
 	return table;

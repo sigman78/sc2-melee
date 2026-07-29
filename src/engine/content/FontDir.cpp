@@ -17,14 +17,13 @@ namespace {
 // sscanf("%x.") accepts leading hex digits and stops at the first character
 // that is not one; it does not require the '.' it names. Reproduced rather
 // than tightened, so a font directory that loads in the C loads here.
-std::optional<u32>
-parseHexPrefix(std::string_view name) noexcept
+std::optional<u32> parseHexPrefix(std::string_view name) noexcept
 {
 	u32 v = 0;
 	usize digits = 0;
 	for (const char c : name)
 	{
-		u32 d;
+		u32 d = 0;
 		if (c >= '0' && c <= '9')
 			d = static_cast<u32>(c - '0');
 		else if (c >= 'a' && c <= 'f')
@@ -44,9 +43,8 @@ parseHexPrefix(std::string_view name) noexcept
 
 }  // namespace
 
-Font
-loadFontDir(const std::filesystem::path &dir,
-		std::vector<ContentError> *problems)
+Font loadFontDir(
+		const std::filesystem::path &dir, std::vector<ContentError> *problems)
 {
 	using enum ContentErrorCode;
 

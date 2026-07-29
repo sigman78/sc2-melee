@@ -27,8 +27,7 @@ using Bytes = std::span<const std::byte>;
 // error once the caller skips `fits()` (docs/cpp-conventions.md rule 3).
 template <class T>
 	requires std::unsigned_integral<T>
-[[nodiscard]] inline T
-readBE(Bytes b, usize at) noexcept
+[[nodiscard]] inline T readBE(Bytes b, usize at) noexcept
 {
 	assert(at + sizeof(T) <= b.size() && "readBE past the end of the buffer");
 	T v;
@@ -42,21 +41,18 @@ readBE(Bytes b, usize at) noexcept
 // Named for the widths the formats actually use. A single byte needs no
 // swap and no memcpy, and staying constexpr lets the palette accessors in
 // ColorTable.hpp stay constexpr too.
-[[nodiscard]] constexpr u8
-readU8(Bytes b, usize at) noexcept
+[[nodiscard]] constexpr u8 readU8(Bytes b, usize at) noexcept
 {
 	assert(at < b.size() && "readU8 past the end of the buffer");
 	return std::to_integer<u8>(b[at]);
 }
 
-[[nodiscard]] inline u16
-readU16BE(Bytes b, usize at) noexcept
+[[nodiscard]] inline u16 readU16BE(Bytes b, usize at) noexcept
 {
 	return readBE<u16>(b, at);
 }
 
-[[nodiscard]] inline u32
-readU32BE(Bytes b, usize at) noexcept
+[[nodiscard]] inline u32 readU32BE(Bytes b, usize at) noexcept
 {
 	return readBE<u32>(b, at);
 }
@@ -64,8 +60,7 @@ readU32BE(Bytes b, usize at) noexcept
 // Does a range of `len` bytes starting at `at` fit? Written to be immune to
 // the overflow that the obvious `at + len <= size` invites, since both
 // operands come from file data.
-[[nodiscard]] constexpr bool
-fits(Bytes b, usize at, usize len) noexcept
+[[nodiscard]] constexpr bool fits(Bytes b, usize at, usize len) noexcept
 {
 	return at <= b.size() && len <= b.size() - at;
 }

@@ -7,6 +7,7 @@
 #include "engine/core/Types.hpp"
 #include "sim/World.hpp"
 
+#include <algorithm>
 #include <span>
 
 namespace uqm::game {
@@ -34,17 +35,17 @@ enum class MeleeScale
 inline constexpr MeleeScale kMeleeScale = MeleeScale::UQM_MELEE_SCALE;
 
 // Zoom is a 1/256ths multiplier: 256 is 1:1, 1024 is four times out.
-inline constexpr int kZoomShift = 8;                    // units.h:76
+inline constexpr int kZoomShift = 8;  // units.h:76
 inline constexpr i32 kZoomOne = 1 << kZoomShift;
-inline constexpr int kMaxVisReduction = 2;              // units.h:72
-inline constexpr int kReductionShift = 1;               // units.h:73
+inline constexpr int kMaxVisReduction = 2;  // units.h:72
+inline constexpr int kReductionShift = 1;   // units.h:73
 
 // MAX_ZOOM_OUT (units.h:77), which is 1 << (8 + 3 - 1) == 1024, i.e. 4:1.
 inline constexpr i32 kMaxZoomOut = 1 << (kZoomShift + sim::kMaxReduction - 1);
 
 // TRANSITION_WIDTH/HEIGHT (units.h:92-95): the arena at MAX_VIS_REDUCTION.
-inline constexpr Extent2i kTransition =
-		sim::displayToWorld(sim::kSpace) << kMaxVisReduction;
+inline constexpr Extent2i kTransition = sim::displayToWorld(sim::kSpace)
+		<< kMaxVisReduction;
 
 // Hysteresis on zooming back in (process.c:235-236), in world units.
 inline constexpr Vec2i kHysteresis{
@@ -59,8 +60,7 @@ public:
 	// Recentres on the ships and picks a zoom that keeps them all on screen.
 	// process.c:670-697 folds each ship in by walking halfway toward it (the
 	// origin lands on the midpoint for two ships); zoom uses full separation.
-	void
-	follow(std::span<const Vec2i> ships) noexcept
+	void follow(std::span<const Vec2i> ships) noexcept
 	{
 		if (ships.empty())
 			return;
@@ -71,18 +71,16 @@ public:
 
 		for (const Vec2i &s : ships.subspan(1))
 		{
-			const Vec2i d = sim::wrapDelta(
-					Vec2i{s.x - origin.x, s.y - origin.y});
+			const Vec2i d =
+					sim::wrapDelta(Vec2i{s.x - origin.x, s.y - origin.y});
 			origin = Vec2i{origin.x + (d.x >> 1), origin.y + (d.y >> 1)};
 
 			// Written out rather than std::max, to keep <algorithm> out of a
 			// header this widely included for two comparisons.
 			const i32 adx = d.x < 0 ? -d.x : d.x;
 			const i32 ady = d.y < 0 ? -d.y : d.y;
-			if (adx > spanX)
-				spanX = adx;
-			if (ady > spanY)
-				spanY = ady;
+			spanX = std::max(adx, spanX);
+			spanY = std::max(ady, spanY);
 		}
 
 		centre_ = sim::wrap(origin);
@@ -91,23 +89,22 @@ public:
 	}
 
 	// World position to screen pixel, relative to the viewport's top left.
-	[[nodiscard]] Vec2i
-	toScreen(Vec2i world) const noexcept
+	[[nodiscard]] Vec2i toScreen(Vec2i world) const noexcept
 	{
-		const Vec2i d = sim::wrapDelta(
-				Vec2i{world.x - centre_.x, world.y - centre_.y});
-		return Vec2i{sim::kSpace.w / 2 + scale(d.x),
-				sim::kSpace.h / 2 + scale(d.y)};
+		const Vec2i d =
+				sim::wrapDelta(Vec2i{world.x - centre_.x, world.y - centre_.y});
+		return Vec2i{
+				sim::kSpace.w / 2 + scale(d.x), sim::kSpace.h / 2 + scale(d.y)};
 	}
 
 	// A length in world units, in screen pixels. Sprites need this too, which
 	// is the point of having one zoom rather than two camera modes.
-	[[nodiscard]] i32
-	scale(i32 worldLength) const noexcept
+	[[nodiscard]] i32 scale(i32 worldLength) const noexcept
 	{
 		// One rounded division, not world-to-display-then-divide-by-zoom:
 		// that truncates twice (throws away two bits, then divides by up to
-		// four more), which reads as jitter and breathes sprite sizes by a pixel.
+		// four more), which reads as jitter and breathes sprite sizes by a
+		// pixel.
 		const i64 denom = i64{sim::kScaledOne} * zoom_;
 		const i64 num = i64{worldLength} * kZoomOne;
 		const i64 half = denom / 2;
@@ -120,8 +117,7 @@ private:
 	// so snapping the origin would judder the whole screen by a pixel instead.
 
 	// process.c:222-243.
-	[[nodiscard]] i32
-	stepZoom(i32 dx, i32 dy) const noexcept
+	[[nodiscard]] i32 stepZoom(i32 dx, i32 dy) const noexcept
 	{
 		const i32 sdx = dx;
 		const i32 sdy = dy;
@@ -152,8 +148,7 @@ private:
 	}
 
 	// process.c:254-269.
-	[[nodiscard]] static i32
-	continuousZoom(i32 dx, i32 dy) noexcept
+	[[nodiscard]] static i32 continuousZoom(i32 dx, i32 dy) noexcept
 	{
 		const auto axis = [](i32 d, i32 extent) {
 			i32 z = static_cast<i32>(i64{d} * kMaxZoomOut / (extent >> 2));
@@ -168,8 +163,7 @@ private:
 		return zy > zx ? zy : zx;
 	}
 
-	[[nodiscard]] int
-	currentReduction() const noexcept
+	[[nodiscard]] int currentReduction() const noexcept
 	{
 		int r = 0;
 		for (i32 z = zoom_; z > kZoomOne; z >>= 1)

@@ -13,8 +13,7 @@ struct Game;
 // once. Tag component: dies with the ship, survives a roster of more than
 // two where a fixed-size array of booleans would break.
 comp struct AnnouncedDead
-{
-};
+{};
 
 // Turns this step's collision and spawn events, and any ship newly at zero
 // crew, into sound. Called once per simulation step, right after the step

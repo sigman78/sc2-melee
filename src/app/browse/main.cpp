@@ -37,8 +37,7 @@ namespace {
 // --------------------------------------------------------------------------
 // Reporting
 
-std::string
-describeError(const ContentError &e)
+std::string describeError(const ContentError &e)
 {
 	std::string out(describe(e.code));
 	if (e.at != 0)
@@ -48,16 +47,14 @@ describeError(const ContentError &e)
 	return out;
 }
 
-void
-report(std::string_view what, const std::vector<ContentError> &problems)
+void report(std::string_view what, const std::vector<ContentError> &problems)
 {
 	for (const ContentError &e : problems)
 		std::printf("  %.*s: %s\n", static_cast<int>(what.size()), what.data(),
 				describeError(e).c_str());
 }
 
-std::string
-fileError(platform::FileError e)
+std::string fileError(platform::FileError e)
 {
 	return std::string(platform::describe(e));
 }
@@ -72,20 +69,15 @@ class Canvas
 public:
 	explicit Canvas(Extent2u size)
 		: size_(size), px_(static_cast<usize>(size.area()) * 4, 0)
-	{
-	}
+	{}
 
 	[[nodiscard]] Extent2u size() const noexcept { return size_; }
-	[[nodiscard]] std::span<const u8> pixels() const noexcept
-	{
-		return px_;
-	}
+	[[nodiscard]] std::span<const u8> pixels() const noexcept { return px_; }
 
 	// Clips rather than asserts: the hotspot crosshair legitimately falls
 	// outside its cell, and "the hotspot is off the cel" is a property worth
 	// seeing rather than a bug to trap.
-	void
-	set(Vec2u at, Rgb c, u8 a = 255) noexcept
+	void set(Vec2u at, Rgb c, u8 a = 255) noexcept
 	{
 		if (!size_.contains(at))
 			return;
@@ -96,8 +88,7 @@ public:
 		px_[i + 3] = a;
 	}
 
-	void
-	fill(Rgb c) noexcept
+	void fill(Rgb c) noexcept
 	{
 		for (u32 y = 0; y < size_.h; ++y)
 			for (u32 x = 0; x < size_.w; ++x)
@@ -106,8 +97,7 @@ public:
 
 	// Transparency has to be visible, not merely absent -- "this cel has a
 	// hole in it" and "this cel failed to load" look identical on black.
-	void
-	checkerboard(u32 cell = 8) noexcept
+	void checkerboard(u32 cell = 8) noexcept
 	{
 		for (u32 y = 0; y < size_.h; ++y)
 			for (u32 x = 0; x < size_.w; ++x)
@@ -116,8 +106,7 @@ public:
 														   : Rgb{58, 58, 66});
 	}
 
-	void
-	rect(Vec2u at, Extent2u extent, Rgb c) noexcept
+	void rect(Vec2u at, Extent2u extent, Rgb c) noexcept
 	{
 		for (u32 x = 0; x < extent.w; ++x)
 		{
@@ -131,8 +120,7 @@ public:
 		}
 	}
 
-	void
-	crosshair(Vec2i at, Rgb c, i32 arm = 3) noexcept
+	void crosshair(Vec2i at, Rgb c, i32 arm = 3) noexcept
 	{
 		for (i32 d = -arm; d <= arm; ++d)
 		{
@@ -148,8 +136,7 @@ private:
 	std::vector<u8> px_;
 };
 
-bool
-writeCanvas(const Canvas &canvas, const fs::path &out)
+bool writeCanvas(const Canvas &canvas, const fs::path &out)
 {
 	const auto png = encodeRgbaPng(canvas.size(), canvas.pixels());
 	if (!png)
@@ -174,8 +161,7 @@ writeCanvas(const Canvas &canvas, const fs::path &out)
 // covers a *range* of slots, so one entry can populate many.
 using SlotMap = std::map<int, Palette>;
 
-SlotMap
-loadColormaps(const fs::path &ct)
+SlotMap loadColormaps(const fs::path &ct)
 {
 	SlotMap slots;
 
@@ -221,8 +207,7 @@ loadColormaps(const fs::path &ct)
 // Expansion lives in the content library (engine/content/Sprite.hpp), so
 // the browser and the game colour a cel identically; a `.ct` colormap and
 // a PNG's own PLTE disagree by construction, so a second copy would drift.
-void
-blit(Canvas &c, const PngImage &img, Vec2u origin, const Palette *palette)
+void blit(Canvas &c, const PngImage &img, Vec2u origin, const Palette *palette)
 {
 	const Extent2u size = img.size();
 	const std::vector<u8> rgba = toRgba(img, palette);
@@ -247,8 +232,7 @@ struct Sheet
 	u32 cols = 0;
 };
 
-Sheet
-makeSheet(usize count, Extent2u largest)
+Sheet makeSheet(usize count, Extent2u largest)
 {
 	constexpr u32 kPad = 4;
 	const Extent2u cell{largest.w + kPad * 2, largest.h + kPad * 2};
@@ -258,7 +242,7 @@ makeSheet(usize count, Extent2u largest)
 	const auto rows = static_cast<u32>((count + cols - 1) / cols);
 
 	Sheet s{Canvas(Extent2u{cols * cell.w, std::max(rows, 1u) * cell.h}), cell,
-		cols};
+			cols};
 	s.canvas.checkerboard();
 	return s;
 }
@@ -266,8 +250,8 @@ makeSheet(usize count, Extent2u largest)
 // Decodes every image named by `paths`, returning them alongside the largest
 // extent so the sheet can be laid out in one pass. Failures become default
 // PngImages, which draw as nothing and are reported.
-std::pair<std::vector<PngImage>, Extent2u>
-decodeAll(const std::vector<fs::path> &paths)
+std::pair<std::vector<PngImage>, Extent2u> decodeAll(
+		const std::vector<fs::path> &paths)
 {
 	std::vector<PngImage> images;
 	images.reserve(paths.size());
@@ -303,14 +287,13 @@ decodeAll(const std::vector<fs::path> &paths)
 // --------------------------------------------------------------------------
 // Commands
 
-int
-cmdInventory(const fs::path &content)
+int cmdInventory(const fs::path &content)
 {
 	const auto text = platform::readFile(content / "uqm.rmp");
 	if (!text)
 	{
-		std::printf("cannot read uqm.rmp: %s\n",
-				fileError(text.error()).c_str());
+		std::printf(
+				"cannot read uqm.rmp: %s\n", fileError(text.error()).c_str());
 		return 1;
 	}
 
@@ -355,8 +338,7 @@ cmdInventory(const fs::path &content)
 	return problems.empty() && missing == 0 ? 0 : 1;
 }
 
-int
-cmdAni(const fs::path &aniPath, const fs::path &out, const fs::path &ctPath)
+int cmdAni(const fs::path &aniPath, const fs::path &out, const fs::path &ctPath)
 {
 	const auto text = platform::readFile(aniPath);
 	if (!text)
@@ -388,9 +370,8 @@ cmdAni(const fs::path &aniPath, const fs::path &out, const fs::path &ctPath)
 	usize missingSlots = 0;
 	for (usize i = 0; i < images.size(); ++i)
 	{
-		const Vec2u cellAt{
-			static_cast<u32>(i % sheet.cols) * sheet.cell.w,
-			static_cast<u32>(i / sheet.cols) * sheet.cell.h};
+		const Vec2u cellAt{static_cast<u32>(i % sheet.cols) * sheet.cell.w,
+				static_cast<u32>(i / sheet.cols) * sheet.cell.h};
 		const Vec2u origin{cellAt.x + 4, cellAt.y + 4};
 
 		const Palette *pal = nullptr;
@@ -408,8 +389,7 @@ cmdAni(const fs::path &aniPath, const fs::path &out, const fs::path &ctPath)
 		// The hotspot is the cel's origin, and it is routinely negative --
 		// supox-001 is at (-81, -30).
 		sheet.canvas.crosshair(
-				origin.as<i32>() - ani.cels[i].hotspot,
-				Rgb{255, 220, 0});
+				origin.as<i32>() - ani.cels[i].hotspot, Rgb{255, 220, 0});
 		sheet.canvas.rect(cellAt, sheet.cell, Rgb{90, 90, 100});
 	}
 
@@ -430,8 +410,7 @@ cmdAni(const fs::path &aniPath, const fs::path &out, const fs::path &ctPath)
 	return 0;
 }
 
-int
-cmdCt(const fs::path &ctPath, const fs::path &out)
+int cmdCt(const fs::path &ctPath, const fs::path &out)
 {
 	const auto bytes = platform::readFile(ctPath);
 	if (!bytes)
@@ -461,15 +440,15 @@ cmdCt(const fs::path &ctPath, const fs::path &out)
 
 	for (usize i = 0; i < table->size(); ++i)
 	{
-		if (const auto a =
-						parseColorTableEntry((*table)[i], ColorTableShape::Palettes))
+		if (const auto a = parseColorTableEntry(
+					(*table)[i], ColorTableShape::Palettes))
 		{
 			for (usize p = 0; p < a->paletteCount(); ++p)
 			{
 				const Palette pal = a->palette(p);
 				rows.push_back(Row{{pal.begin(), pal.end()},
-					std::format("entry {} slot {}", i,
-							a->range().first + static_cast<int>(p))});
+						std::format("entry {} slot {}", i,
+								a->range().first + static_cast<int>(p))});
 			}
 		}
 		else if (const auto b = parseColorTableEntry(
@@ -498,7 +477,7 @@ cmdCt(const fs::path &ctPath, const fs::path &out)
 		widest = std::max(widest, static_cast<u32>(r.colors.size()));
 
 	Canvas canvas(Extent2u{
-		widest * kSwatch, static_cast<u32>(rows.size()) * kSwatch});
+			widest * kSwatch, static_cast<u32>(rows.size()) * kSwatch});
 	canvas.fill(Rgb{20, 20, 24});
 	for (usize r = 0; r < rows.size(); ++r)
 	{
@@ -506,8 +485,7 @@ cmdCt(const fs::path &ctPath, const fs::path &out)
 			for (u32 dy = 0; dy < kSwatch; ++dy)
 				for (u32 dx = 0; dx < kSwatch; ++dx)
 					canvas.set({static_cast<u32>(c) * kSwatch + dx,
-									   static_cast<u32>(r) * kSwatch
-											   + dy},
+									   static_cast<u32>(r) * kSwatch + dy},
 							rows[r].colors[c]);
 		std::printf("  %s (%zu colours)\n", rows[r].label.c_str(),
 				rows[r].colors.size());
@@ -522,8 +500,7 @@ cmdCt(const fs::path &ctPath, const fs::path &out)
 	return 0;
 }
 
-int
-cmdFon(const fs::path &dir, const fs::path &out)
+int cmdFon(const fs::path &dir, const fs::path &out)
 {
 	std::vector<ContentError> problems;
 	const Font font = loadFontDir(dir, &problems);
@@ -543,9 +520,8 @@ cmdFon(const fs::path &dir, const fs::path &out)
 	Sheet sheet = makeSheet(images.size(), largest);
 	for (usize i = 0; i < images.size(); ++i)
 	{
-		const Vec2u cellAt{
-			static_cast<u32>(i % sheet.cols) * sheet.cell.w,
-			static_cast<u32>(i / sheet.cols) * sheet.cell.h};
+		const Vec2u cellAt{static_cast<u32>(i % sheet.cols) * sheet.cell.w,
+				static_cast<u32>(i / sheet.cols) * sheet.cell.h};
 		blit(sheet.canvas, images[i], {cellAt.x + 4, cellAt.y + 4}, nullptr);
 		sheet.canvas.rect(cellAt, sheet.cell, Rgb{90, 90, 100});
 	}
@@ -561,8 +537,7 @@ cmdFon(const fs::path &dir, const fs::path &out)
 	return 0;
 }
 
-int
-usage()
+int usage()
 {
 	std::printf(
 			"sc2m-browse -- content browser (docs/content-formats.md)\n"
@@ -587,8 +562,7 @@ usage()
 
 }  // namespace
 
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
 	if (argc < 2)
 		return usage();

@@ -5,6 +5,7 @@
 
 #include "ColorTable.hpp"
 #include "PngImage.hpp"
+
 #include "engine/core/Geometry.hpp"
 #include "engine/core/Types.hpp"
 

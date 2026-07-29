@@ -20,20 +20,19 @@ namespace {
 
 Game *g_game = nullptr;
 
-void
-iterateOnce()
+void iterateOnce()
 {
 	iterate(*g_game);
 }
 
 }  // namespace
 
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
 	Game game;
-	setUp(game, findContent(argc > 1 ? std::filesystem::path(argv[1])
-									 : std::filesystem::path{}));
+	setUp(game,
+			findContent(argc > 1 ? std::filesystem::path(argv[1])
+								 : std::filesystem::path{}));
 	g_game = &game;
 
 #ifdef __EMSCRIPTEN__

@@ -14,8 +14,7 @@
 
 namespace uqm::sim {
 
-usize
-spawnAvengerPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
+usize spawnAvengerPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 {
 	assert(!out.empty() && "spawn buffer must have room");
 
@@ -54,15 +53,14 @@ namespace {
 // The ambush snap (ilwrath.c:281-342): firing from full black aims at
 // where the nearest enemy will be. TrackShip picks the target; the facing
 // it steps is thrown away and recomputed from a four-frame lead.
-void
-cloakedAutoAim(Battle &b, EntityId id) noexcept
+void cloakedAutoAim(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
 	Position *pos = &b.get<Position>(id);
 
 	Facing facing = pos->facing;
-	EntityId targetId;
+	EntityId targetId = kNoEntity;
 	if (trackShip(b, id, facing, &targetId) < 0)
 		return;
 
@@ -97,8 +95,7 @@ cloakedAutoAim(Battle &b, EntityId id) noexcept
 
 }  // namespace
 
-void
-ilwrathPreProcess(Battle &b, EntityId id) noexcept
+void ilwrathPreProcess(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
@@ -113,7 +110,8 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 	// ilwrath_preprocess (ilwrath.c:232-394): the Cloak component's level
 	// stands in for the prim type/colour, its walk direction derived fresh
 	// each frame. OBJECT_CLOAKED is the Cloaked tag, kept in sync with this
-	// level at this function's end -- only ships that run this hook carry either.
+	// level at this function's end -- only ships that run this hook carry
+	// either.
 	Cloak *c = b.find<Cloak>(id);
 	if (c == nullptr)
 		c = &b.attach<Cloak>(id);
@@ -133,9 +131,9 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 						&& (any(in.buttons & ShipInput::Special)
 								|| c->level < Cloak::kFullLevel)))
 		{
-			// One step toward visible (ilwrath.c:250-348). Firing is the only trigger
-			// that works mid-debounce; a key press needs the counter spent, so an
-			// interrupted ramp keeps unwinding out on its own.
+			// One step toward visible (ilwrath.c:250-348). Firing is the only
+			// trigger that works mid-debounce; a key press needs the counter
+			// spent, so an interrupted ramp keeps unwinding out on its own.
 			if (c->level == Cloak::kFullLevel && weaponDischarge)
 			{
 				// Stepping off BLACK under fire is the ambush.
@@ -145,9 +143,9 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 			}
 			--c->level;  // reaching 0 is the C's SetPrimType(STAMP)
 
-			// Every uncloak step zeroes the debounce (ilwrath.c:347): re-cloak is
-			// available the moment the ship is solid again, and SPECIAL is masked
-			// this frame so the same press can't also activate below.
+			// Every uncloak step zeroes the debounce (ilwrath.c:347): re-cloak
+			// is available the moment the ship is solid again, and SPECIAL is
+			// masked this frame so the same press can't also activate below.
 			s.specialCounter = 0;
 			specialMasked = true;
 		}
@@ -161,7 +159,8 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 
 	// Activation (ilwrath.c:377-393): SPECIAL with the debounce spent, paying
 	// energy every time -- no free toggle-off, no half-price re-cloak. Restarts
-	// at white even from mid-fade, though only reachable from solid in practice.
+	// at white even from mid-fade, though only reachable from solid in
+	// practice.
 	if (!specialMasked && any(in.buttons & ShipInput::Special)
 			&& s.specialCounter == 0
 			&& deltaEnergy(s, -spec.special.energyCost))
@@ -179,36 +178,38 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 		b.detach<Cloaked>(id);
 }
 
-const ShipSpec &
-ilwrathAvenger() noexcept
+const ShipSpec &ilwrathAvenger() noexcept
 {
 	// ilwrath.c:27-53. THRUST_WAIT 0 and WEAPON_WAIT 0: the Avenger
 	// accelerates every frame and its flame is continuous.
 	static const ShipSpec data{
-		.maxCrew = 22,
-		.thrust{.max = 25, .increment = 5},
-		.battery{.max = 16, .regen = 4, .wait = 4},
-		.thrustWait = 0,
-		.turnWait = 2,
-		.mass = 7,
-		.weapon{
-			.wait = 0,
-			.energyCost = 1,
-			.speed = 25,  // MISSILE_SPEED == MAX_THRUST
-			.muzzleOffset = 29,  // ILWRATH_OFFSET
-			.lifetime{.remaining = 8},
-			.vitality{.hitPoints = 1},
-			.warhead{.damage = 1, .blastOffset = 0, .lingersOnHit = true},  // MISSILE_OFFSET
-			.spawn = spawnAvengerPrimary,
-			.frameDriven = true,
-		},
-		.special{
-			.wait = 13,
-			.energyCost = 3,
-			// No post hook: the cloak is the ship's preProcess, winning the
-			// energy race against the same frame's shot (see ShipSpec).
-		},
-		.preProcess = ilwrathPreProcess,
+			.maxCrew = 22,
+			.thrust{.max = 25, .increment = 5},
+			.battery{.max = 16, .regen = 4, .wait = 4},
+			.thrustWait = 0,
+			.turnWait = 2,
+			.mass = 7,
+			.weapon{
+					.wait = 0,
+					.energyCost = 1,
+					.speed = 25,         // MISSILE_SPEED == MAX_THRUST
+					.muzzleOffset = 29,  // ILWRATH_OFFSET
+					.lifetime{.remaining = 8},
+					.vitality{.hitPoints = 1},
+					.warhead{.damage = 1,
+							.blastOffset = 0,
+							.lingersOnHit = true},  // MISSILE_OFFSET
+					.spawn = spawnAvengerPrimary,
+					.frameDriven = true,
+			},
+			.special{
+					.wait = 13,
+					.energyCost = 3,
+					// No post hook: the cloak is the ship's preProcess, winning
+					// the energy race against the same frame's shot (see
+					// ShipSpec).
+			},
+			.preProcess = ilwrathPreProcess,
 	};
 	return data;
 }

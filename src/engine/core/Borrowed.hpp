@@ -8,8 +8,7 @@ namespace uqm {
 // A non-owning pointer, named so a bare star reads as a mistake in review
 // (docs/cpp-conventions.md rule 13). Lifetime is the referent's owner's
 // business and is documented at the member that stores one.
-template <class T>
-using Borrowed = T *;
+template <class T> using Borrowed = T *;
 
 }  // namespace uqm
 

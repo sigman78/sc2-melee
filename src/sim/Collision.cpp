@@ -32,8 +32,8 @@ struct Box
 	Extent2u extent;
 };
 
-[[nodiscard]] constexpr bool
-boxIntersect(const Box &a, const Box &b, Box &out) noexcept
+[[nodiscard]] constexpr bool boxIntersect(
+		const Box &a, const Box &b, Box &out) noexcept
 {
 	const i32 x0 = std::max(a.corner.x, b.corner.x);
 	const i32 y0 = std::max(a.corner.y, b.corner.y);
@@ -51,9 +51,8 @@ boxIntersect(const Box &a, const Box &b, Box &out) noexcept
 
 // canvas.c:2047-2056, minus the surface machinery: both pixels opaque
 // anywhere in the overlap is a hit.
-[[nodiscard]] bool
-masksOverlap(const CollisionMask &m0, Vec2i c0, const CollisionMask &m1,
-		Vec2i c1, const Box &inter) noexcept
+[[nodiscard]] bool masksOverlap(const CollisionMask &m0, Vec2i c0,
+		const CollisionMask &m1, Vec2i c1, const Box &inter) noexcept
 {
 	for (u32 y = 0; y < inter.extent.h; ++y)
 	{
@@ -72,15 +71,14 @@ masksOverlap(const CollisionMask &m0, Vec2i c0, const CollisionMask &m1,
 // One body's Bresenham state for the walk.
 struct Walk
 {
-	Vec2i corner;      // current top-left
-	i32 dx = 0, dy = 0;       // |delta|
+	Vec2i corner;        // current top-left
+	i32 dx = 0, dy = 0;  // |delta|
 	i32 xincr = 0, yincr = 0;
-	i32 cycle = 0;            // max(|dx|, |dy|)
+	i32 cycle = 0;  // max(|dx|, |dy|)
 	i32 xerror = 0, yerror = 0;
 	i32 timeError = 0;
 
-	void
-	init(Vec2i start, Vec2i delta) noexcept
+	void init(Vec2i start, Vec2i delta) noexcept
 	{
 		corner = start;
 		dx = delta.x;
@@ -96,8 +94,7 @@ struct Walk
 	}
 
 	// Fast-forward to just before time `t0`, as intersec.c:116-139 does.
-	void
-	seek(TimeValue t0) noexcept
+	void seek(TimeValue t0) noexcept
 	{
 		i32 start = cycle * static_cast<i32>(t0 - 1);
 		timeError = start & ((1 << kTimeShift) - 1);
@@ -105,8 +102,7 @@ struct Walk
 		if (start <= 0)
 			return;
 
-		if (const i64 e = static_cast<i64>(xerror) - i64{dx} * start;
-				e > 0)
+		if (const i64 e = static_cast<i64>(xerror) - i64{dx} * start; e > 0)
 			xerror = static_cast<i32>(e);
 		else
 		{
@@ -115,8 +111,7 @@ struct Walk
 			xerror = static_cast<i32>(e + i64{cycle} * delta);
 		}
 
-		if (const i64 e = static_cast<i64>(yerror) - i64{dy} * start;
-				e > 0)
+		if (const i64 e = static_cast<i64>(yerror) - i64{dy} * start; e > 0)
 			yerror = static_cast<i32>(e);
 		else
 		{
@@ -127,8 +122,7 @@ struct Walk
 	}
 
 	// Advance one time unit; true when the body moved a pixel.
-	bool
-	step() noexcept
+	bool step() noexcept
 	{
 		timeError += cycle;
 		if (timeError < (1 << kTimeShift))
@@ -151,8 +145,7 @@ struct Walk
 
 }  // namespace
 
-Impact
-sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
+Impact sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 {
 	Impact none;
 
@@ -170,8 +163,8 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 	const Extent2u e1 = b1.mask->size();
 
 	// Corners, in the space the boxes live in.
-	Vec2i c0 = b0.from - b0.mask->hotspot();
-	Vec2i c1 = b1.from - b1.mask->hotspot();
+	Vec2i const c0 = b0.from - b0.mask->hotspot();
+	Vec2i const c1 = b1.from - b1.mask->hotspot();
 	const Vec2i d0 = b0.to - b0.from;
 	const Vec2i d1 = b1.to - b1.from;
 
@@ -218,8 +211,7 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 		}
 		if (dy < 0)
 			dy = -dy;
-		if (dy < timeY1)
-			timeY1 = dy;
+		timeY1 = std::min(dy, timeY1);
 		// The C widens the window by one on each side "just to be safe".
 		--timeY0;
 		++timeY1;
@@ -238,12 +230,11 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 		}
 		if (dx < 0)
 			dx = -dx;
-		if (dx < timeX1)
-			timeX1 = dx;
+		timeX1 = std::min(dx, timeX1);
 		--timeX0;
 		++timeX1;
 
-		i64 timeBeg, timeEnd, fract;
+		i64 timeBeg = 0, timeEnd = 0, fract = 0;
 		if (dx == 0)
 		{
 			timeBeg = timeY0;
@@ -295,7 +286,7 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 
 	const auto hit = [&](TimeValue t) -> Impact {
 		return Impact{t, w0.corner + b0.mask->hotspot(),
-			w1.corner + b1.mask->hotspot()};
+				w1.corner + b1.mask->hotspot()};
 	};
 
 	const auto overlapping = [&]() -> bool {
@@ -303,7 +294,8 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 		const Box box0{w0.corner, e0};
 		const Box box1{w1.corner, e1};
 		return boxIntersect(box0, box1, inter)
-				&& masksOverlap(*b0.mask, w0.corner, *b1.mask, w1.corner, inter);
+				&& masksOverlap(
+						*b0.mask, w0.corner, *b1.mask, w1.corner, inter);
 	};
 
 	if (t0 <= 1)
@@ -329,7 +321,8 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 		++t0;
 		// The C reports the last CLEAR positions, not the overlap: rects update
 		// only after a *failed* test (intersec.c:218-229), so a hit leaves them
-		// at the sub-step before contact -- bodies land touching, not interpenetrating.
+		// at the sub-step before contact -- bodies land touching, not
+		// interpenetrating.
 		const Vec2i clear0 = w0.corner;
 		const Vec2i clear1 = w1.corner;
 		const bool moved0 = w0.step();
@@ -337,7 +330,7 @@ sweptIntersect(const Body &b0, const Body &b1, TimeValue maxTime)
 		if ((moved0 || moved1) && overlapping())
 		{
 			return Impact{t0, clear0 + b0.mask->hotspot(),
-				clear1 + b1.mask->hotspot()};
+					clear1 + b1.mask->hotspot()};
 		}
 	}
 

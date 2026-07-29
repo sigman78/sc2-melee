@@ -41,10 +41,7 @@ public:
 		return old;
 	}
 
-	[[nodiscard]] constexpr u32 seed() const noexcept
-	{
-		return seed_;
-	}
+	[[nodiscard]] constexpr u32 seed() const noexcept { return seed_; }
 
 	constexpr u32 next() noexcept
 	{
@@ -59,10 +56,7 @@ public:
 	// The 16-bit truncation call sites apply before a modulo (e.g.
 	// `(COUNT)TFB_Random () % 100`). Not interchangeable with next(): the
 	// truncation happens first and changes the result, so it's a separate call.
-	constexpr u16 next16() noexcept
-	{
-		return static_cast<u16>(next());
-	}
+	constexpr u16 next16() noexcept { return static_cast<u16>(next()); }
 
 private:
 	u32 seed_ = kDefaultSeed;
@@ -73,8 +67,7 @@ private:
 
 namespace detail {
 
-consteval bool
-checkStream(u32 seed, const u32 (&want)[8]) noexcept
+consteval bool checkStream(u32 seed, const u32 (&want)[8]) noexcept
 {
 	Rng rng(seed);
 	for (const u32 w : want)
@@ -87,18 +80,17 @@ checkStream(u32 seed, const u32 (&want)[8]) noexcept
 
 // The default seed the C starts with.
 static_assert(checkStream(Rng::kDefaultSeed,
-		{207482415u, 1790989824u, 2035175616u, 77048696u, 24794531u,
-			109854999u, 1644515420u, 1256127050u}));
+		{207482415u, 1790989824u, 2035175616u, 77048696u, 24794531u, 109854999u,
+				1644515420u, 1256127050u}));
 
 // From seed 1. These first eight happen to agree with textbook minstd, which
 // is exactly why the wrap case below is also asserted.
 static_assert(checkStream(1u,
 		{16807u, 282475249u, 1622650073u, 984943658u, 1144108930u, 470211272u,
-			101027544u, 1457850878u}));
+				101027544u, 1457850878u}));
 
 // TFB_SeedRandom coercion: 0 becomes 1, so it is the same stream.
-consteval bool
-checkZeroSeedIsOne() noexcept
+consteval bool checkZeroSeedIsOne() noexcept
 {
 	Rng a(0);
 	Rng b(1);
@@ -107,8 +99,7 @@ checkZeroSeedIsOne() noexcept
 static_assert(checkZeroSeedIsOne());
 
 // ...and a seed above M has one M subtracted, so M + 5 is the seed-5 stream.
-consteval bool
-checkHighSeedWraps() noexcept
+consteval bool checkHighSeedWraps() noexcept
 {
 	Rng a(Rng::kM + 5u);
 	Rng b(5u);
@@ -118,8 +109,7 @@ static_assert(checkHighSeedWraps());
 
 // The case that separates this from Park-Miller. 16000 * Q leaves s % Q == 0,
 // so the subtraction is negative and the uint32 wrap decides the answer.
-consteval bool
-checkParkMillerDivergence() noexcept
+consteval bool checkParkMillerDivergence() noexcept
 {
 	constexpr u32 kSeed = 127773u * 16000u;  // 2044368000
 	Rng rng(kSeed);

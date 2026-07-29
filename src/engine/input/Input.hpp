@@ -35,40 +35,30 @@ class Buttons
 public:
 	constexpr Buttons() = default;
 
-	[[nodiscard]] static constexpr Buttons
-	of(Button b) noexcept
+	[[nodiscard]] static constexpr Buttons of(Button b) noexcept
 	{
 		return Buttons{static_cast<u32>(1u << static_cast<int>(b))};
 	}
 
-	constexpr void
-	set(Button b) noexcept
+	constexpr void set(Button b) noexcept
 	{
 		bits_ |= 1u << static_cast<int>(b);
 	}
-	constexpr void
-	clear(Button b) noexcept
+	constexpr void clear(Button b) noexcept
 	{
 		bits_ &= ~(1u << static_cast<int>(b));
 	}
-	[[nodiscard]] constexpr bool
-	test(Button b) const noexcept
+	[[nodiscard]] constexpr bool test(Button b) const noexcept
 	{
 		return (bits_ & (1u << static_cast<int>(b))) != 0;
 	}
-	[[nodiscard]] constexpr bool
-	any() const noexcept
-	{
-		return bits_ != 0;
-	}
+	[[nodiscard]] constexpr bool any() const noexcept { return bits_ != 0; }
 
-	[[nodiscard]] constexpr Buttons
-	operator|(Buttons o) const noexcept
+	[[nodiscard]] constexpr Buttons operator|(Buttons o) const noexcept
 	{
 		return Buttons{bits_ | o.bits_};
 	}
-	[[nodiscard]] constexpr Buttons
-	operator&(Buttons o) const noexcept
+	[[nodiscard]] constexpr Buttons operator&(Buttons o) const noexcept
 	{
 		return Buttons{bits_ & o.bits_};
 	}
@@ -87,15 +77,13 @@ private:
 class InputAccumulator
 {
 public:
-	void
-	press(Button b) noexcept
+	void press(Button b) noexcept
 	{
 		held_.set(b);
 		pressed_.set(b);
 	}
 
-	void
-	release(Button b) noexcept
+	void release(Button b) noexcept
 	{
 		held_.clear(b);
 		// pressed_ deliberately survives: a tap that started and finished
@@ -103,8 +91,7 @@ public:
 	}
 
 	// What the step sees, and the point at which the sticky half is spent.
-	[[nodiscard]] Buttons
-	consume() noexcept
+	[[nodiscard]] Buttons consume() noexcept
 	{
 		const Buttons out = held_ | pressed_;
 		pressed_ = Buttons{};
@@ -113,16 +100,11 @@ public:
 
 	// What is physically down right now, without spending anything. For the
 	// menu and debug paths that want a level, not an edge.
-	[[nodiscard]] Buttons
-	held() const noexcept
-	{
-		return held_;
-	}
+	[[nodiscard]] Buttons held() const noexcept { return held_; }
 
 	// Losing focus, or leaving the battle. Drops the sticky half too, so a
 	// press made while the window was not focused does not fire on return.
-	void
-	reset() noexcept
+	void reset() noexcept
 	{
 		held_ = Buttons{};
 		pressed_ = Buttons{};

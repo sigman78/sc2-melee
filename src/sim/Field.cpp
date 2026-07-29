@@ -16,16 +16,15 @@ namespace {
 
 // DISPLAY_ALIGN_X/Y (units.h:85-86): the random word truncates to 16 bits
 // (COUNT) before folding into the arena and snapping to a pixel -- the
-// truncated *value* differs from a 31-bit modulo, and replays care about values.
-[[nodiscard]] i32
-displayAlignX(u32 r) noexcept
+// truncated *value* differs from a 31-bit modulo, and replays care about
+// values.
+[[nodiscard]] i32 displayAlignX(u32 r) noexcept
 {
 	return static_cast<i32>(
 			(static_cast<u16>(r) % kArena.w) & ~(kScaledOne - 1));
 }
 
-[[nodiscard]] i32
-displayAlignY(u32 r) noexcept
+[[nodiscard]] i32 displayAlignY(u32 r) noexcept
 {
 	return static_cast<i32>(
 			(static_cast<u16>(r) % kArena.h) & ~(kScaledOne - 1));
@@ -36,24 +35,23 @@ displayAlignY(u32 r) noexcept
 // its own RNG sequence, and that draw must happen at the sync point in
 // queue order -- drawing early would desynchronise the field's RNG stream
 // from whatever else the sync point still draws this frame.
-void
-rubbleDeath(Battle &b, EntityId id) noexcept
+void rubbleDeath(Battle &b, EntityId id) noexcept
 {
 	const StashedMask *rm = b.find<StashedMask>(id);
 	const CollisionMask *mask = rm != nullptr ? rm->mask : nullptr;
 
 	b.queueSpawn(SpawnCommand{
-			.deferred = [](Battle &bb, Borrowed<const CollisionMask> m) noexcept {
-				(void)spawnAsteroid(bb, m);
-			},
+			.deferred =
+					[](Battle &bb, Borrowed<const CollisionMask> m) noexcept {
+						(void)spawnAsteroid(bb, m);
+					},
 			.deferredMask = mask,
 	});
 }
 
 }  // namespace
 
-bool
-timeSpaceMatterConflict(Battle &b, EntityId id)
+bool timeSpaceMatterConflict(Battle &b, EntityId id)
 {
 	const Collider *selfCollider = b.find<Collider>(id);
 	if (!b.alive(id) || selfCollider == nullptr)
@@ -85,8 +83,7 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 	return conflict;
 }
 
-void
-placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
+void placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 {
 	if (!b.alive(id))
 		return;
@@ -114,8 +111,8 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 	for (int tries = 0;; ++tries)
 	{
 		Position &pos = b.get<Position>(id);
-		pos.current = wrap(Vec2i{displayAlignX(b.rng().next()),
-				displayAlignY(b.rng().next())});
+		pos.current = wrap(Vec2i{
+				displayAlignX(b.rng().next()), displayAlignY(b.rng().next())});
 		pos.next = pos.current;
 
 		if (calculateGravity(b, id) || timeSpaceMatterConflict(b, id))
@@ -129,8 +126,7 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 	}
 }
 
-EntityId
-spawnPlanet(Battle &b, const CollisionMask *mask)
+EntityId spawnPlanet(Battle &b, const CollisionMask *mask)
 {
 	// Motion defaults to zero; the planet never moves. Allegiance defaults
 	// to NEUTRAL_PLAYER_NUM/no owner too, so spawn() below gets no explicit
@@ -139,8 +135,7 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	// Mass is assigned only *after* placement (misc.c:71): while the loop runs
 	// the planet isn't yet a gravity source, so calculateGravity asks only
 	// "is this spot inside someone else's well?" -- which is what rejects it.
-	Spawned s = b.spawn(
-			Layer::Field, Position{}, Motion{}, Physique{}, mask);
+	Spawned s = b.spawn(Layer::Field, Position{}, Motion{}, Physique{}, mask);
 	const EntityId id = s.id();
 
 	// misc.c:55's lifeSpan = NORMAL_LIFE+1 encoded indestructibility as a
@@ -151,8 +146,8 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	do
 	{
 		Position &pos = b.get<Position>(id);
-		pos.current = wrap(Vec2i{displayAlignX(b.rng().next()),
-				displayAlignY(b.rng().next())});
+		pos.current = wrap(Vec2i{
+				displayAlignX(b.rng().next()), displayAlignY(b.rng().next())});
 		pos.next = pos.current;
 	} while (calculateGravity(b, id) || timeSpaceMatterConflict(b, id));
 
@@ -160,11 +155,10 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	return id;
 }
 
-EntityId
-spawnAsteroid(Battle &b, const CollisionMask *mask)
+EntityId spawnAsteroid(Battle &b, const CollisionMask *mask)
 {
 	// Allegiance defaults to NEUTRAL_PLAYER_NUM/no owner, same as the planet.
-	const Physique phys{3};      // NORMAL_LIFE, persistent: no Lifetime at all
+	const Physique phys{3};  // NORMAL_LIFE, persistent: no Lifetime at all
 
 	// Six draws, in the order misc.c:156-191 makes them -- not stylistic:
 	// getting the sequence wrong desynchronised network play there, and would
@@ -209,8 +203,7 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	return s;
 }
 
-void
-asteroidDeath(Battle &b, EntityId id) noexcept
+void asteroidDeath(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;

@@ -40,23 +40,22 @@ namespace {
 
 int failures = 0;
 
-#define CHECK(cond, ...)                                                      \
-	do                                                                        \
-	{                                                                         \
-		if (!(cond))                                                          \
-		{                                                                     \
-			std::printf("FAIL %s:%d: ", __FILE__, __LINE__);                  \
-			std::printf(__VA_ARGS__);                                         \
-			std::printf("\n");                                                \
-			++failures;                                                       \
-		}                                                                     \
+#define CHECK(cond, ...)                                                       \
+	do                                                                         \
+	{                                                                          \
+		if (!(cond))                                                           \
+		{                                                                      \
+			std::printf("FAIL %s:%d: ", __FILE__, __LINE__);                   \
+			std::printf(__VA_ARGS__);                                          \
+			std::printf("\n");                                                 \
+			++failures;                                                        \
+		}                                                                      \
 	} while (0)
 
 // --------------------------------------------------------------------------
 // Core types
 
-void
-testClosedRangeIsClosed()
+void testClosedRangeIsClosed()
 {
 	// The whole reason this type is not called Range: [128, 255] is 128
 	// elements, and its half-open end would be 256, which does not fit in the
@@ -74,8 +73,7 @@ testClosedRangeIsClosed()
 	static_assert(inverted.count() == 0);
 }
 
-void
-testGeometry()
+void testGeometry()
 {
 	static_assert(Extent2u{4, 4}.area() == 16);
 	static_assert(Extent2u{0, 4}.empty());
@@ -88,33 +86,31 @@ testGeometry()
 	static_assert(Vec2i{5, 5} - Vec2i{1, 2} == Vec2i{4, 3});
 }
 
-void
-testBigEndianReads()
+void testBigEndianReads()
 {
 	constexpr std::array<std::byte, 4> bytes{
-		std::byte{0x12}, std::byte{0x34}, std::byte{0x56}, std::byte{0x78}};
+			std::byte{0x12}, std::byte{0x34}, std::byte{0x56}, std::byte{0x78}};
 	CHECK(readU8(bytes, 0) == 0x12, "readU8");
 	CHECK(readU16BE(bytes, 0) == 0x1234, "readU16BE");
 	CHECK(readU32BE(bytes, 0) == 0x12345678u, "readU32BE");
 	CHECK(readU16BE(bytes, 2) == 0x5678, "readU16BE at an offset");
 	CHECK(fits(bytes, 0, 4) && !fits(bytes, 1, 4), "fits");
 	// The overflow the obvious `at + len <= size` would miss.
-	CHECK(!fits(bytes, 2, static_cast<usize>(-1)),
-			"fits must not overflow");
+	CHECK(!fits(bytes, 2, static_cast<usize>(-1)), "fits must not overflow");
 }
 
 // --------------------------------------------------------------------------
 // Unit cases
 
-void
-testBinaryTableRejectsGarbage()
+void testBinaryTableRejectsGarbage()
 {
 	CHECK(!parseBinaryTable({}), "empty input should not parse");
 
 	// A compressed prefix. loadres.c refuses these and so do we.
 	constexpr std::array<std::byte, 12> compressed{std::byte{0}, std::byte{0},
-		std::byte{1}, std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
-		std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
+			std::byte{1}, std::byte{0}, std::byte{0}, std::byte{0},
+			std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+			std::byte{0}, std::byte{0}};
 	const auto lz = parseBinaryTable(compressed);
 	CHECK(!lz, "an LZ length prefix should be refused");
 	if (!lz)
@@ -123,10 +119,10 @@ testBinaryTableRejectsGarbage()
 
 	// count claims one entry of 16 bytes but the file holds none.
 	constexpr std::array<std::byte, 16> truncated{std::byte{0xFF},
-		std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}, std::byte{0},
-		std::byte{0}, std::byte{0}, std::byte{1}, std::byte{0}, std::byte{0},
-		std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
-		std::byte{16}};
+			std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}, std::byte{0},
+			std::byte{0}, std::byte{0}, std::byte{1}, std::byte{0},
+			std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
+			std::byte{0}, std::byte{0}, std::byte{16}};
 	const auto over = parseBinaryTable(truncated);
 	CHECK(!over, "an entry running past EOF should be refused");
 	if (!over)
@@ -134,8 +130,7 @@ testBinaryTableRejectsGarbage()
 				"error should be EntryOverruns");
 }
 
-void
-testColorTableShapesAreNotInterchangeable()
+void testColorTableShapesAreNotInterchangeable()
 {
 	// A one-slot Palettes entry: [10, 10] + 768 bytes.
 	std::vector<std::byte> palettes(2 + kPaletteBytes, std::byte{0});
@@ -186,8 +181,7 @@ testColorTableShapesAreNotInterchangeable()
 				"error should be InvertedRange");
 }
 
-void
-testAniRejectsWhatTheCWouldAbsorb()
+void testAniRejectsWhatTheCWouldAbsorb()
 {
 	std::vector<ContentError> problems;
 
@@ -228,8 +222,7 @@ testAniRejectsWhatTheCWouldAbsorb()
 	CHECK(quiet.cels.empty(), "parseAni must work without a problems sink");
 }
 
-void
-testPhraseHashHandling()
+void testPhraseHashHandling()
 {
 	// "#()" must not open a phrase: strtok returns NULL on it, so the C skips
 	// the line entirely. Getting this wrong shifts every ordinal after it.
@@ -245,8 +238,9 @@ testPhraseHashHandling()
 		CHECK(p.empty(), "a trailing #() is not a problem, got %zu", p.size());
 		if (pf.size() == 2)
 		{
-			CHECK(pf[0].text == "first", "body should stop before the #(), got "
-										 "'%.*s'",
+			CHECK(pf[0].text == "first",
+					"body should stop before the #(), got "
+					"'%.*s'",
 					static_cast<int>(pf[0].text.size()), pf[0].text.data());
 			CHECK(pf[1].name == "B", "second phrase should be B");
 			CHECK(pf.byOrdinal(1) == &pf[0], "ordinal 1 is phrase 0");
@@ -273,8 +267,7 @@ testPhraseHashHandling()
 // --------------------------------------------------------------------------
 // The real tree
 
-void
-sweepContent(const fs::path &content)
+void sweepContent(const fs::path &content)
 {
 	const auto rmpBytes = platform::readFile(content / "uqm.rmp");
 	CHECK(rmpBytes.has_value(), "cannot read uqm.rmp");
@@ -549,8 +542,7 @@ sweepContent(const fs::path &content)
 	// Round-trip the encoder the browser writes sheets with.
 	{
 		constexpr Extent2u size{4, 4};
-		std::vector<u8> rgbaPixels(
-				static_cast<usize>(size.area()) * 4);
+		std::vector<u8> rgbaPixels(static_cast<usize>(size.area()) * 4);
 		for (usize i = 0; i < rgbaPixels.size(); ++i)
 			rgbaPixels[i] = static_cast<u8>(i * 7);
 
@@ -576,14 +568,13 @@ sweepContent(const fs::path &content)
 	std::printf("swept %zu .ct (%zu+%zu entries), %zu .ani (%zu cels), "
 				"%zu .txt (%zu phrases), %zu .ts, %zu .fon (%zu glyphs), "
 				"%zu resource keys\n",
-			ctFiles, shapeA, shapeB, aniFiles, cels, txtFiles, phrases,
-			tsFiles, fontDirs, glyphs, map.size());
+			ctFiles, shapeA, shapeB, aniFiles, cels, txtFiles, phrases, tsFiles,
+			fontDirs, glyphs, map.size());
 }
 
 }  // namespace
 
-void
-testOpacityBitsFollowAlpha()
+static void testOpacityBitsFollowAlpha()
 {
 	// The input a collision mask is built from. Per-pixel collision is only
 	// worth having if the mask follows the silhouette, so a fully transparent
@@ -592,8 +583,7 @@ testOpacityBitsFollowAlpha()
 	// because its masks come from a colour-key, not a gradient.
 	constexpr u32 w = 3;
 	constexpr u32 h = 2;
-	const std::vector<u8> rgba{
-			// row 0: opaque, clear, barely-there
+	const std::vector<u8> rgba{// row 0: opaque, clear, barely-there
 			255, 0, 0, 255, /**/ 0, 0, 0, 0, /**/ 9, 9, 9, 1,
 			// row 1: clear, opaque, clear
 			0, 0, 0, 0, /**/ 1, 2, 3, 255, /**/ 4, 5, 6, 0};
@@ -605,8 +595,7 @@ testOpacityBitsFollowAlpha()
 			"one byte per pixel, got %zu", bits.size());
 }
 
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
 	testOpacityBitsFollowAlpha();
 	testClosedRangeIsClosed();

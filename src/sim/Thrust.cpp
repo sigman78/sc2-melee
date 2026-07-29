@@ -8,23 +8,20 @@ namespace uqm::sim {
 
 namespace {
 
-[[nodiscard]] constexpr i64
-speedSquared(Vec2i v) noexcept
+[[nodiscard]] constexpr i64 speedSquared(Vec2i v) noexcept
 {
 	return i64{v.x} * v.x + i64{v.y} * v.y;
 }
 
-[[nodiscard]] constexpr bool
-atOrBeyondMax(SpeedState s) noexcept
+[[nodiscard]] constexpr bool atOrBeyondMax(SpeedState s) noexcept
 {
 	return s == SpeedState::AtMax || s == SpeedState::BeyondMax;
 }
 
 }  // namespace
 
-SpeedState
-thrust(Velocity &velocity, Facing facing, const ThrustProfile &profile,
-		ThrustState state) noexcept
+SpeedState thrust(Velocity &velocity, Facing facing,
+		const ThrustProfile &profile, ThrustState state) noexcept
 {
 	const int currentAngle = facing.angle().raw();
 	const int travelAngle = velocity.travelAngle();
@@ -48,7 +45,7 @@ thrust(Velocity &velocity, Facing facing, const ThrustProfile &profile,
 	const i64 currentSpeed = speedSquared(current);
 
 	const Vec2i desired{current.x + cosine(currentAngle, increment),
-		current.y + sine(currentAngle, increment)};
+			current.y + sine(currentAngle, increment)};
 	const i64 desiredSpeed = speedSquared(desired);
 
 	const i32 maxVel = worldToVelocity(profile.max);
@@ -84,8 +81,8 @@ thrust(Velocity &velocity, Facing facing, const ThrustProfile &profile,
 	// half an increment goes on along the new heading, a whole one comes off
 	// the old, keeping the magnitude roughly constant while direction swings.
 	Velocity turned = velocity;
-	turned.deltaComponents(
-			cosine(currentAngle, increment >> 1) - cosine(travelAngle, increment),
+	turned.deltaComponents(cosine(currentAngle, increment >> 1)
+					- cosine(travelAngle, increment),
 			sine(currentAngle, increment >> 1) - sine(travelAngle, increment));
 
 	const i64 turnedSpeed = speedSquared(turned.current());

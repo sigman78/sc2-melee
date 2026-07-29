@@ -5,9 +5,8 @@
 
 namespace uqm::game {
 
-sim::ShipSpec
-materialize(const ShipDef &def, Resources &content,
-		platform::Platform &window)
+sim::ShipSpec materialize(
+		const ShipDef &def, Resources &content, platform::Platform &window)
 {
 	sim::ShipSpec spec = *def.spec;
 	// Never empty: missing art yields Resources' placeholder, whose one

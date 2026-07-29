@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Formatting only. clang-tidy costs a second or two per translation unit on
+# this codebase -- entt is why -- which is too slow to sit in front of every
+# commit; it runs in CI and on demand via tools/lint.sh.
+#
+# Skip with SC2M_SKIP_HOOKS=1 (a rebase or a mechanical sweep, not habit).
+set -uo pipefail
+[ "${SC2M_SKIP_HOOKS:-0}" = "1" ] && exit 0
+
+cd "$(git rev-parse --show-toplevel)"
+staged=$(git diff --cached --name-only --diff-filter=ACMR \
+	-- 'src/*.cpp' 'src/*.hpp' 'tests/*.cpp' 'tests/*.hpp')
+[ -z "$staged" ] && exit 0
+
+if ! command -v clang-format > /dev/null; then
+	echo "pre-commit: clang-format not found; skipping format check" >&2
+	exit 0
+fi
+
+unformatted=""
+for f in $staged; do
+	clang-format --dry-run -Werror "$f" > /dev/null 2>&1 || unformatted="$unformatted $f"
+done
+
+if [ -n "$unformatted" ]; then
+	echo "pre-commit: not formatted:" >&2
+	for f in $unformatted; do echo "    $f" >&2; done
+	echo "  fix with: tools/format.sh   (then re-stage)" >&2
+	exit 1
+fi
+exit 0

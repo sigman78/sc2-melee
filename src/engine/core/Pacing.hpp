@@ -31,8 +31,7 @@ public:
 	constexpr explicit Pacer(
 			Ticks period = kBattleFrameRate, int maxSteps = 5) noexcept
 		: period_(period), maxSteps_(maxSteps), dueAt_(period)
-	{
-	}
+	{}
 
 	// Restart the cadence at `now`. Use after a pause, a mode change, or any
 	// gap that should not be caught up.

@@ -70,13 +70,11 @@ comp struct Order
 
 // Created this frame: not yet integrated, exempt from its own collisions.
 comp struct Appearing
-{
-};
+{};
 
 // Skips collisions with another IgnoreSimilar entity sharing its owner.
 comp struct IgnoreSimilar
-{
-};
+{};
 
 // A countdown to zero, then the death-mark pass attaches Doomed and the reap
 // destroys it. Absent means persistent.
@@ -88,19 +86,16 @@ comp struct Lifetime
 // Marked for the reap at this frame's sync point; its onDeath, if it had one,
 // has already run.
 comp struct Doomed
-{
-};
+{};
 
 // Immune to weapon damage, with no Lifetime to age or reap: the planet
 // (Field.cpp's spawnPlanet, Damage.cpp's weaponCollision).
 comp struct Indestructible
-{
-};
+{};
 
 // The battlefield's one gravity well (Field.cpp's spawnPlanet).
 comp struct Planet
-{
-};
+{};
 
 // A single point of a ship's exhaust (tactrans.c:756-790).
 comp struct Trail
@@ -111,8 +106,7 @@ comp struct Trail
 
 // A fading ship-shaped silhouette shed while warping in (tactrans.c:893-930).
 comp struct Shadow
-{
-};
+{};
 
 // One spark of a dying ship, thrown off in a swarm while the hull is still
 // there (tactrans.c:542-615).
@@ -135,8 +129,7 @@ static_assert(std::is_empty_v<Trail> && std::is_empty_v<Debris>
 // Invisible to the eye and to targeting: maintained by the cloak machine
 // (ships/Ilwrath.cpp).
 comp struct Cloaked
-{
-};
+{};
 
 class Battle;
 

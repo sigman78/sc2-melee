@@ -12,17 +12,17 @@
 #include "sim/Field.hpp"
 #include "sim/Gravity.hpp"
 #include "sim/Impulse.hpp"
+#include "sim/Random.hpp"
 #include "sim/Ship.hpp"
 #include "sim/ShipSystems.hpp"
-#include "sim/ships/Human.hpp"
-#include "sim/ships/Ilwrath.hpp"
-#include "sim/Random.hpp"
 #include "sim/Spawn.hpp"
 #include "sim/Targeting.hpp"
 #include "sim/Thrust.hpp"
 #include "sim/Trig.hpp"
 #include "sim/Velocity.hpp"
 #include "sim/World.hpp"
+#include "sim/ships/Human.hpp"
+#include "sim/ships/Ilwrath.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -36,20 +36,19 @@ namespace {
 
 int failures = 0;
 
-#define CHECK(cond, ...)                                                      \
-	do                                                                        \
-	{                                                                         \
-		if (!(cond))                                                          \
-		{                                                                     \
-			std::printf("FAIL %s:%d: ", __FILE__, __LINE__);                  \
-			std::printf(__VA_ARGS__);                                         \
-			std::printf("\n");                                                \
-			++failures;                                                       \
-		}                                                                     \
+#define CHECK(cond, ...)                                                       \
+	do                                                                         \
+	{                                                                          \
+		if (!(cond))                                                           \
+		{                                                                      \
+			std::printf("FAIL %s:%d: ", __FILE__, __LINE__);                   \
+			std::printf(__VA_ARGS__);                                          \
+			std::printf("\n");                                                 \
+			++failures;                                                        \
+		}                                                                      \
 	} while (0)
 
-void
-testStreamsAreIndependent()
+void testStreamsAreIndependent()
 {
 	// Presentation must draw from its own stream so it cannot perturb the sim
 	// (commanim.c draws from the sim's, on a wall-clock schedule): same seed
@@ -61,11 +60,11 @@ testStreamsAreIndependent()
 	const u32 before = sim.seed();
 	(void)presentation.next();
 	(void)presentation.next();
-	CHECK(sim.seed() == before, "drawing from one stream must not move another");
+	CHECK(sim.seed() == before,
+			"drawing from one stream must not move another");
 }
 
-void
-testReseedReturnsThePrevious()
+void testReseedReturnsThePrevious()
 {
 	// TFB_SeedRandom returns the old seed; the C uses that to save and
 	// restore a stream around a private one (melnorm.c's getStripRandomSeed).
@@ -79,8 +78,7 @@ testReseedReturnsThePrevious()
 	CHECK(rng.next() == a, "restoring a seed replays the stream");
 }
 
-void
-testTruncationWidthMatters()
+void testTruncationWidthMatters()
 {
 	// Call sites truncate to 16 bits before taking a modulo -- `(COUNT)`,
 	// `(UWORD)`, `LOWORD` -- and that changes the answer. If these ever
@@ -91,7 +89,8 @@ testTruncationWidthMatters()
 	const u32 trunc = narrow.next16() % 100u;
 	CHECK(full != trunc,
 			"16-bit truncation must change the result for this seed "
-			"(%u vs %u)", full, trunc);
+			"(%u vs %u)",
+			full, trunc);
 }
 
 // --------------------------------------------------------------------------
@@ -103,16 +102,14 @@ testTruncationWidthMatters()
 // A minimal, marked spawn for the tests below: no Collider, so it takes no
 // part in collision math (spawn() attaches one only when given a mask), no
 // hooks, and playerNr stored on Allegiance as a bare label.
-EntityId
-spawnMarked(Battle &b, Layer layer, int playerNr)
+EntityId spawnMarked(Battle &b, Layer layer, int playerNr)
 {
-	return b.spawn(layer, Position{}, Motion{}, Physique{},
-			nullptr, Allegiance{playerNr, kNoEntity});
+	return b.spawn(layer, Position{}, Motion{}, Physique{}, nullptr,
+			Allegiance{playerNr, kNoEntity});
 }
 
 // Walks in declared order, collecting each element's label.
-std::vector<int>
-playerNrs(Battle &b)
+std::vector<int> playerNrs(Battle &b)
 {
 	std::vector<int> out;
 	b.eachOrdered([&](EntityId id) {
@@ -121,8 +118,7 @@ playerNrs(Battle &b)
 	return out;
 }
 
-void
-testTraversalOrderIsDeclared()
+void testTraversalOrderIsDeclared()
 {
 	// Order is a declared stratum, not insertion position: layers traverse
 	// in enum order, FIFO within a layer.
@@ -151,8 +147,7 @@ testTraversalOrderIsDeclared()
 			"a spawn joins its own stratum, not the global tail");
 }
 
-void
-testSlotReuseDoesNotReorder()
+void testSlotReuseDoesNotReorder()
 {
 	// Storage order and traversal order can disagree once entt hands a
 	// slot back. Order (layer, seq), assigned at spawn, keeps a new entity
@@ -169,12 +164,13 @@ testSlotReuseDoesNotReorder()
 	CHECK(playerNrs(b) == std::vector<int>({1, 3, 4}),
 			"a reused slot must not drag the new entity back to the old "
 			"position");
-	CHECK(b.size() == 3, "size should track the reap and the respawn, "
-			"got %zu", b.size());
+	CHECK(b.size() == 3,
+			"size should track the reap and the respawn, "
+			"got %zu",
+			b.size());
 }
 
-void
-testStaleHandlesAreDetectable()
+void testStaleHandlesAreDetectable()
 {
 	// The slot comes straight back; the generation in the versioned entity
 	// id is what stops a stale handle from reading its new tenant.
@@ -188,7 +184,8 @@ testStaleHandlesAreDetectable()
 
 	// The slot the reap just freed comes straight back.
 	const EntityId reused = spawnMarked(b, Layer::Field, 8);
-	CHECK(reused != id, "the test needs a fresh handle, even if the slot "
+	CHECK(reused != id,
+			"the test needs a fresh handle, even if the slot "
 			"is the same one");
 	CHECK(!b.alive(id), "the stale handle must not resolve to the new one");
 	CHECK(b.alive(reused) && b.find<Allegiance>(reused)->playerNr == 8,
@@ -197,14 +194,14 @@ testStaleHandlesAreDetectable()
 	CHECK(!b.alive(kNoEntity), "a default handle is never alive");
 }
 
-void
-testTheReapKeepsTheWalkIntact()
+void testTheReapKeepsTheWalkIntact()
 {
 	// The reap -- Battle's only removal, driven by Lifetime/Doomed and run
 	// inside step() -- must leave survivors exactly where they were: a
 	// projectile expiring mid-frame is the ordinary case that needs this.
 	Battle b(1);
 	std::vector<EntityId> ids;
+	ids.reserve(5);
 	for (int i = 0; i < 5; ++i)
 		ids.push_back(spawnMarked(b, Layer::Field, i));
 
@@ -217,8 +214,7 @@ testTheReapKeepsTheWalkIntact()
 	CHECK(b.size() == 3, "size should track the reap, got %zu", b.size());
 }
 
-void
-testEntityAddressesAreStable()
+void testEntityAddressesAreStable()
 {
 	// ShipState::in_place_delete (Ship.hpp) keeps a ship's address stable
 	// under entt: reap tombstones the slot instead of swap-and-popping a
@@ -236,8 +232,8 @@ testEntityAddressesAreStable()
 	static const ShipSpec inertSpec{};
 	b.attachShip(A, &inertSpec);
 	b.attachShip(C, &inertSpec);
-	ShipState *pa = b.ship(A);
-	ShipState *pc = b.ship(C);
+	ShipState const *pa = b.ship(A);
+	ShipState const *pc = b.ship(C);
 
 	b.attach<Lifetime>(B, Lifetime{0});
 	b.step();  // reaps B -- a tombstone, not a compaction
@@ -247,15 +243,15 @@ testEntityAddressesAreStable()
 
 	CHECK(b.ship(A) == pa, "A's address must survive B's reap and the growth");
 	CHECK(b.ship(C) == pc, "and so must C's");
-	CHECK(b.find<Allegiance>(A)->playerNr == 1, "and A's data must still be A's");
+	CHECK(b.find<Allegiance>(A)->playerNr == 1,
+			"and A's data must still be A's");
 	CHECK(b.find<Allegiance>(C)->playerNr == 3, "and C's still C's");
 }
 
 // --------------------------------------------------------------------------
 // World topology
 
-void
-testWorldWrapping()
+void testWorldWrapping()
 {
 	// The arena the C computes today, now fixed at compile time.
 	static_assert(kArena.w == 8192 && kArena.h == 7680);
@@ -285,8 +281,7 @@ testWorldWrapping()
 // --------------------------------------------------------------------------
 // Trig
 
-void
-testTrigRoundTrips()
+void testTrigRoundTrips()
 {
 	// The table's golden values are static_asserts in Trig.hpp; what is worth
 	// checking at runtime is that the pieces agree with each other over the
@@ -345,8 +340,7 @@ testTrigRoundTrips()
 			"someone has made the rounding symmetric");
 }
 
-void
-testArctanSentinel()
+void testArctanSentinel()
 {
 	// The zero vector returns an *unnormalized* 64. A caller that forwards it
 	// to a table lookup without checking would be reading a direction it was
@@ -362,20 +356,16 @@ testArctanSentinel()
 // Collision
 
 // A solid w x h mask with its hotspot at the centre.
-CollisionMask
-solid(u32 w, u32 h)
+CollisionMask solid(u32 w, u32 h)
 {
 	const std::vector<u8> bits(static_cast<usize>(w) * h, 1);
 	return CollisionMask(Extent2u{w, h},
-			Vec2i{static_cast<i32>(w / 2),
-				static_cast<i32>(h / 2)},
-			bits);
+			Vec2i{static_cast<i32>(w / 2), static_cast<i32>(h / 2)}, bits);
 }
 
 // A ring: opaque border, hollow middle. Two of these can overlap by bounding
 // box while missing entirely, which is the whole point of per-pixel.
-CollisionMask
-ring(u32 w, u32 h)
+CollisionMask ring(u32 w, u32 h)
 {
 	std::vector<u8> bits(static_cast<usize>(w) * h, 0);
 	for (u32 y = 0; y < h; ++y)
@@ -383,15 +373,12 @@ ring(u32 w, u32 h)
 			if (x == 0 || y == 0 || x == w - 1 || y == h - 1)
 				bits[static_cast<usize>(y) * w + x] = 1;
 	return CollisionMask(Extent2u{w, h},
-			Vec2i{static_cast<i32>(w / 2),
-				static_cast<i32>(h / 2)},
-			bits);
+			Vec2i{static_cast<i32>(w / 2), static_cast<i32>(h / 2)}, bits);
 }
 
 // Whether this frame's collisions() recorded a pair between x and y, order
 // either way.
-bool
-pairCollided(const Battle &b, EntityId x, EntityId y) noexcept
+bool pairCollided(const Battle &b, EntityId x, EntityId y) noexcept
 {
 	for (const CollisionEvent &ev : b.collisions())
 		if ((ev.a.id == x && ev.b.id == y) || (ev.a.id == y && ev.b.id == x))
@@ -399,12 +386,12 @@ pairCollided(const Battle &b, EntityId x, EntityId y) noexcept
 	return false;
 }
 
-void
-testCollisionNeedsNoGraphicsContext()
+void testCollisionNeedsNoGraphicsContext()
 {
 	// intersec.c:245 returns "no collision" with no active graphics context,
 	// which is why a naive headless build hangs in weapon.c's rejection loop
-	// instead of producing wrong numbers. Nothing here has ever seen a renderer.
+	// instead of producing wrong numbers. Nothing here has ever seen a
+	// renderer.
 	const CollisionMask a = solid(4, 4);
 	const CollisionMask b = solid(4, 4);
 	const Body b0{&a, Vec2i{0, 0}, Vec2i{0, 0}};
@@ -413,8 +400,7 @@ testCollisionNeedsNoGraphicsContext()
 			"two overlapping bodies must collide with no context anywhere");
 }
 
-void
-testCollisionBasics()
+void testCollisionBasics()
 {
 	const CollisionMask a = solid(4, 4);
 	const CollisionMask b = solid(4, 4);
@@ -448,8 +434,10 @@ testCollisionBasics()
 		// They meet near the middle, so the reported positions should be
 		// close together -- that is what the caller places an explosion at.
 		const i32 gap = hit.at0.x - hit.at1.x;
-		CHECK(gap > -8 && gap < 8, "impact positions should nearly coincide, "
-									"gap %ld", static_cast<long>(gap));
+		CHECK(gap > -8 && gap < 8,
+				"impact positions should nearly coincide, "
+				"gap %ld",
+				static_cast<long>(gap));
 	}
 
 	// A body that would pass through if only the endpoints were tested: it
@@ -464,8 +452,7 @@ testCollisionBasics()
 	}
 }
 
-void
-testCollisionIsPerPixelNotBoxes()
+void testCollisionIsPerPixelNotBoxes()
 {
 	// Two rings, one small enough to sit inside the other's hollow centre.
 	// Their boxes overlap; no opaque pixel does.
@@ -484,8 +471,7 @@ testCollisionIsPerPixelNotBoxes()
 			"the same pixel on the rim must collide");
 }
 
-void
-testCollisionEdgeCases()
+void testCollisionEdgeCases()
 {
 	const CollisionMask a = solid(4, 4);
 	const CollisionMask b = solid(4, 4);
@@ -503,12 +489,12 @@ testCollisionEdgeCases()
 // --------------------------------------------------------------------------
 // Velocity
 
-void
-testVelocityCarriesSubUnitDrift()
+void testVelocityCarriesSubUnitDrift()
 {
 	// Velocity is fixed point with a carried error, not a rounded integer:
 	// a drift slower than one world unit per frame still has to move, or a
-	// truncating implementation rounds it to zero and it hangs in space forever.
+	// truncating implementation rounds it to zero and it hangs in space
+	// forever.
 	Velocity v;
 	v.setComponents(1, 0);  // 1/32 of a world unit per frame
 	CHECK(v.current().x == 1, "a sub-unit component survives being set");
@@ -517,7 +503,8 @@ testVelocityCarriesSubUnitDrift()
 	for (int f = 0; f < 32; ++f)
 		travelled += v.advance(1).x;
 	CHECK(travelled == 1,
-			"1/32 per frame should cover exactly one unit in 32 frames, got %ld",
+			"1/32 per frame should cover exactly one unit in 32 frames, got "
+			"%ld",
 			static_cast<long>(travelled));
 
 	// ...and the same total whether taken in one step or many, since the
@@ -527,8 +514,7 @@ testVelocityCarriesSubUnitDrift()
 	CHECK(bulk.advance(32).x == 1, "one 32-frame step covers the same ground");
 }
 
-void
-testVelocityNegativeEncoding()
+void testVelocityNegativeEncoding()
 {
 	// The sign lives in a packed byte, and reconstruction has to recover it
 	// exactly -- including the fractional part, which is where the doubled
@@ -554,8 +540,7 @@ testVelocityNegativeEncoding()
 			static_cast<long>(travelled));
 }
 
-void
-testVelocityAngles()
+void testVelocityAngles()
 {
 	// setVector keeps the *facing* as authoritative, so a zero magnitude
 	// still remembers which way the object points...
@@ -585,8 +570,7 @@ testVelocityAngles()
 // --------------------------------------------------------------------------
 // Thrust
 
-void
-testThrustTakesItsFacingAsAnArgument()
+void testThrustTakesItsFacingAsAnArgument()
 {
 	// The whole point of the primitive: thrusting somewhere other than where
 	// the ship points needs no save/overwrite/restore of a global -- Supox's
@@ -612,8 +596,7 @@ testThrustTakesItsFacingAsAnArgument()
 			static_cast<long>(f.y + r.y));
 }
 
-void
-testThrustReachesAndHoldsMaxSpeed()
+void testThrustReachesAndHoldsMaxSpeed()
 {
 	constexpr ThrustProfile cruiser{24, 3};
 
@@ -638,8 +621,7 @@ testThrustReachesAndHoldsMaxSpeed()
 	CHECK(v.current() == atMax, "and the velocity does not creep upward");
 }
 
-void
-testInertialessThrustIsInstant()
+void testInertialessThrustIsInstant()
 {
 	// The Skiff: thrust_increment == max_thrust, so it reaches full speed in
 	// one frame and can never be beyond max. The C tests the equality rather
@@ -659,8 +641,7 @@ testInertialessThrustIsInstant()
 			"and travels the new way immediately");
 }
 
-void
-testGravityWellAllowsExceedingMax()
+void testGravityWellAllowsExceedingMax()
 {
 	constexpr ThrustProfile cruiser{24, 3};
 
@@ -679,16 +660,14 @@ testGravityWellAllowsExceedingMax()
 	CHECK(st.speed == SpeedState::BeyondMax,
 			"a well should push the ship beyond its own maximum");
 	const Vec2i after = v.current();
-	CHECK(after.y < before.y,
-			"and it should actually be faster (%ld -> %ld)",
+	CHECK(after.y < before.y, "and it should actually be faster (%ld -> %ld)",
 			static_cast<long>(before.y), static_cast<long>(after.y));
 }
 
 // --------------------------------------------------------------------------
 // Spawn descriptors
 
-ShipView
-cruiserView()
+ShipView cruiserView()
 {
 	ShipView v;
 	v.position = Vec2i{1000, 1000};
@@ -698,16 +677,15 @@ cruiserView()
 	// max(MAX_THRUST, DISPLAY_TO_WORLD(10)) and the floor wins. This value is
 	// arbitrary -- spawn functions pass it through untouched, which this tests.
 	v.weaponSpeed = 24;
-	v.weaponLife = 60;        // MISSILE_LIFE
-	v.weaponDamage = 4;       // MISSILE_DAMAGE
-	v.weaponHitPoints = 1;    // MISSILE_HITS
-	v.muzzleOffset = 42;      // HUMAN_OFFSET
-	v.blastOffset = 8;        // NUKE_OFFSET
+	v.weaponLife = 60;      // MISSILE_LIFE
+	v.weaponDamage = 4;     // MISSILE_DAMAGE
+	v.weaponHitPoints = 1;  // MISSILE_HITS
+	v.muzzleOffset = 42;    // HUMAN_OFFSET
+	v.blastOffset = 8;      // NUKE_OFFSET
 	return v;
 }
 
-void
-testSpawningIsRepeatable()
+void testSpawningIsRepeatable()
 {
 	// The property the AI's lookahead needs and the C does not: asking "what
 	// would I spawn?" mutates shared state for real in the C (umgah.c:330-341).
@@ -735,8 +713,7 @@ testSpawningIsRepeatable()
 			"asking what would spawn must not change the ship");
 }
 
-void
-testSpawnCarriesTheShipsParameters()
+void testSpawnCarriesTheShipsParameters()
 {
 	const ShipView ship = cruiserView();
 	SpawnBuffer buf{};
@@ -755,16 +732,14 @@ testSpawnCarriesTheShipsParameters()
 	const i32 dx = s.position.x - ship.position.x;
 	const i32 dy = s.position.y - ship.position.y;
 	const i64 dist2 = i64{dx} * dx + i64{dy} * dy;
-	const i64 want = i64{displayToWorld(42)}
-			* displayToWorld(42);
+	const i64 want = i64{displayToWorld(42)} * displayToWorld(42);
 	// Within a few percent: the offset goes through the 14-bit sine table.
 	CHECK(dist2 > want * 9 / 10 && dist2 < want * 11 / 10,
 			"muzzle should be ~42 display pixels out, got %lld vs %lld",
 			static_cast<long long>(dist2), static_cast<long long>(want));
 }
 
-void
-testTheTwoShipsDifferWhereTheCDoes()
+void testTheTwoShipsDifferWhereTheCDoes()
 {
 	ShipView ship = cruiserView();
 	ship.facing = Facing(7);
@@ -786,7 +761,8 @@ testTheTwoShipsDifferWhereTheCDoes()
 
 	// ilwrath.c:203 -- IGNORE_SIMILAR, so a flame stream does not collide
 	// with itself. human.c:283 -- flags 0, so missiles do.
-	CHECK(!cruiser[0].ignoreSimilar, "cruiser missiles collide with each other");
+	CHECK(!cruiser[0].ignoreSimilar,
+			"cruiser missiles collide with each other");
 	CHECK(avenger[0].ignoreSimilar, "flame does not collide with itself");
 }
 
@@ -803,14 +779,12 @@ Trace g_trace;
 
 // Tags an element so the trace can name it: Physique::mass is unused by
 // these tests, so it doubles as a label.
-void
-recordPre(Battle &b, EntityId id) noexcept
+void recordPre(Battle &b, EntityId id) noexcept
 {
 	g_trace.preOrder.push_back(static_cast<int>(b.find<Physique>(id)->mass));
 }
 
-void
-recordDeath(Battle &b, EntityId id) noexcept
+void recordDeath(Battle &b, EntityId id) noexcept
 {
 	g_trace.deaths.push_back(static_cast<int>(b.find<Physique>(id)->mass));
 }
@@ -818,8 +792,7 @@ recordDeath(Battle &b, EntityId id) noexcept
 // Spawns and gives it a ShipState so it satisfies the ship gate in
 // ShipSystems.cpp. The spec is empty (no facingMasks, no crew), so
 // ShipMachines' Appearing branch has nothing to act on here.
-EntityId
-spawnShip(Battle &b, Layer layer = Layer::Field)
+EntityId spawnShip(Battle &b, Layer layer = Layer::Field)
 {
 	const EntityId id = b.spawn(layer);
 	static const ShipSpec inertSpec{};
@@ -827,8 +800,7 @@ spawnShip(Battle &b, Layer layer = Layer::Field)
 	return id;
 }
 
-void
-testStepVisitsInListOrder()
+void testStepVisitsInListOrder()
 {
 	// eachOrdered is what declares traversal order; this tests it directly
 	// against list order and against an earlier layer preempting it.
@@ -850,8 +822,7 @@ testStepVisitsInListOrder()
 			"an earlier-layer element visits first");
 }
 
-void
-testSpawnLandsAtSyncAndActsNextFrame()
+void testSpawnLandsAtSyncAndActsNextFrame()
 {
 	// A queued spawn does not exist for anything to see the frame it is
 	// emitted: it lands at the sync point, is reported as a SpawnEvent, and
@@ -863,8 +834,8 @@ testSpawnLandsAtSyncAndActsNextFrame()
 	// DeathSpawn is a generic death-response payload; production attaches it
 	// only to the asteroid field. This test wants exactly what it promises:
 	// a function run once, at death, with the battle and this id.
-	b.attach<DeathSpawn>(triggerId,
-			DeathSpawn{[](Battle &bb, EntityId) noexcept {
+	b.attach<DeathSpawn>(
+			triggerId, DeathSpawn{[](Battle &bb, EntityId) noexcept {
 				Motion motion;
 				motion.velocity.setComponents(worldToVelocity(10), 0);
 				Position pos;
@@ -895,8 +866,7 @@ testSpawnLandsAtSyncAndActsNextFrame()
 			static_cast<long>(b.find<Position>(child)->current.x));
 }
 
-void
-testFiniteLifeExpiresAndCallsDeath()
+void testFiniteLifeExpiresAndCallsDeath()
 {
 	g_trace = Trace{};
 	Battle b(1);
@@ -919,8 +889,7 @@ testFiniteLifeExpiresAndCallsDeath()
 			"its death hook should have run exactly once");
 }
 
-void
-testMotionIntegratesAndWraps()
+void testMotionIntegratesAndWraps()
 {
 	Battle b(1);
 	Motion motion;
@@ -938,7 +907,8 @@ testMotionIntegratesAndWraps()
 			static_cast<long>(b.find<Position>(id)->current.x));
 
 	b.step();
-	CHECK(b.find<Position>(id)->current.x == 120, "and 10 a frame after, got %ld",
+	CHECK(b.find<Position>(id)->current.x == 120,
+			"and 10 a frame after, got %ld",
 			static_cast<long>(b.find<Position>(id)->current.x));
 
 	// The arena is a torus, and teleporting means moving BOTH `current` and
@@ -952,21 +922,19 @@ testMotionIntegratesAndWraps()
 			static_cast<long>(b.find<Position>(id)->current.x));
 }
 
-void
-testCollisionPairsAreVisitedOnce()
+void testCollisionPairsAreVisitedOnce()
 {
 	Battle b(1);
 	const std::vector<u8> bits(16, 1);
-	static const CollisionMask mask(
-			Extent2u{4, 4}, Vec2i{2, 2}, bits);
+	static const CollisionMask mask(Extent2u{4, 4}, Vec2i{2, 2}, bits);
 
 	Position aPos;
 	aPos.current = Vec2i{500, 500};
 	// Transient, like a real weapon: an at-rest overlap between two *solid*
 	// bodies is the "BAD NEWS" case the step skips, so only a transient can
 	// register this hit. Two frames of life since the first is spent already.
-	const EntityId ia = b.spawn(Layer::Field, aPos, Motion{},
-			Physique{}, &mask, Allegiance{0, kNoEntity});
+	const EntityId ia = b.spawn(Layer::Field, aPos, Motion{}, Physique{}, &mask,
+			Allegiance{0, kNoEntity});
 	b.attach<Lifetime>(ia, Lifetime{2});
 
 	// At least one side must have mass, or the pair is skipped entirely
@@ -974,8 +942,8 @@ testCollisionPairsAreVisitedOnce()
 	const Physique cPhys{6};
 	Position cPos;
 	cPos.current = Vec2i{500, 500};
-	const EntityId ic = b.spawn(Layer::Field, cPos, Motion{},
-			cPhys, &mask, Allegiance{1, kNoEntity});
+	const EntityId ic = b.spawn(Layer::Field, cPos, Motion{}, cPhys, &mask,
+			Allegiance{1, kNoEntity});
 
 	b.step();
 	CHECK(pairCollided(b, ia, ic), "a and c should record colliding");
@@ -988,8 +956,8 @@ testCollisionPairsAreVisitedOnce()
 	const Physique f1Phys{4};
 	Position f1Pos;
 	f1Pos.current = Vec2i{500, 500};
-	const EntityId if1 = b2.spawn(Layer::Field, f1Pos, Motion{},
-			f1Phys, &mask, Allegiance{0, kNoEntity});
+	const EntityId if1 = b2.spawn(Layer::Field, f1Pos, Motion{}, f1Phys, &mask,
+			Allegiance{0, kNoEntity});
 	b2.attach<IgnoreSimilar>(if1);
 	// EntityId{index, generation} isn't a literal you can synthesize -- entt's
 	// handle has no such constructor -- so f1 stands in as its own owner, a
@@ -1001,8 +969,8 @@ testCollisionPairsAreVisitedOnce()
 	// Same owner as f1 -- copied, not re-derived -- since what IgnoreSimilar
 	// keys on here is the two sharing one owner.
 	const Allegiance f2Allegiance = *b2.find<Allegiance>(if1);
-	const EntityId if2 = b2.spawn(Layer::Field, f2Pos, Motion{},
-			f2Phys, &mask, f2Allegiance);
+	const EntityId if2 = b2.spawn(
+			Layer::Field, f2Pos, Motion{}, f2Phys, &mask, f2Allegiance);
 	b2.attach<IgnoreSimilar>(if2);
 
 	b2.step();
@@ -1016,15 +984,15 @@ testCollisionPairsAreVisitedOnce()
 	// Transient for the same reason as above: the target is solid, so the
 	// flame needs finite life for a stationary overlap to register. The
 	// owner is overwritten below, so only playerNr fidelity matters here.
-	const EntityId ig1 = b3.spawn(Layer::Field, g1Pos, Motion{},
-			g1Phys, &mask, *b2.find<Allegiance>(if1));
+	const EntityId ig1 = b3.spawn(Layer::Field, g1Pos, Motion{}, g1Phys, &mask,
+			*b2.find<Allegiance>(if1));
 	b3.attach<Lifetime>(ig1, Lifetime{2});
 	b3.attach<IgnoreSimilar>(ig1);
 
 	const Position g2Pos = *b2.find<Position>(if2);
 	const Physique g2Phys = *b2.find<Physique>(if2);
-	const EntityId ig2 = b3.spawn(Layer::Field, g2Pos, Motion{},
-			g2Phys, &mask, *b2.find<Allegiance>(if2));
+	const EntityId ig2 = b3.spawn(Layer::Field, g2Pos, Motion{}, g2Phys, &mask,
+			*b2.find<Allegiance>(if2));
 	b3.attach<IgnoreSimilar>(ig2);
 
 	// Two distinct real owners: each element owning itself is enough, since
@@ -1040,8 +1008,7 @@ testCollisionPairsAreVisitedOnce()
 // --------------------------------------------------------------------------
 // Collision response
 
-void
-testIsqrtIsFloorSqrt()
+void testIsqrtIsFloorSqrt()
 {
 	CHECK(isqrt(0) == 0, "isqrt(0)");
 	CHECK(isqrt(1) == 1, "isqrt(1)");
@@ -1055,8 +1022,7 @@ testIsqrtIsFloorSqrt()
 	}
 }
 
-void
-testHeadOnCollisionExchangesMomentum()
+void testHeadOnCollisionExchangesMomentum()
 {
 	// The turn/thrust stagger this test pins is ShipState's own field, and
 	// a non-null ShipState* is what tells pure physics "this side is a ship".
@@ -1078,8 +1044,8 @@ testHeadOnCollisionExchangesMomentum()
 
 	const Vec2i beforeA = aMotion.velocity.current();
 	CollisionScratch aScratch, bScratch;
-	applyImpulse(aPos, aMotion, aPhys, &a, aScratch, bPos, bMotion, bPhys,
-			&b, bScratch);
+	applyImpulse(aPos, aMotion, aPhys, &a, aScratch, bPos, bMotion, bPhys, &b,
+			bScratch);
 	const Vec2i afterA = aMotion.velocity.current();
 
 	CHECK(afterA.x < beforeA.x,
@@ -1087,12 +1053,12 @@ testHeadOnCollisionExchangesMomentum()
 			static_cast<long>(beforeA.x), static_cast<long>(afterA.x));
 
 	// Ships are staggered by a collision -- that is the recoil you feel.
-	CHECK(a.turnWait == kCollisionTurnWait && a.thrustWait == kCollisionThrustWait,
+	CHECK(a.turnWait == kCollisionTurnWait
+					&& a.thrustWait == kCollisionThrustWait,
 			"a collision should stagger the ship's controls");
 }
 
-void
-testGravityMassIsNotPushed()
+void testGravityMassIsNotPushed()
 {
 	// A planet pushes; it is not pushed (element.h:198).
 	CHECK(isGravityMass(101), "mass above 100 is a gravity mass");
@@ -1115,14 +1081,13 @@ testGravityMassIsNotPushed()
 	planetPos.next = Vec2i{200, 0};
 
 	CollisionScratch shipScratch, planetScratch;
-	applyImpulse(shipPos, shipMotion, shipPhys, &ship, shipScratch,
-			planetPos, planetMotion, planetPhys, nullptr, planetScratch);
+	applyImpulse(shipPos, shipMotion, shipPhys, &ship, shipScratch, planetPos,
+			planetMotion, planetPhys, nullptr, planetScratch);
 	CHECK(planetMotion.velocity.isZero(), "the planet must not move");
 	CHECK(!shipMotion.velocity.isZero(), "the ship must");
 }
 
-void
-testStuckPairIsWorkedApart()
+void testStuckPairIsWorkedApart()
 {
 	// Two elements that did not move cannot exchange momentum, so the C marks
 	// them DefyPhysics instead. Already defying, it zeroes them and skews the
@@ -1140,22 +1105,22 @@ testStuckPairIsWorkedApart()
 	bPos.current = bPos.next = Vec2i{100, 100};
 
 	CollisionScratch aScratch, bScratch;
-	applyImpulse(aPos, aMotion, aPhys, &a, aScratch, bPos, bMotion, bPhys,
-			&b, bScratch);
+	applyImpulse(aPos, aMotion, aPhys, &a, aScratch, bPos, bMotion, bPhys, &b,
+			bScratch);
 	CHECK(aScratch.defyPhysics,
-			"a stationary pair should defy physics rather than exchange nothing");
+			"a stationary pair should defy physics rather than exchange "
+			"nothing");
 	CHECK(bScratch.defyPhysics, "both of them");
 
 	// Second time round, already defying: velocities are zeroed and the pair
 	// gets pushed apart along a skewed axis.
-	applyImpulse(aPos, aMotion, aPhys, &a, aScratch, bPos, bMotion, bPhys,
-			&b, bScratch);
+	applyImpulse(aPos, aMotion, aPhys, &a, aScratch, bPos, bMotion, bPhys, &b,
+			bScratch);
 	CHECK(!aMotion.velocity.isZero() || !bMotion.velocity.isZero(),
 			"an already-stuck pair should be given a way out");
 }
 
-void
-testDeriveSpeedStateFromVelocity()
+void testDeriveSpeedStateFromVelocity()
 {
 	// The mechanism the plan wants instead of hand-patched flags. Not yet
 	// wired into applyImpulse -- see the note in Impulse.hpp -- but available
@@ -1176,23 +1141,21 @@ testDeriveSpeedStateFromVelocity()
 // --------------------------------------------------------------------------
 // Ships
 
-void
-testShipInitialisesFromItsDescriptor()
+void testShipInitialisesFromItsDescriptor()
 {
 	Battle b(1);
 	const EntityId id = spawnPlayerShip(b, earthlingCruiser(), nullptr,
 			Vec2i{1000, 1000}, Facing(0), 0, /*warpIn=*/false);
 
 	b.step();
-	auto s = b.ship(id);
+	auto *s = b.ship(id);
 	CHECK(s->crew == 18, "the cruiser starts with 18 crew, got %ld",
 			static_cast<long>(s->crew));
 	CHECK(s->energy == 18, "and 18 energy, got %ld",
 			static_cast<long>(s->energy));
 }
 
-void
-testTurningIsGatedByTurnWait()
+void testTurningIsGatedByTurnWait()
 {
 	Battle b(1);
 	// The Avenger turns every 2 frames; the Cruiser every 1.
@@ -1218,8 +1181,7 @@ testTurningIsGatedByTurnWait()
 			"then turn again on the fourth");
 }
 
-void
-testFiringSpendsEnergyAndRespectsCooldown()
+void testFiringSpendsEnergyAndRespectsCooldown()
 {
 	Battle b(1);
 	const EntityId id = spawnPlayerShip(b, earthlingCruiser(), nullptr,
@@ -1231,8 +1193,7 @@ testFiringSpendsEnergyAndRespectsCooldown()
 	b.find<Input>(id)->buttons = ShipInput::Weapon;
 	b.step();
 	CHECK(b.size() == 2, "firing should have spawned a missile");
-	CHECK(b.ship(id)->energy == 18 - 9,
-			"and spent 9 energy, got %ld",
+	CHECK(b.ship(id)->energy == 18 - 9, "and spent 9 energy, got %ld",
 			static_cast<long>(b.ship(id)->energy));
 
 	// weapon.wait is 10, so holding the trigger must not fire again yet.
@@ -1249,20 +1210,17 @@ testFiringSpendsEnergyAndRespectsCooldown()
 	const EntityId poor = spawnPlayerShip(c, earthlingCruiser(), nullptr,
 			Vec2i{2000, 2000}, Facing(0), 0, /*warpIn=*/false);
 	c.step();
-	c.ship(poor)->energy = 8;   // one short of the 9-point cost
+	c.ship(poor)->energy = 8;         // one short of the 9-point cost
 	c.ship(poor)->energyCounter = 5;  // ...and hold off regen, which
 									  // would otherwise top it up first
 	c.find<Input>(poor)->buttons = ShipInput::Weapon;
 	c.step();
-	CHECK(c.size() == 1,
-			"a ship that cannot afford the shot must not fire");
-	CHECK(c.ship(poor)->energy == 8,
-			"and must not be charged for it, got %ld",
+	CHECK(c.size() == 1, "a ship that cannot afford the shot must not fire");
+	CHECK(c.ship(poor)->energy == 8, "and must not be charged for it, got %ld",
 			static_cast<long>(c.ship(poor)->energy));
 }
 
-void
-testMissileFliesAndExpires()
+void testMissileFliesAndExpires()
 {
 	Battle b(1);
 	const EntityId id = spawnPlayerShip(b, earthlingCruiser(), nullptr,
@@ -1294,8 +1252,7 @@ testMissileFliesAndExpires()
 	CHECK(b.size() == 1, "the missile should expire");
 }
 
-void
-testFiringPostponesEnergyRegen()
+void testFiringPostponesEnergyRegen()
 {
 	// Every successful energy spend re-arms the regen countdown
 	// (status.c:317-323), so firing continuously blocks regeneration. The
@@ -1317,23 +1274,21 @@ testFiringPostponesEnergyRegen()
 
 int g_specialFires = 0;
 
-void
-countingSpecial(Battle &b, EntityId id) noexcept
+void countingSpecial(Battle &b, EntityId id) noexcept
 {
-	auto s = b.ship(id);
+	auto *s = b.ship(id);
 	if (s == nullptr)
 		return;
 	++g_specialFires;
 	s->specialCounter = s->spec->special.wait;
 }
 
-void
-testSpecialFiresTheFrameItsCounterExpires()
+void testSpecialFiresTheFrameItsCounterExpires()
 {
 	// The C decrements special_counter and then lets the ship code see the
 	// result (ship.c:342-346), so a held special re-fires every special.wait
 	// frames -- the frame the counter reaches zero, not the one after.
-	static ShipSpec d = [] {
+	static ShipSpec const d = [] {
 		ShipSpec d_ = earthlingCruiser();
 		d_.special.wait = 3;
 		d_.special.energyCost = 0;
@@ -1342,8 +1297,8 @@ testSpecialFiresTheFrameItsCounterExpires()
 	}();
 
 	Battle b(1);
-	const EntityId id = spawnPlayerShip(b, d, nullptr,
-			Vec2i{2000, 2000}, Facing(0), 0, /*warpIn=*/false);
+	const EntityId id = spawnPlayerShip(
+			b, d, nullptr, Vec2i{2000, 2000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();  // Appearing frame
 
 	g_specialFires = 0;
@@ -1359,14 +1314,13 @@ testSpecialFiresTheFrameItsCounterExpires()
 			g_specialFires);
 }
 
-void
-testOpposingMissilesDestroyEachOther()
+void testOpposingMissilesDestroyEachOther()
 {
 	// A weapon's mass is its damage (weapon.c:101); CollisionPossible skips a
 	// pair only when BOTH masses are zero (collide.h:38) -- so shots from
 	// different ships collide, the mechanism behind flame-intercepts-nuke.
 	static CollisionMask shotMask = solid(3, 3);
-	static ShipSpec d = [] {
+	static ShipSpec const d = [] {
 		ShipSpec d_ = earthlingCruiser();
 		d_.weapon.masks = std::span<const CollisionMask>(&shotMask, 1);
 		return d_;
@@ -1375,10 +1329,10 @@ testOpposingMissilesDestroyEachOther()
 	Battle b(1);
 	// Far enough apart that the missiles meet in the middle long before
 	// either could reach the opposing ship.
-	const EntityId a = spawnPlayerShip(b, d, nullptr,
-			Vec2i{4000, 6000}, Facing(0), 0, /*warpIn=*/false);
-	const EntityId c = spawnPlayerShip(b, d, nullptr,
-			Vec2i{4000, 2000}, Facing(8), 1, /*warpIn=*/false);
+	const EntityId a = spawnPlayerShip(
+			b, d, nullptr, Vec2i{4000, 6000}, Facing(0), 0, /*warpIn=*/false);
+	const EntityId c = spawnPlayerShip(
+			b, d, nullptr, Vec2i{4000, 2000}, Facing(8), 1, /*warpIn=*/false);
 	b.step();  // Appearing frame
 
 	b.find<Input>(a)->buttons = ShipInput::Weapon;
@@ -1407,15 +1361,15 @@ testOpposingMissilesDestroyEachOther()
 	});
 	CHECK(weapons == 0,
 			"the missiles should have destroyed each other mid-flight, "
-			"%zu still alive", weapons);
+			"%zu still alive",
+			weapons);
 	CHECK(b.ship(a)->crew == 18 && b.ship(c)->crew == 18,
 			"and neither ship should have been hit, got %ld and %ld",
 			static_cast<long>(b.ship(a)->crew),
 			static_cast<long>(b.ship(c)->crew));
 }
 
-void
-testTheTwoShipsFeelDifferent()
+void testTheTwoShipsFeelDifferent()
 {
 	// Not a rendering claim -- these are the numbers that make the Avenger
 	// play nothing like the Cruiser, and they come straight from the C.
@@ -1425,7 +1379,8 @@ testTheTwoShipsFeelDifferent()
 	CHECK(cruiser.thrustWait == 4 && avenger.thrustWait == 0,
 			"the Avenger accelerates every frame, the Cruiser every fourth");
 	CHECK(cruiser.weapon.wait == 10 && avenger.weapon.wait == 0,
-			"the Avenger's flame is continuous, the Cruiser's missiles are not");
+			"the Avenger's flame is continuous, the Cruiser's missiles are "
+			"not");
 	CHECK(cruiser.turnWait == 1 && avenger.turnWait == 2,
 			"but the Cruiser turns twice as fast");
 	CHECK(cruiser.weapon.energyCost == 9 && avenger.weapon.energyCost == 1,
@@ -1435,23 +1390,20 @@ testTheTwoShipsFeelDifferent()
 // --------------------------------------------------------------------------
 // Gravity and the battlefield
 
-EntityId
-addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
+EntityId addPlanet(Battle &b, const CollisionMask &m, Vec2i at)
 {
 	// Allegiance defaults to NEUTRAL_PLAYER_NUM/no owner.
 	const Physique phys{200};
 	Position pos;
 	pos.current = at;
 	pos.next = at;
-	const EntityId id =
-			b.spawn(Layer::Field, pos, Motion{}, phys, &m);
+	const EntityId id = b.spawn(Layer::Field, pos, Motion{}, phys, &m);
 	b.attach<Indestructible>(id);
 	b.attach<Vitality>(id, Vitality{200});
 	return id;
 }
 
-void
-testGravityMassThreshold()
+void testGravityMassThreshold()
 {
 	CHECK(kGravityMass == 100, "MAX_SHIP_MASS * 10");
 	CHECK(isGravitySource(200), "a planet (mass 200) is a gravity source");
@@ -1466,22 +1418,19 @@ testGravityMassThreshold()
 			"a fleeing ship counts as a source, so nothing pulls on it");
 }
 
-void
-testGravityPullsTowardTheSource()
+void testGravityPullsTowardTheSource()
 {
 	const CollisionMask m = solid(4, 4);
 	Battle b(1);
 	const EntityId planet = addPlanet(b, m, Vec2i{4000, 4000});
 
 	// 100 world units to the planet's right, well inside the 1020-unit disc.
-	const EntityId ship =
-			spawnPlayerShip(b, earthlingCruiser(), nullptr,
-					Vec2i{4100, 4000}, Facing(0), 0, /*warpIn=*/false);
+	const EntityId ship = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{4100, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.attach<Collider>(ship, &m);
 	b.ship(ship)->speed = SpeedState::AtMax;
 
-	CHECK(!calculateGravity(b, planet),
-			"the source itself is never in a well");
+	CHECK(!calculateGravity(b, planet), "the source itself is never in a well");
 
 	const Vec2i v = b.find<Motion>(ship)->velocity.current();
 	CHECK(v.x < 0, "the ship should be pulled back toward the planet, got %ld",
@@ -1497,8 +1446,7 @@ testGravityPullsTowardTheSource()
 	CHECK(calculateGravity(b, ship), "the ship should know it is in a well");
 }
 
-void
-testGravityHasAHardEdge()
+void testGravityHasAHardEdge()
 {
 	const CollisionMask m = solid(4, 4);
 
@@ -1510,9 +1458,8 @@ testGravityHasAHardEdge()
 	{
 		Battle b(1);
 		const EntityId planet = addPlanet(b, m, Vec2i{4000, 4000});
-		const EntityId ship =
-				spawnPlayerShip(b, earthlingCruiser(), nullptr,
-						Vec2i{4000 + dx, 4000}, Facing(0), 0, /*warpIn=*/false);
+		const EntityId ship = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+				Vec2i{4000 + dx, 4000}, Facing(0), 0, /*warpIn=*/false);
 		b.attach<Collider>(ship, &m);
 
 		(void)calculateGravity(b, planet);
@@ -1522,15 +1469,13 @@ testGravityHasAHardEdge()
 	}
 }
 
-void
-testFleeingShipIsImmuneToGravity()
+void testFleeingShipIsImmuneToGravity()
 {
 	const CollisionMask m = solid(4, 4);
 	Battle b(1);
 	const EntityId planet = addPlanet(b, m, Vec2i{4000, 4000});
-	const EntityId ship =
-			spawnPlayerShip(b, earthlingCruiser(), nullptr,
-					Vec2i{4100, 4000}, Facing(0), 0, /*warpIn=*/false);
+	const EntityId ship = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{4100, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.attach<Collider>(ship, &m);
 	b.find<Physique>(ship)->mass = kGravityMass;  // DoRunAway, battle.c:92
 
@@ -1539,8 +1484,7 @@ testFleeingShipIsImmuneToGravity()
 			"a ship at mass 100 reads as a source, so the planet skips it");
 }
 
-void
-testAsteroidsSpawnOnAnEdgeAndRepeatably()
+void testAsteroidsSpawnOnAnEdgeAndRepeatably()
 {
 	const CollisionMask m = solid(4, 4);
 
@@ -1552,9 +1496,8 @@ testAsteroidsSpawnOnAnEdgeAndRepeatably()
 		const EntityId a2 = spawnAsteroid(c, &m);
 
 		const Position *pos = b.find<Position>(a);
-		const bool onEdge = pos->current.x == 0
-				|| pos->current.x == kArena.w || pos->current.y == 0
-				|| pos->current.y == kArena.h;
+		const bool onEdge = pos->current.x == 0 || pos->current.x == kArena.w
+				|| pos->current.y == 0 || pos->current.y == kArena.h;
 		CHECK(onEdge, "asteroid %d should enter from an edge, got (%ld,%ld)", i,
 				static_cast<long>(pos->current.x),
 				static_cast<long>(pos->current.y));
@@ -1574,8 +1517,7 @@ testAsteroidsSpawnOnAnEdgeAndRepeatably()
 	}
 }
 
-void
-testAsteroidTumbles()
+void testAsteroidTumbles()
 {
 	const CollisionMask m = solid(4, 4);
 	Battle b(3);
@@ -1598,12 +1540,12 @@ testAsteroidTumbles()
 	CHECK(b.find<Position>(a)->facing != start, "then rotate one frame index");
 }
 
-void
-testDestroyedAsteroidIsReplaced()
+void testDestroyedAsteroidIsReplaced()
 {
 	// The field's population is constant because the loop is closed: an
 	// asteroid's death leaves rubble, and the rubble's death spawns a fresh
-	// asteroid (misc.c:80-105, 130-201) -- break either link and it empties out.
+	// asteroid (misc.c:80-105, 130-201) -- break either link and it empties
+	// out.
 	const CollisionMask m = solid(4, 4);
 	Battle b(11);
 	(void)spawnAsteroid(b, &m);
@@ -1632,17 +1574,15 @@ testDestroyedAsteroidIsReplaced()
 			asteroids);
 }
 
-void
-testPlanetPlacementAvoidsEverything()
+void testPlanetPlacementAvoidsEverything()
 {
 	const CollisionMask m = solid(4, 4);
 	Battle b(5);
 
 	// A ship already on the field. The planet must not land in its lap, and
 	// must not land close enough that the ship starts the match in a well.
-	const EntityId ship =
-			spawnPlayerShip(b, earthlingCruiser(), nullptr,
-					Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
+	const EntityId ship = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.attach<Collider>(ship, &m);
 
 	const EntityId planet = spawnPlanet(b, &m);
@@ -1658,8 +1598,7 @@ testPlanetPlacementAvoidsEverything()
 // --------------------------------------------------------------------------
 // Damage
 
-void
-testDeltaCrewReportsDeathOnTheExactHit()
+void testDeltaCrewReportsDeathOnTheExactHit()
 {
 	Battle b(1);
 	const EntityId id = spawnPlayerShip(b, earthlingCruiser(), nullptr,
@@ -1676,7 +1615,8 @@ testDeltaCrewReportsDeathOnTheExactHit()
 	// status.c:357 compares with a strict `>`, so losing exactly what is left
 	// is death, not a ship sitting at zero crew. Off by one here and a ship
 	// survives its own destruction.
-	CHECK(!deltaCrew(*b.ship(id), -14), "losing exactly the remainder is death");
+	CHECK(!deltaCrew(*b.ship(id), -14),
+			"losing exactly the remainder is death");
 	CHECK(b.ship(id)->crew == 0, "and leaves nothing");
 
 	// Repair cannot exceed the maximum.
@@ -1685,20 +1625,19 @@ testDeltaCrewReportsDeathOnTheExactHit()
 			static_cast<long>(b.ship(id)->crew));
 }
 
-void
-testPlanetsTakeNoDamage()
+void testPlanetsTakeNoDamage()
 {
 	// doDamage needs a Battle to fetch crew through, so each subject here is
 	// spawned rather than built standalone.
 	Battle b(1);
 
-	const EntityId planetId = b.spawn(Layer::Field,
-			Position{}, Motion{}, Physique{200});
+	const EntityId planetId =
+			b.spawn(Layer::Field, Position{}, Motion{}, Physique{200});
 	b.attach<Indestructible>(planetId);
 	b.attach<Vitality>(planetId, Vitality{200});
 
 	doDamage(b, planetId, 50);
-	auto pv = b.find<Vitality>(planetId);
+	auto *pv = b.find<Vitality>(planetId);
 	CHECK(pv->hitPoints == 200, "a planet is not damageable, got %ld",
 			static_cast<long>(pv->hitPoints));
 	CHECK(lifeSpanOf(b, planetId) == 1, "and holds no Lifetime to kill");
@@ -1706,8 +1645,8 @@ testPlanetsTakeNoDamage()
 	// weaponCollision has its own target-survives check (Damage.cpp), separate
 	// from doDamage's mass guard above -- a regression in one would not be
 	// caught by testing only the other.
-	const EntityId shotId = b.spawn(Layer::Field,
-			Position{}, Motion{}, Physique{4});  // damage == mass, weapon.c:144
+	const EntityId shotId = b.spawn(Layer::Field, Position{}, Motion{},
+			Physique{4});  // damage == mass, weapon.c:144
 	b.attach<Vitality>(shotId, Vitality{});
 	b.attach<Warhead>(shotId, Warhead{});
 	weaponCollision(b, shotId, planetId);
@@ -1720,19 +1659,17 @@ testPlanetsTakeNoDamage()
 	// The same call, asked of a ship that has fled to mass 100. isGravityMass
 	// is the predicate *without* gravity.c's `+ 1`, so it stays damageable
 	// even while gravity treats it as a source.
-	const EntityId fleeingId = b.spawn(Layer::Field,
-			Position{}, Motion{}, Physique{kGravityMass});
+	const EntityId fleeingId =
+			b.spawn(Layer::Field, Position{}, Motion{}, Physique{kGravityMass});
 	b.attach<Vitality>(fleeingId, Vitality{10});
 
 	doDamage(b, fleeingId, 4);
-	auto fv = b.find<Vitality>(fleeingId);
-	CHECK(fv->hitPoints == 6,
-			"a fleeing ship is still damageable, got %ld",
+	auto *fv = b.find<Vitality>(fleeingId);
+	CHECK(fv->hitPoints == 6, "a fleeing ship is still damageable, got %ld",
 			static_cast<long>(fv->hitPoints));
 }
 
-void
-testMissileDamagesAndSpendsItself()
+void testMissileDamagesAndSpendsItself()
 {
 	const CollisionMask m = solid(8, 8);
 	Battle b(1);
@@ -1754,9 +1691,8 @@ testMissileDamagesAndSpendsItself()
 	// 400 world units away, not 100: HUMAN_OFFSET is 42 *display* pixels
 	// (168 world units), so the missile is born that far out already -- a
 	// closer target would spawn past, and the missile would sail off untouched.
-	const EntityId target =
-			spawnPlayerShip(b, ilwrathAvenger(), nullptr,
-					Vec2i{4000, 3600}, Facing(8), 1, /*warpIn=*/false);
+	const EntityId target = spawnPlayerShip(b, ilwrathAvenger(), nullptr,
+			Vec2i{4000, 3600}, Facing(8), 1, /*warpIn=*/false);
 	b.attach<Collider>(target, &m);
 	b.step();
 
@@ -1794,8 +1730,7 @@ testMissileDamagesAndSpendsItself()
 	CHECK(blasts == 1, "and should have left a blast, got %d", blasts);
 }
 
-void
-testFlyingIntoAPlanetCostsCrewOverFour()
+void testFlyingIntoAPlanetCostsCrewOverFour()
 {
 	const CollisionMask m = solid(8, 8);
 	Battle b(1);
@@ -1803,8 +1738,8 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	Position planetPos;
 	planetPos.current = Vec2i{4000, 4000};
 	planetPos.next = planetPos.current;
-	const EntityId planetId = b.spawn(Layer::Field,
-			planetPos, Motion{}, Physique{200}, &m);
+	const EntityId planetId =
+			b.spawn(Layer::Field, planetPos, Motion{}, Physique{200}, &m);
 	b.attach<Indestructible>(planetId);
 	b.attach<Vitality>(planetId, Vitality{200});
 
@@ -1839,12 +1774,10 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	CHECK(b.ship(ship)->crew == before - (before >> 2),
 			"hitting a planet should cost crew/4 (%ld), got %ld (was %ld)",
 			static_cast<long>(before >> 2),
-			static_cast<long>(b.ship(ship)->crew),
-			static_cast<long>(before));
+			static_cast<long>(b.ship(ship)->crew), static_cast<long>(before));
 }
 
-void
-testOverlappingShipsSeparateInsteadOfSticking()
+void testOverlappingShipsSeparateInsteadOfSticking()
 {
 	// Two ships interpenetrating -- the tail of a collision just resolved --
 	// are not a new collision; the C skips such a pair outright ("BAD NEWS",
@@ -1854,13 +1787,13 @@ testOverlappingShipsSeparateInsteadOfSticking()
 
 	Position aPos;
 	aPos.current = aPos.next = Vec2i{4000, 4000};
-	const EntityId ia = b.spawn(Layer::Field, aPos, Motion{},
-			Physique{6}, &m, Allegiance{0, kNoEntity});
+	const EntityId ia = b.spawn(Layer::Field, aPos, Motion{}, Physique{6}, &m,
+			Allegiance{0, kNoEntity});
 
 	Position cPos;
 	cPos.current = cPos.next = Vec2i{6000, 6000};
-	const EntityId ic = b.spawn(Layer::Field, cPos, Motion{},
-			Physique{6}, &m, Allegiance{1, kNoEntity});
+	const EntityId ic = b.spawn(Layer::Field, cPos, Motion{}, Physique{6}, &m,
+			Allegiance{1, kNoEntity});
 
 	// Spawned far apart and established first: an APPEARING element found
 	// overlapping something is EXECUTED on the spot in the C (process.c:
@@ -1870,9 +1803,11 @@ testOverlappingShipsSeparateInsteadOfSticking()
 	// Now manufacture the post-impact state: overlapping -- 16 world units
 	// is 4 display pixels, half a mask -- and moving apart, exactly what an
 	// impact response leaves behind.
-	b.find<Position>(ia)->current = b.find<Position>(ia)->next = Vec2i{4000, 4000};
+	b.find<Position>(ia)->current = b.find<Position>(ia)->next =
+			Vec2i{4000, 4000};
 	b.find<Motion>(ia)->velocity.setComponents(-worldToVelocity(20), 0);
-	b.find<Position>(ic)->current = b.find<Position>(ic)->next = Vec2i{4016, 4000};
+	b.find<Position>(ic)->current = b.find<Position>(ic)->next =
+			Vec2i{4016, 4000};
 	b.find<Motion>(ic)->velocity.setComponents(worldToVelocity(20), 0);
 
 	b.step();
@@ -1899,16 +1834,16 @@ testOverlappingShipsSeparateInsteadOfSticking()
 // A live weapon shot -- FiniteLife, mass-as-damage, mask, Warhead -- the
 // shape testShipShotMidFlightKeepsItsMotion and testToughWeaponPiercesWeakOne
 // both hand-built. vx/vy are already velocity-space (worldToVelocity'd).
-EntityId
-spawnTestShot(Battle &b, const CollisionMask &mask, Vec2i at, i32 playerNr,
-		i32 mass, i32 hitPoints, i32 lifeSpan, i32 vx = 0, i32 vy = 0)
+EntityId spawnTestShot(Battle &b, const CollisionMask &mask, Vec2i at,
+		i32 playerNr, i32 mass, i32 hitPoints, i32 lifeSpan, i32 vx = 0,
+		i32 vy = 0)
 {
 	Position pos;
 	pos.current = pos.next = at;
 	Motion motion;
 	motion.velocity.setComponents(vx, vy);
-	const EntityId id = b.spawn(Layer::Field, pos, motion,
-			Physique{mass}, &mask, Allegiance{playerNr, kNoEntity});
+	const EntityId id = b.spawn(Layer::Field, pos, motion, Physique{mass},
+			&mask, Allegiance{playerNr, kNoEntity});
 	b.attach<Lifetime>(id, Lifetime{lifeSpan});
 	b.attach<Vitality>(id, Vitality{hitPoints});
 	// weaponCollision reads Warhead unconditionally when it detonates, same
@@ -1918,8 +1853,7 @@ spawnTestShot(Battle &b, const CollisionMask &mask, Vec2i at, i32 playerNr,
 	return id;
 }
 
-void
-testShipShotMidFlightKeepsItsMotion()
+void testShipShotMidFlightKeepsItsMotion()
 {
 	// A ship hit by a weapon is not stopped by it: only an element whose own
 	// collision_func raised COLLISION moves to the impact point (process.c:
@@ -1929,8 +1863,8 @@ testShipShotMidFlightKeepsItsMotion()
 
 	Position shipPos;
 	shipPos.current = shipPos.next = Vec2i{4000, 4000};
-	const EntityId is = b.spawn(Layer::Field, shipPos,
-			Motion{}, Physique{6}, &m, Allegiance{0, kNoEntity});
+	const EntityId is = b.spawn(Layer::Field, shipPos, Motion{}, Physique{6},
+			&m, Allegiance{0, kNoEntity});
 	// Empty spec: facingMasks stays empty, so ShipMachines' Appearing
 	// branch never reattaches a Collider over `m`, which this test's
 	// impact-point math is keyed to.
@@ -1970,12 +1904,10 @@ testShipShotMidFlightKeepsItsMotion()
 	// The shot is spent AND gone: weapon_collision marks a missile
 	// DISAPPEARING (weapon.c:175-177), reaped the same frame (process.c:
 	// 873-879). Warhead::lingersOnHit is the flame's one-frame exception.
-	CHECK(!b.alive(iw),
-			"a spent missile is reaped on the frame it hit");
+	CHECK(!b.alive(iw), "a spent missile is reaped on the frame it hit");
 }
 
-void
-testToughWeaponPiercesWeakOne()
+void testToughWeaponPiercesWeakOne()
 {
 	// The pierce rule (weapon.c:161-164): a weapon whose hit points exceed
 	// a surviving target's mass ploughs through and keeps flying. Nuke and
@@ -2007,8 +1939,7 @@ testToughWeaponPiercesWeakOne()
 			static_cast<long>(b.find<Position>(it)->current.x));
 }
 
-void
-testTurningIntoOverlapIsReverted()
+void testTurningIntoOverlapIsReverted()
 {
 	// The overlap-repair protocol (process.c:453-506): when a silhouette
 	// CHANGE creates a standing overlap -- a ship rotating against a wall --
@@ -2016,7 +1947,7 @@ testTurningIntoOverlapIsReverted()
 	static std::array<CollisionMask, 2> masks = [] {
 		return std::array<CollisionMask, 2>{solid(4, 4), solid(16, 16)};
 	}();
-	static ShipSpec d = [] {
+	static ShipSpec const d = [] {
 		ShipSpec d_ = earthlingCruiser();
 		d_.turnWait = 0;
 		d_.facingMasks = std::span<const CollisionMask>(masks);
@@ -2028,14 +1959,14 @@ testTurningIntoOverlapIsReverted()
 
 	Position planetPos;
 	planetPos.current = planetPos.next = Vec2i{4000, 4000};
-	const EntityId planetId = b.spawn(Layer::Field,
-			planetPos, Motion{}, Physique{200}, &wall);
+	const EntityId planetId =
+			b.spawn(Layer::Field, planetPos, Motion{}, Physique{200}, &wall);
 	b.attach<Indestructible>(planetId);
 	b.attach<Vitality>(planetId, Vitality{200});
 
 	// Adjacent at facing 0 (a 4x4 mask), overlapping at facing 1 (16x16).
-	const EntityId ship = spawnPlayerShip(b, d, nullptr,
-			Vec2i{4052, 4000}, Facing(0), 0, /*warpIn=*/false);
+	const EntityId ship = spawnPlayerShip(
+			b, d, nullptr, Vec2i{4052, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();
 	CHECK(b.collisions().empty(), "setup: adjacent is not touching");
 
@@ -2046,24 +1977,19 @@ testTurningIntoOverlapIsReverted()
 	CHECK(b.find<Position>(ship)->facing == Facing(0),
 			"the turn into the wall should have been undone, facing %d",
 			b.find<Position>(ship)->facing.raw());
-	CHECK(b.collisions().empty(),
-			"and a reverted turn is not a collision");
-	CHECK(b.ship(ship)->crew == crew,
-			"so it costs nothing, got %ld (was %ld)",
-			static_cast<long>(b.ship(ship)->crew),
-			static_cast<long>(crew));
+	CHECK(b.collisions().empty(), "and a reverted turn is not a collision");
+	CHECK(b.ship(ship)->crew == crew, "so it costs nothing, got %ld (was %ld)",
+			static_cast<long>(b.ship(ship)->crew), static_cast<long>(crew));
 }
 
 int g_overlapDeaths = 0;
 
-void
-countOverlapDeath(Battle &, EntityId) noexcept
+void countOverlapDeath(Battle &, EntityId) noexcept
 {
 	++g_overlapDeaths;
 }
 
-void
-testSpawnInsideSomethingIsExecuted()
+void testSpawnInsideSomethingIsExecuted()
 {
 	// The other half of the protocol (process.c:427-449): an APPEARING solid
 	// found standing inside another solid dies on the spot, death hook and
@@ -2073,8 +1999,8 @@ testSpawnInsideSomethingIsExecuted()
 
 	Position planetPos;
 	planetPos.current = planetPos.next = Vec2i{4000, 4000};
-	const EntityId planetId = b.spawn(Layer::Field,
-			planetPos, Motion{}, Physique{200}, &m);
+	const EntityId planetId =
+			b.spawn(Layer::Field, planetPos, Motion{}, Physique{200}, &m);
 	b.attach<Indestructible>(planetId);
 	b.attach<Vitality>(planetId, Vitality{200});
 	b.step();  // established
@@ -2082,8 +2008,8 @@ testSpawnInsideSomethingIsExecuted()
 	Position rockPos;
 	rockPos.current = rockPos.next = Vec2i{4004, 4000};  // inside the planet
 	// NORMAL_LIFE, persistent: no Lifetime at all
-	const EntityId ir = b.spawn(Layer::Field, rockPos,
-			Motion{}, Physique{3}, &m);
+	const EntityId ir =
+			b.spawn(Layer::Field, rockPos, Motion{}, Physique{3}, &m);
 	b.attach<Vitality>(ir, Vitality{1});
 	b.attach<DeathSpawn>(ir, DeathSpawn{countOverlapDeath});
 
@@ -2092,26 +2018,25 @@ testSpawnInsideSomethingIsExecuted()
 
 	CHECK(!b.alive(ir),
 			"a solid spawned inside another is destroyed the same frame");
-	CHECK(g_overlapDeaths == 1,
-			"with its death hook run, got %d", g_overlapDeaths);
+	CHECK(g_overlapDeaths == 1, "with its death hook run, got %d",
+			g_overlapDeaths);
 }
 
-void
-testPointDefenceBurnsOwnNuke()
+void testPointDefenceBurnsOwnNuke()
 {
 	// The C's point defence has no ownership filter (human.c:203-204): a
 	// Cruiser holding SPECIAL pays for and shoots down its OWN in-flight
 	// nuke -- a real tactical constraint, not a bug, decided faithful.
 	static CollisionMask shotMask = solid(3, 3);
-	static ShipSpec d = [] {
+	static ShipSpec const d = [] {
 		ShipSpec d_ = earthlingCruiser();
 		d_.weapon.masks = std::span<const CollisionMask>(&shotMask, 1);
 		return d_;
 	}();
 
 	Battle b(1);
-	const EntityId ship = spawnPlayerShip(b, d, nullptr,
-			Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
+	const EntityId ship = spawnPlayerShip(
+			b, d, nullptr, Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.step();
 
 	b.find<Input>(ship)->buttons = ShipInput::Weapon;
@@ -2138,12 +2063,10 @@ testPointDefenceBurnsOwnNuke()
 			weapons);
 	CHECK(b.ship(ship)->energy == energy - 4,
 			"and the laser paid for (special cost 4), got %ld (was %ld)",
-			static_cast<long>(b.ship(ship)->energy),
-			static_cast<long>(energy));
+			static_cast<long>(b.ship(ship)->energy), static_cast<long>(energy));
 }
 
-void
-testCommittedElementsAreNotIntegratedTwice()
+void testCommittedElementsAreNotIntegratedTwice()
 {
 	// The C's POST_PROCESS flag protects a committed element from the
 	// whole-list catch-up walks (process.c:859): without it, a ship firing
@@ -2163,11 +2086,11 @@ testCommittedElementsAreNotIntegratedTwice()
 
 	CHECK(b.find<Position>(id)->facing == start + 4,
 			"twelve frames of turn-and-fire should turn exactly 4 facings, "
-			"got %d from %d", b.find<Position>(id)->facing.raw(), start.raw());
+			"got %d from %d",
+			b.find<Position>(id)->facing.raw(), start.raw());
 }
 
-void
-testDefyPhysicsExpires()
+void testDefyPhysicsExpires()
 {
 	// DEFY_PHYSICS lasts from a collision to the next frame without one
 	// (process.c:824-829). Held forever, it would disable the post-collision
@@ -2180,15 +2103,13 @@ testDefyPhysicsExpires()
 			"a frame without a collision sheds DefyPhysics");
 }
 
-void
-testPointDefenceBurnsIncomingFire()
+void testPointDefenceBurnsIncomingFire()
 {
 	const CollisionMask m = solid(8, 8);
 	Battle b(1);
 
-	const EntityId ship =
-			spawnPlayerShip(b, earthlingCruiser(), nullptr,
-					Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
+	const EntityId ship = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.attach<Collider>(ship, &m);
 	b.step();
 
@@ -2196,8 +2117,8 @@ testPointDefenceBurnsIncomingFire()
 	// 400 world units.
 	Position shotPos;
 	shotPos.current = shotPos.next = Vec2i{4000, 4200};
-	const EntityId incoming = b.spawn(Layer::Field, shotPos,
-			Motion{}, Physique{1}, &m, Allegiance{1, kNoEntity});
+	const EntityId incoming = b.spawn(Layer::Field, shotPos, Motion{},
+			Physique{1}, &m, Allegiance{1, kNoEntity});
 	b.attach<Lifetime>(incoming, Lifetime{20});
 	b.attach<Vitality>(incoming, Vitality{1});
 	b.attach<Warhead>(incoming, Warhead{1, 0});
@@ -2205,8 +2126,7 @@ testPointDefenceBurnsIncomingFire()
 	b.find<Input>(ship)->buttons = ShipInput::Special;
 	b.step();
 
-	CHECK(!b.alive(incoming)
-					|| b.find<Vitality>(incoming)->hitPoints == 0,
+	CHECK(!b.alive(incoming) || b.find<Vitality>(incoming)->hitPoints == 0,
 			"point defence should have burned the incoming shot");
 	CHECK(b.ship(ship)->specialCounter > 0, "and started its cooldown");
 
@@ -2220,8 +2140,7 @@ testPointDefenceBurnsIncomingFire()
 	CHECK(beams == 1, "and left a beam to draw, got %d", beams);
 }
 
-void
-testDeadShipBurnsAsAPhaseThenGoes()
+void testDeadShipBurnsAsAPhaseThenGoes()
 {
 	Battle b(1);
 	const EntityId id = spawnPlayerShip(b, earthlingCruiser(), nullptr,
@@ -2233,22 +2152,21 @@ testDeadShipBurnsAsAPhaseThenGoes()
 	// start the explosion.
 	doDamage(b, id, 100);
 	b.step();
-	CHECK(b.has<Exploding>(id),
-			"overkill starts the explosion phase");
+	CHECK(b.has<Exploding>(id), "overkill starts the explosion phase");
 
 	b.step();
 	CHECK(b.alive(id), "the wreck persists while it burns");
 	CHECK(b.size() > 1, "and throws debris sparks");
 
-	// Exploding::kLife of burning, then the reap; sparks outlive by Debris::kLife.
+	// Exploding::kLife of burning, then the reap; sparks outlive by
+	// Debris::kLife.
 	for (int i = 0; i < Exploding::kLife + Debris::kLife + 2; ++i)
 		b.step();
 	CHECK(!b.alive(id), "then the wreck is reaped");
 	CHECK(b.size() == 0, "and the sparks have burned out");
 }
 
-void
-testShipWarpsInBeforeItIsSolid()
+void testShipWarpsInBeforeItIsSolid()
 {
 	// Checked without a window: the effect shipped once invisible against a
 	// stationary hull, and screenshot verification would race a 15-frame
@@ -2259,8 +2177,9 @@ testShipWarpsInBeforeItIsSolid()
 	// real silhouette from, but the shadow only has to *carry* it.
 	static const sim::CollisionMask hull = solid(12, 12);
 
-	const sim::EntityId shipId = sim::spawnPlayerShip(b, sim::earthlingCruiser(),
-			&hull, Vec2i{4000, 4000}, sim::Facing(4), 0, /*warpIn=*/true);
+	const sim::EntityId shipId =
+			sim::spawnPlayerShip(b, sim::earthlingCruiser(), &hull,
+					Vec2i{4000, 4000}, sim::Facing(4), 0, /*warpIn=*/true);
 
 	const auto ship = [&b]() {
 		bool found = false;
@@ -2285,7 +2204,8 @@ testShipWarpsInBeforeItIsSolid()
 			"an arriving ship must be intangible -- that is what stops two of "
 			"them materialising inside each other");
 	CHECK(b.has<Collider>(shipId),
-			"and it keeps its mask while intangible: WarpingIn is what makes it "
+			"and it keeps its mask while intangible: WarpingIn is what makes "
+			"it "
 			"untouchable, not the absence of a Collider");
 
 	// Partway through: shadows are hull-sized, not points, and -- the part
@@ -2305,8 +2225,7 @@ testShipWarpsInBeforeItIsSolid()
 			const Vec2i shadowAt = b.find<sim::Position>(id)->current;
 			const Vec2i d = sim::wrapDelta(
 					Vec2i{shadowAt.x - arrival.x, shadowAt.y - arrival.y});
-			dist = static_cast<i64>(d.x) * d.x
-					+ static_cast<i64>(d.y) * d.y;
+			dist = static_cast<i64>(d.x) * d.x + static_cast<i64>(d.y) * d.y;
 		});
 		return dist;
 	};
@@ -2352,7 +2271,8 @@ testShipWarpsInBeforeItIsSolid()
 		CHECK(!b.has<sim::Collider>(sId),
 				"a shadow never collides, and never did");
 		const sim::Position &sPos = *b.find<sim::Position>(sId);
-		CHECK(sPos.facing == Facing(4), "a shadow keeps the facing it was shed at");
+		CHECK(sPos.facing == Facing(4),
+				"a shadow keeps the facing it was shed at");
 
 		// And it lies *behind* the ship: spawnIonTrail offsets the exhaust
 		// along facingToAngle + kHalfCircle, and that trail comes out of the
@@ -2380,18 +2300,15 @@ testShipWarpsInBeforeItIsSolid()
 			"arriving fills the crew, got %d", b.ship(shipId)->crew);
 }
 
-void
-testCloakHidesFromTracking()
+void testCloakHidesFromTracking()
 {
 	Battle b(1);
-	const EntityId avenger =
-			spawnPlayerShip(b, ilwrathAvenger(), nullptr,
-					Vec2i{4000, 4000}, Facing(0), 1, /*warpIn=*/false);
+	const EntityId avenger = spawnPlayerShip(b, ilwrathAvenger(), nullptr,
+			Vec2i{4000, 4000}, Facing(0), 1, /*warpIn=*/false);
 	b.step();
 
-	const EntityId hunter =
-			spawnPlayerShip(b, earthlingCruiser(), nullptr,
-					Vec2i{4000, 4400}, Facing(0), 0, /*warpIn=*/false);
+	const EntityId hunter = spawnPlayerShip(b, earthlingCruiser(), nullptr,
+			Vec2i{4000, 4400}, Facing(0), 0, /*warpIn=*/false);
 	b.step();
 
 	// Facing 8 is away from the target, so a step toward it is a real change.
@@ -2408,8 +2325,7 @@ testCloakHidesFromTracking()
 	// Activation starts the colour walk at white; the ship is not hidden yet.
 	// OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204), so the
 	// whole five-colour fade stays targetable -- no unearned missile-proofing.
-	CHECK(!b.has<Cloaked>(avenger),
-			"activation alone must not hide the ship");
+	CHECK(!b.has<Cloaked>(avenger), "activation alone must not hide the ship");
 	Facing fadeFacing{8};
 	CHECK(trackShip(b, hunter, fadeFacing) >= 0,
 			"a half-faded ship is still targetable");
@@ -2417,12 +2333,12 @@ testCloakHidesFromTracking()
 	// Five walk steps later it is black, and hidden.
 	for (int i = 0; i < 5; ++i)
 		b.step();
-	CHECK(b.has<Cloaked>(avenger),
-			"fully faded should be cloaked");
+	CHECK(b.has<Cloaked>(avenger), "fully faded should be cloaked");
 	CHECK(b.has<Cloaked>(avenger)
 					== (b.find<Cloak>(avenger)->level == Cloak::kFullLevel),
 			"Cloaked must be present iff the cloak is at its full level, got "
-			"level %d", b.find<Cloak>(avenger)->level);
+			"level %d",
+			b.find<Cloak>(avenger)->level);
 
 	Facing cloakedFacing{8};
 	CHECK(trackShip(b, hunter, cloakedFacing) < 0,
@@ -2450,7 +2366,8 @@ testCloakHidesFromTracking()
 	CHECK(b.has<Cloaked>(avenger)
 					== (b.find<Cloak>(avenger)->level == Cloak::kFullLevel),
 			"Cloaked must still track the full-level line once uncloaked, got "
-			"level %d", b.find<Cloak>(avenger)->level);
+			"level %d",
+			b.find<Cloak>(avenger)->level);
 
 	// And firing gives you away, permanently -- the ramp runs all the way
 	// back even after the trigger is released (ilwrath.c:249-252).
@@ -2472,17 +2389,15 @@ testCloakHidesFromTracking()
 			"own");
 }
 
-void
-testCloakedFiringSnapAims()
+void testCloakedFiringSnapAims()
 {
 	Battle b(1);
-	const EntityId avenger =
-			spawnPlayerShip(b, ilwrathAvenger(), nullptr,
-					Vec2i{4000, 4000}, Facing(0), 1, /*warpIn=*/false);
+	const EntityId avenger = spawnPlayerShip(b, ilwrathAvenger(), nullptr,
+			Vec2i{4000, 4000}, Facing(0), 1, /*warpIn=*/false);
 	b.step();
 
-	(void)spawnPlayerShip(b, earthlingCruiser(), nullptr,
-			Vec2i{4400, 4000}, Facing(0), 0, /*warpIn=*/false);
+	(void)spawnPlayerShip(b, earthlingCruiser(), nullptr, Vec2i{4400, 4000},
+			Facing(0), 0, /*warpIn=*/false);
 	b.step();
 
 	// Cloak fully: activation plus the five-colour walk.
@@ -2491,8 +2406,7 @@ testCloakedFiringSnapAims()
 	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 5; ++i)
 		b.step();
-	CHECK(b.has<Cloaked>(avenger),
-			"setup: the Avenger should be hidden");
+	CHECK(b.has<Cloaked>(avenger), "setup: the Avenger should be hidden");
 
 	// Point it the wrong way, then fire from the dark.
 	b.find<Position>(avenger)->facing = Facing(8);
@@ -2504,7 +2418,8 @@ testCloakedFiringSnapAims()
 	// rest here, so the prediction is the target itself -- due +x, facing 4.
 	CHECK(b.find<Position>(avenger)->facing == Facing(4),
 			"firing from full black should snap the facing onto the target, "
-			"got %d", b.find<Position>(avenger)->facing.raw());
+			"got %d",
+			b.find<Position>(avenger)->facing.raw());
 	CHECK(!b.has<Cloaked>(avenger),
 			"and the discharge steps the cloak off black");
 	CHECK(b.ship(avenger)->specialCounter == 0,
@@ -2514,8 +2429,7 @@ testCloakedFiringSnapAims()
 
 }  // namespace
 
-int
-main()
+int main()
 {
 	testPointDefenceBurnsIncomingFire();
 	testCloakHidesFromTracking();

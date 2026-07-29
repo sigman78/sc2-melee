@@ -8,8 +8,7 @@
 
 namespace uqm::sim {
 
-Vec2i
-muzzlePosition(const ShipView &ship) noexcept
+Vec2i muzzlePosition(const ShipView &ship) noexcept
 {
 	// The C spells this out per ship as `pixoffs` fed through
 	// initialize_missile, which places the projectile that many *display*
@@ -17,7 +16,7 @@ muzzlePosition(const ShipView &ship) noexcept
 	const Angle angle = ship.facing.angle();
 	const i32 offset = displayToWorld(ship.muzzleOffset);
 	return Vec2i{ship.position.x + cosine(angle, offset),
-		ship.position.y + sine(angle, offset)};
+			ship.position.y + sine(angle, offset)};
 }
 
 }  // namespace uqm::sim

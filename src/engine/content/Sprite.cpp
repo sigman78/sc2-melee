@@ -6,8 +6,7 @@
 
 namespace uqm::content {
 
-std::vector<u8>
-toRgba(const PngImage &img, const Palette *palette)
+std::vector<u8> toRgba(const PngImage &img, const Palette *palette)
 {
 	const Extent2u size = img.size();
 	const std::span<const u8> px = img.pixels();
@@ -48,8 +47,7 @@ toRgba(const PngImage &img, const Palette *palette)
 	return out;
 }
 
-std::vector<u8>
-opacityBits(std::span<const u8> rgba, Extent2u size)
+std::vector<u8> opacityBits(std::span<const u8> rgba, Extent2u size)
 {
 	const usize count = static_cast<usize>(size.w) * size.h;
 	std::vector<u8> bits(count, 0);

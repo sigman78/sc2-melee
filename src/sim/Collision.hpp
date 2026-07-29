@@ -46,8 +46,7 @@ public:
 	[[nodiscard]] Vec2i hotspot() const noexcept { return hotspot_; }
 	[[nodiscard]] bool empty() const noexcept { return size_.empty(); }
 
-	[[nodiscard]] bool
-	opaqueAt(i32 x, i32 y) const noexcept
+	[[nodiscard]] bool opaqueAt(i32 x, i32 y) const noexcept
 	{
 		if (x < 0 || y < 0 || x >= static_cast<i32>(size_.w)
 				|| y >= static_cast<i32>(size_.h))
@@ -80,8 +79,9 @@ struct Impact
 	TimeValue time = 0;
 
 	// Hotspot positions one sub-step before the overlap, matching the C's
-	// EndPoint (intersec.c:218-229): bodies land touching, not interpenetrating.
-	// Exception: already overlapping at time 1 returns the start positions.
+	// EndPoint (intersec.c:218-229): bodies land touching, not
+	// interpenetrating. Exception: already overlapping at time 1 returns the
+	// start positions.
 	Vec2i at0;
 	Vec2i at1;
 

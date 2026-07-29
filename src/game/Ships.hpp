@@ -36,8 +36,7 @@ enum class ShipSound : usize
 	Secondary = 1,  // the SPECIAL -- the Cruiser's point-defence laser
 };
 
-[[nodiscard]] constexpr usize
-slot(ShipSound s) noexcept
+[[nodiscard]] constexpr usize slot(ShipSound s) noexcept
 {
 	return static_cast<usize>(s);
 }
@@ -63,8 +62,8 @@ struct ShipDef
 // The spec a battle flies: def.spec plus content-derived facing/weapon
 // masks. Spans point into `content`'s caches, which outlive the battle
 // (Resources.hpp, LIFETIME). In Materialize.cpp/uqm2_platform: needs a window.
-[[nodiscard]] sim::ShipSpec materialize(const ShipDef &def,
-		Resources &content, platform::Platform &window);
+[[nodiscard]] sim::ShipSpec materialize(
+		const ShipDef &def, Resources &content, platform::Platform &window);
 
 }  // namespace uqm::game
 

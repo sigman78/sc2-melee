@@ -36,14 +36,12 @@ enum class SpeedState : u8
 inline constexpr int kVelocityShift = 5;
 inline constexpr i32 kVelocityScale = 1 << kVelocityShift;  // 32
 
-[[nodiscard]] constexpr i32
-velocityToWorld(i32 v) noexcept
+[[nodiscard]] constexpr i32 velocityToWorld(i32 v) noexcept
 {
 	return v >> kVelocityShift;
 }
 
-[[nodiscard]] constexpr i32
-worldToVelocity(i32 l) noexcept
+[[nodiscard]] constexpr i32 worldToVelocity(i32 l) noexcept
 {
 	return l << kVelocityShift;
 }
@@ -69,7 +67,7 @@ public:
 	[[nodiscard]] constexpr Vec2i current() const noexcept
 	{
 		return Vec2i{worldToVelocity(vector_.x) + (fract_.x - hi(incr_.x)),
-			worldToVelocity(vector_.y) + (fract_.y - hi(incr_.y))};
+				worldToVelocity(vector_.y) + (fract_.y - hi(incr_.y))};
 	}
 
 	// Advance by `frames`, returning the world-unit displacement and carrying
@@ -98,8 +96,7 @@ private:
 	{
 		return static_cast<i8>(packed & 0xFF);
 	}
-	static constexpr i32 makeWord(
-			i32 lo, i32 hiByte) noexcept
+	static constexpr i32 makeWord(i32 lo, i32 hiByte) noexcept
 	{
 		return (lo & 0xFF) | ((hiByte & 0xFF) << 8);
 	}
@@ -108,13 +105,12 @@ private:
 		return v & (kVelocityScale - 1);
 	}
 
-	void setAxis(i32 v, i32 &vector, i32 &incr,
-			i32 &fract) noexcept;
+	static void setAxis(i32 v, i32 &vector, i32 &incr, i32 &fract) noexcept;
 
-	Vec2i vector_;   // whole world units per frame
-	Vec2i fract_;    // sub-unit remainder, 0..31
-	Vec2i error_;    // accumulated remainder
-	Vec2i incr_;     // packed (sign, doubled fraction)
+	Vec2i vector_;  // whole world units per frame
+	Vec2i fract_;   // sub-unit remainder, 0..31
+	Vec2i error_;   // accumulated remainder
+	Vec2i incr_;    // packed (sign, doubled fraction)
 	int travelAngle_ = kFullCircle;
 };
 

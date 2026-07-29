@@ -7,8 +7,8 @@
 // (clear -> stars -> ... -> present) IS the z-order.
 
 #include "app/melee/Draw.hpp"
-#include "app/melee/Game.hpp"
 
+#include "app/melee/Game.hpp"
 #include "engine/core/Geometry.hpp"
 #include "engine/core/Types.hpp"
 #include "game/Camera.hpp"
@@ -32,6 +32,7 @@ namespace {
 // A 3x5 digit font (one bit per pixel), not the game's real font --
 // wiring FontDir in means atlases and kerning for two numbers per
 // player. Scaffolding until the M2 status panel uses real fonts.
+// clang-format off
 constexpr std::array<u16, 10> kDigits{{
 		0b111'101'101'101'111,  // 0
 		0b010'110'010'010'111,  // 1
@@ -44,9 +45,9 @@ constexpr std::array<u16, 10> kDigits{{
 		0b111'101'111'101'111,  // 8
 		0b111'101'111'001'111,  // 9
 }};
+// clang-format on
 
-void
-drawDigit(platform::Platform &w, int digit, Vec2i at, int scale, Colour c)
+void drawDigit(platform::Platform &w, int digit, Vec2i at, int scale, Colour c)
 {
 	if (digit < 0 || digit > 9)
 		return;
@@ -60,20 +61,17 @@ drawDigit(platform::Platform &w, int digit, Vec2i at, int scale, Colour c)
 			if (((bits >> bit) & 1) == 0)
 				continue;
 			w.fillRect(Vec2i{at.x + col * scale, at.y + row * scale},
-					Extent2u{static_cast<u32>(scale),
-						static_cast<u32>(scale)},
+					Extent2u{static_cast<u32>(scale), static_cast<u32>(scale)},
 					c.r, c.g, c.b);
 		}
 	}
 }
 
 // Right-aligned, so a number shrinking from 18 to 9 does not shift about.
-void
-drawNumber(platform::Platform &w, i32 value, Vec2i rightTop,
-		int scale, Colour c)
+void drawNumber(
+		platform::Platform &w, i32 value, Vec2i rightTop, int scale, Colour c)
 {
-	if (value < 0)
-		value = 0;
+	value = std::max(value, 0);
 	int x = rightTop.x - 3 * scale;
 	do
 	{
@@ -87,6 +85,7 @@ drawNumber(platform::Platform &w, i32 value, Vec2i rightTop,
 // cycle_ion_trail's colour table (tactrans.c:757-770), 5-bit RGB widened
 // to 8: yellow-white at the muzzle through red to near-black, one step
 // per frame.
+// clang-format off
 constexpr std::array<Colour, 12> kIonRamp{{
 		rgb(0xFFAD00),
 		rgb(0xFF8C00),
@@ -101,10 +100,12 @@ constexpr std::array<Colour, 12> kIonRamp{{
 		rgb(0x7B0000),
 		rgb(0x5A0000),
 }};
+// clang-format on
 
 // The Ilwrath cloak ramp, converted from the C's 5-bit RGB
 // (ilwrath.c:255-275). Index 0 is unused: level 0 draws the real sprite,
 // and the invisible last step is omitted.
+// clang-format off
 constexpr std::array<Colour, 6> kCloakRamp{{
 		rgb(0xFFFFFF),  // unused; level 0 draws the sprite
 		rgb(0xFFFFFF),  // 1F,1F,1F
@@ -113,14 +114,14 @@ constexpr std::array<Colour, 6> kCloakRamp{{
 		rgb(0x5252FF),  // 0A,0A,1F
 		rgb(0x0000A5),  // 00,00,14
 }};
+// clang-format on
 
 // -- Shared placement math, every sprite-backed pass draws from a cel's
 // hotspot at the camera's current scale (file header). --------------------
 
 // True if a mask-sized sprite at screen point `at` would land fully off the
 // visible arena -- the coarse AABB cull every sprite-backed pass shares.
-[[nodiscard]] bool
-offScreen(Vec2i at, i32 w, i32 h) noexcept
+[[nodiscard]] bool offScreen(Vec2i at, i32 w, i32 h) noexcept
 {
 	return at.x + w < 0 || at.y + h < 0 || at.x - w > sim::kSpace.w
 			|| at.y - h > sim::kSpace.h;
@@ -128,38 +129,35 @@ offScreen(Vec2i at, i32 w, i32 h) noexcept
 
 // Scales a mask's display-pixel size to the camera's current zoom, floored
 // at one screen pixel each axis so a distant cel never disappears entirely.
-[[nodiscard]] Extent2u
-scaledSize(const game::Camera &camera, Extent2u mask) noexcept
+[[nodiscard]] Extent2u scaledSize(
+		const game::Camera &camera, Extent2u mask) noexcept
 {
-	const i32 w = std::max(1,
-			camera.scale(sim::displayToWorld(static_cast<i32>(mask.w))));
-	const i32 h = std::max(1,
-			camera.scale(sim::displayToWorld(static_cast<i32>(mask.h))));
+	const i32 w = std::max(
+			1, camera.scale(sim::displayToWorld(static_cast<i32>(mask.w))));
+	const i32 h = std::max(
+			1, camera.scale(sim::displayToWorld(static_cast<i32>(mask.h))));
 	return Extent2u{static_cast<u32>(w), static_cast<u32>(h)};
 }
 
 // The cel's hotspot, scaled the same as its destination size, as a top-left
 // offset from the screen point the hotspot sits at -- draw-from-hotspot
 // instead of draw-from-centre (see file header).
-[[nodiscard]] Vec2i
-hotspotOffset(Vec2i hotspot, Extent2u mask, Extent2u dest) noexcept
+[[nodiscard]] Vec2i hotspotOffset(
+		Vec2i hotspot, Extent2u mask, Extent2u dest) noexcept
 {
-	const i32 ox = mask.w != 0
-			? static_cast<i32>(hotspot.x) * static_cast<i32>(dest.w)
-					/ static_cast<i32>(mask.w)
-			: static_cast<i32>(dest.w) / 2;
-	const i32 oy = mask.h != 0
-			? static_cast<i32>(hotspot.y) * static_cast<i32>(dest.h)
-					/ static_cast<i32>(mask.h)
-			: static_cast<i32>(dest.h) / 2;
+	const i32 ox = mask.w != 0 ? static_cast<i32>(hotspot.x)
+					* static_cast<i32>(dest.w) / static_cast<i32>(mask.w)
+							   : static_cast<i32>(dest.w) / 2;
+	const i32 oy = mask.h != 0 ? static_cast<i32>(hotspot.y)
+					* static_cast<i32>(dest.h) / static_cast<i32>(mask.h)
+							   : static_cast<i32>(dest.h) / 2;
 	return Vec2i{ox, oy};
 }
 
 // The plain by-facing draw shared by planet/asteroid/blast: cel =
 // facing.raw() % frames, hotspot-anchored, rect fallback when there is no
 // art. renderShips doesn't use this -- it layers warp/hull/cloak on top.
-void
-drawFacingSprite(Game &g, const sim::Position &pos, const Visual &v)
+void drawFacingSprite(Game &g, const sim::Position &pos, const Visual &v)
 {
 	const game::Camera &camera = g.battle.context<game::Camera>();
 	const Vec2i at = camera.toScreen(pos.current);
@@ -167,8 +165,8 @@ drawFacingSprite(Game &g, const sim::Position &pos, const Visual &v)
 	const usize cel = set != nullptr
 			? static_cast<usize>(pos.facing.raw()) % set->frames.size()
 			: 0;
-	const Extent2u maskSize = set != nullptr ? set->masks[cel].size()
-											  : Extent2u{8, 8};
+	const Extent2u maskSize =
+			set != nullptr ? set->masks[cel].size() : Extent2u{8, 8};
 	const Extent2u dest = scaledSize(camera, maskSize);
 	if (offScreen(at, static_cast<i32>(dest.w), static_cast<i32>(dest.h)))
 		return;
@@ -176,7 +174,7 @@ drawFacingSprite(Game &g, const sim::Position &pos, const Visual &v)
 	if (set == nullptr)
 	{
 		g.window.fillRect(Vec2i{at.x - static_cast<i32>(dest.w) / 2,
-								 at.y - static_cast<i32>(dest.h) / 2},
+								  at.y - static_cast<i32>(dest.h) / 2},
 				dest, v.fallback.r, v.fallback.g, v.fallback.b);
 		return;
 	}
@@ -186,16 +184,15 @@ drawFacingSprite(Game &g, const sim::Position &pos, const Visual &v)
 
 }  // namespace
 
-Visual
-visualFor(Game &g, sim::EntityId id, i32 playerNr)
+Visual visualFor(Game &g, sim::EntityId id, i32 playerNr)
 {
 	sim::Battle &b = g.battle;
 
 	// The owner's definition, for the art that is the ship's own (the ship
 	// itself, and the shadow it sheds while warping in, which borrows it).
 	const auto &roster = b.context<BattleConfig>().roster;
-	const game::ShipDef *def = playerNr >= 0
-					&& static_cast<usize>(playerNr) < roster.size()
+	const game::ShipDef *def =
+			playerNr >= 0 && static_cast<usize>(playerNr) < roster.size()
 			? roster[static_cast<usize>(playerNr)]
 			: nullptr;
 
@@ -212,8 +209,8 @@ visualFor(Game &g, sim::EntityId id, i32 playerNr)
 	if (b.has<sim::ShipState>(id) || b.has<sim::Shadow>(id))
 		return def != nullptr
 				? sprite(def->art.ship,
-						playerNr == 0 ? Colour{0x40, 0xC0, 0xFF}
-									  : Colour{0xFF, 0x60, 0x40})
+						  playerNr == 0 ? Colour{0x40, 0xC0, 0xFF}
+										: Colour{0xFF, 0x60, 0x40})
 				: Visual{nullptr, Colour{0xC0, 0xC0, 0xC0}};
 
 	if (b.has<sim::Beam>(id))
@@ -231,7 +228,8 @@ visualFor(Game &g, sim::EntityId id, i32 playerNr)
 		return sprite(game::kMeleeArt.boom, Colour{0xC0, 0xC0, 0xC0});
 
 	if (b.has<sim::Blast>(id))
-		return sprite(playerNr < 0 ? game::kMeleeArt.boom : game::kMeleeArt.blast,
+		return sprite(
+				playerNr < 0 ? game::kMeleeArt.boom : game::kMeleeArt.blast,
 				Colour{0xFF, 0xFF, 0xC0});
 
 	if (b.has<sim::Spin>(id))
@@ -248,8 +246,7 @@ namespace {
 // Stars do not zoom -- they're at infinity. Each plane is a screen-sized
 // torus; the camera's position enters divided by 2^plane. Keyed on
 // Starfield: no Position/Order, so an unordered view, not eachOrdered.
-void
-renderStars(Game &g)
+void renderStars(Game &g)
 {
 	const game::Camera &camera = g.battle.context<game::Camera>();
 	const Vec2i centre = camera.centre();
@@ -309,8 +306,7 @@ renderStars(Game &g)
 						if (haveArt)
 							g.window.draw(art->frames[cel], Vec2i{x, y}, size);
 						else
-							g.window.fillRect(
-									Vec2i{x, y}, size, c.r, c.g, c.b);
+							g.window.fillRect(Vec2i{x, y}, size, c.r, c.g, c.b);
 					}
 				}
 			}
@@ -321,8 +317,7 @@ renderStars(Game &g)
 }
 
 // The battlefield's one gravity well, keyed on the Planet tag.
-void
-renderPlanet(Game &g)
+void renderPlanet(Game &g)
 {
 	g.battle.eachOrdered<sim::Planet, sim::Position, Visual>(
 			[&g](sim::EntityId, sim::Position &pos, Visual &v) {
@@ -330,8 +325,7 @@ renderPlanet(Game &g)
 			});
 }
 
-void
-renderAsteroids(Game &g)
+void renderAsteroids(Game &g)
 {
 	g.battle.eachOrdered<sim::Position, sim::Spin, Visual>(
 			[&g](sim::EntityId, sim::Position &pos, sim::Spin &, Visual &v) {
@@ -341,82 +335,79 @@ renderAsteroids(Game &g)
 
 // Owns the whole ship look: facing sprite, cloak tint, warp gating -- all
 // layered within one pass (hull, then cloak/shadow tint on top).
-void
-renderShips(Game &g)
+void renderShips(Game &g)
 {
-	g.battle.eachOrdered<sim::Position, sim::ShipState, Visual>(
-			[&g](sim::EntityId id, sim::Position &pos, sim::ShipState &s,
-					Visual &v) {
-				// A ship that has not arrived yet is not drawn -- only the
-				// shadows it sheds are (tactrans.c:863).
-				if (!g.battle.has<sim::Collider>(id) && s.crew > 0)
-					return;
+	g.battle.eachOrdered<sim::Position, sim::ShipState,
+			Visual>([&g](sim::EntityId id, sim::Position &pos,
+							sim::ShipState &s, Visual &v) {
+		// A ship that has not arrived yet is not drawn -- only the
+		// shadows it sheds are (tactrans.c:863).
+		if (!g.battle.has<sim::Collider>(id) && s.crew > 0)
+			return;
 
-				// A dying ship keeps its own hull for the first fifteen
-				// frames, then stops drawing (tactrans.c:569-571); the
-				// explosion itself is the swarm of sparks renderEffects
-				// draws as Debris.
-				if (s.crew == 0
-						&& sim::Exploding::kLife - sim::lifeSpanOf(g.battle, id)
-								>= sim::Exploding::kHullVanishAge)
-					return;
+		// A dying ship keeps its own hull for the first fifteen
+		// frames, then stops drawing (tactrans.c:569-571); the
+		// explosion itself is the swarm of sparks renderEffects
+		// draws as Debris.
+		if (s.crew == 0
+				&& sim::Exploding::kLife - sim::lifeSpanOf(g.battle, id)
+						>= sim::Exploding::kHullVanishAge)
+			return;
 
-				const game::Camera &camera = g.battle.context<game::Camera>();
-				const Vec2i at = camera.toScreen(pos.current);
-				const game::SpriteSet *set = v.sprites;
-				const usize cel = set != nullptr
-						? static_cast<usize>(pos.facing.raw())
-								% set->frames.size()
-						: 0;
-				const Extent2u maskSize =
-						set != nullptr ? set->masks[cel].size() : Extent2u{8, 8};
-				const Extent2u dest = scaledSize(camera, maskSize);
-				if (offScreen(
-							at, static_cast<i32>(dest.w), static_cast<i32>(dest.h)))
-					return;
+		const game::Camera &camera = g.battle.context<game::Camera>();
+		const Vec2i at = camera.toScreen(pos.current);
+		const game::SpriteSet *set = v.sprites;
+		const usize cel = set != nullptr
+				? static_cast<usize>(pos.facing.raw()) % set->frames.size()
+				: 0;
+		const Extent2u maskSize =
+				set != nullptr ? set->masks[cel].size() : Extent2u{8, 8};
+		const Extent2u dest = scaledSize(camera, maskSize);
+		if (offScreen(at, static_cast<i32>(dest.w), static_cast<i32>(dest.h)))
+			return;
 
-				if (set == nullptr)
-				{
-					g.window.fillRect(Vec2i{at.x - static_cast<i32>(dest.w) / 2,
-											 at.y - static_cast<i32>(dest.h) / 2},
-							dest, v.fallback.r, v.fallback.g, v.fallback.b);
-					return;
-				}
+		if (set == nullptr)
+		{
+			g.window.fillRect(Vec2i{at.x - static_cast<i32>(dest.w) / 2,
+									  at.y - static_cast<i32>(dest.h) / 2},
+					dest, v.fallback.r, v.fallback.g, v.fallback.b);
+			return;
+		}
 
-				const Vec2i off =
-						hotspotOffset(set->masks[cel].hotspot(), maskSize, dest);
-				const Vec2i tl{at.x - off.x, at.y - off.y};
+		const Vec2i off =
+				hotspotOffset(set->masks[cel].hotspot(), maskSize, dest);
+		const Vec2i tl{at.x - off.x, at.y - off.y};
 
-				// Cloak tint (ilwrath.c:250-285): Cloaked is the full-black
-				// invisible step (the tag holds iff level is full); the 1..5
-				// tint ramp reads Cloak.level directly.
-				if (const sim::Cloak *cloak = g.battle.find<sim::Cloak>(id))
-				{
-					if (g.battle.has<sim::Cloaked>(id))
-						return;
-					const i32 level = cloak->level;
-					if (level > 0 && static_cast<usize>(level) < kCloakRamp.size()
-							&& cel < set->silhouettes.size())
-					{
-						const Colour c = kCloakRamp[static_cast<usize>(level)];
-						g.window.drawTinted(set->silhouettes[cel], tl, dest,
-								c.r, c.g, c.b);
-						return;
-					}
-				}
+		// Cloak tint (ilwrath.c:250-285): Cloaked is the full-black
+		// invisible step (the tag holds iff level is full); the 1..5
+		// tint ramp reads Cloak.level directly.
+		if (const sim::Cloak *cloak = g.battle.find<sim::Cloak>(id))
+		{
+			if (g.battle.has<sim::Cloaked>(id))
+				return;
+			const i32 level = cloak->level;
+			if (level > 0 && static_cast<usize>(level) < kCloakRamp.size()
+					&& cel < set->silhouettes.size())
+			{
+				const Colour c = kCloakRamp[static_cast<usize>(level)];
+				g.window.drawTinted(
+						set->silhouettes[cel], tl, dest, c.r, c.g, c.b);
+				return;
+			}
+		}
 
-				g.window.draw(set->frames[cel], tl, dest);
-			});
+		g.window.draw(set->frames[cel], tl, dest);
+	});
 }
 
 // Warhead identifies a weapon shot in flight; a beam has no Position and is
 // drawn as a line between its own two ends instead. Shots draw before
 // beams; each group keeps its own seq order.
-void
-renderProjectiles(Game &g)
+void renderProjectiles(Game &g)
 {
 	g.battle.eachOrdered<sim::Position, sim::Warhead, Visual>(
-			[&g](sim::EntityId id, sim::Position &pos, sim::Warhead &, Visual &v) {
+			[&g](sim::EntityId id, sim::Position &pos, sim::Warhead &,
+					Visual &v) {
 				const game::Camera &camera = g.battle.context<game::Camera>();
 				const Vec2i at = camera.toScreen(pos.current);
 				const game::SpriteSet *set = v.sprites;
@@ -428,24 +419,26 @@ renderProjectiles(Game &g)
 						? static_cast<usize>(anim != nullptr ? anim->n : 0)
 								% set->frames.size()
 						: 0;
-				const Extent2u maskSize =
-						set != nullptr ? set->masks[cel].size() : Extent2u{8, 8};
+				const Extent2u maskSize = set != nullptr
+						? set->masks[cel].size()
+						: Extent2u{8, 8};
 				const Extent2u dest = scaledSize(camera, maskSize);
-				if (offScreen(
-							at, static_cast<i32>(dest.w), static_cast<i32>(dest.h)))
+				if (offScreen(at, static_cast<i32>(dest.w),
+							static_cast<i32>(dest.h)))
 					return;
 
 				if (set == nullptr)
 				{
-					g.window.fillRect(Vec2i{at.x - static_cast<i32>(dest.w) / 2,
-											 at.y - static_cast<i32>(dest.h) / 2},
+					g.window.fillRect(
+							Vec2i{at.x - static_cast<i32>(dest.w) / 2,
+									at.y - static_cast<i32>(dest.h) / 2},
 							dest, v.fallback.r, v.fallback.g, v.fallback.b);
 					return;
 				}
-				const Vec2i off =
-						hotspotOffset(set->masks[cel].hotspot(), maskSize, dest);
-				g.window.draw(set->frames[cel], Vec2i{at.x - off.x, at.y - off.y},
-						dest);
+				const Vec2i off = hotspotOffset(
+						set->masks[cel].hotspot(), maskSize, dest);
+				g.window.draw(set->frames[cel],
+						Vec2i{at.x - off.x, at.y - off.y}, dest);
 			});
 
 	g.battle.eachOrdered<sim::Beam>([&g](sim::EntityId, sim::Beam &beam) {
@@ -457,8 +450,7 @@ renderProjectiles(Game &g)
 
 // The Trail/Shadow/Debris/Blast tags, in that declared order; each keeps
 // its own seq order within its pass.
-void
-renderEffects(Game &g)
+void renderEffects(Game &g)
 {
 	const game::Camera &camera = g.battle.context<game::Camera>();
 
@@ -471,8 +463,8 @@ renderEffects(Game &g)
 				if (step >= kIonRamp.size())
 					return;
 				const Colour c = kIonRamp[step];
-				g.window.fillRect(
-						camera.toScreen(pos.current), Extent2u{1, 1}, c.r, c.g, c.b);
+				g.window.fillRect(camera.toScreen(pos.current), Extent2u{1, 1},
+						c.r, c.g, c.b);
 			});
 
 	// Warp-in shadow: the hull as a flat fill stepping through the same
@@ -485,18 +477,18 @@ renderEffects(Game &g)
 					return;
 				const usize step = static_cast<usize>(
 						sim::Trail::kLife - sim::lifeSpanOf(g.battle, id));
-				const usize cel =
-						static_cast<usize>(pos.facing.raw()) % set->frames.size();
+				const usize cel = static_cast<usize>(pos.facing.raw())
+						% set->frames.size();
 				if (step >= kIonRamp.size() || cel >= set->silhouettes.size())
 					return;
 				const Extent2u maskSize = set->masks[cel].size();
 				const Extent2u dest = scaledSize(camera, maskSize);
 				const Vec2i at = camera.toScreen(pos.current);
-				if (offScreen(
-							at, static_cast<i32>(dest.w), static_cast<i32>(dest.h)))
+				if (offScreen(at, static_cast<i32>(dest.w),
+							static_cast<i32>(dest.h)))
 					return;
-				const Vec2i off =
-						hotspotOffset(set->masks[cel].hotspot(), maskSize, dest);
+				const Vec2i off = hotspotOffset(
+						set->masks[cel].hotspot(), maskSize, dest);
 				const Colour c = kIonRamp[step];
 				g.window.drawTinted(set->silhouettes[cel],
 						Vec2i{at.x - off.x, at.y - off.y}, dest, c.r, c.g, c.b);
@@ -514,7 +506,8 @@ renderEffects(Game &g)
 					return;
 				}
 				const usize frames = set->frames.size();
-				const i32 age = sim::Debris::kLife - sim::lifeSpanOf(g.battle, id);
+				const i32 age =
+						sim::Debris::kLife - sim::lifeSpanOf(g.battle, id);
 				const usize i = std::min(frames - 1,
 						static_cast<usize>(std::max(0, age)) * frames
 								/ static_cast<usize>(sim::Debris::kLife));
@@ -522,8 +515,8 @@ renderEffects(Game &g)
 				const Extent2u dest = scaledSize(camera, maskSize);
 				const Vec2i off =
 						hotspotOffset(set->masks[i].hotspot(), maskSize, dest);
-				g.window.draw(
-						set->frames[i], Vec2i{at.x - off.x, at.y - off.y}, dest);
+				g.window.draw(set->frames[i], Vec2i{at.x - off.x, at.y - off.y},
+						dest);
 			});
 
 	// Blast: a weapon's impact flash, or the rubble an asteroid leaves --
@@ -537,8 +530,7 @@ renderEffects(Game &g)
 // Contact points and response vectors, gated by DebugToggles.overlay (F1).
 // Keyed on Mark entities: an unordered view, not eachOrdered, since Mark
 // carries no Order.
-void
-renderMarks(Game &g)
+void renderMarks(Game &g)
 {
 	if (!g.battle.context<DebugToggles>().overlay)
 		return;
@@ -557,7 +549,7 @@ renderMarks(Game &g)
 		const auto arrow = [&](Vec2i v, u8 r, u8 gg, u8 b) {
 			g.window.drawLine(at,
 					Vec2i{at.x + camera.scale(v.x * kVectorGain),
-						at.y + camera.scale(v.y * kVectorGain)},
+							at.y + camera.scale(v.y * kVectorGain)},
 					r, gg, b);
 		};
 		arrow(mark.event.a.before, 0x60, 0x60, 0x90);
@@ -570,8 +562,7 @@ renderMarks(Game &g)
 // Crew and energy per player, coloured to match the ship. Drawn straight
 // from ShipState, so a destroyed ship shows nothing rather than a stale
 // number. Player index doubles as roster index, so no per-entity lookup.
-void
-renderHud(Game &g)
+void renderHud(Game &g)
 {
 	constexpr int kScale = 1;
 	constexpr i32 kMargin = 4;
@@ -589,8 +580,8 @@ renderHud(Game &g)
 
 		// Player 0 hugs the left edge, player 1 the right. Both are drawn
 		// right-aligned; only the anchor differs.
-		const i32 right = p == 0 ? kMargin + 3 * 4 * kScale
-								 : sim::kSpace.w - kMargin;
+		const i32 right =
+				p == 0 ? kMargin + 3 * 4 * kScale : sim::kSpace.w - kMargin;
 
 		drawNumber(g.window, s->crew, Vec2i{right, kMargin}, kScale,
 				kCrewColours[p]);
@@ -602,8 +593,7 @@ renderHud(Game &g)
 // The collision overlay: what touched, where. Reads the Collider, not the
 // entity -- an element without one has no collision box to show. Gated by
 // DebugToggles.overlay.
-void
-renderOverlay(Game &g)
+void renderOverlay(Game &g)
 {
 	if (!g.battle.context<DebugToggles>().overlay)
 		return;
@@ -613,10 +603,10 @@ renderOverlay(Game &g)
 			[&g, &camera](sim::EntityId, sim::Position &pos, sim::Collider &c) {
 				const Vec2i at = camera.toScreen(pos.current);
 				const Extent2u m = c.mask->size();
-				const i32 w =
-						camera.scale(sim::displayToWorld(static_cast<i32>(m.w)));
-				const i32 h =
-						camera.scale(sim::displayToWorld(static_cast<i32>(m.h)));
+				const i32 w = camera.scale(
+						sim::displayToWorld(static_cast<i32>(m.w)));
+				const i32 h = camera.scale(
+						sim::displayToWorld(static_cast<i32>(m.h)));
 				const Vec2i hs = c.mask->hotspot();
 				const i32 ox = m.w != 0
 						? static_cast<i32>(hs.x) * w / static_cast<i32>(m.w)
@@ -643,8 +633,7 @@ renderOverlay(Game &g)
 
 }  // namespace
 
-void
-draw(Game &g)
+void draw(Game &g)
 {
 	g.window.clear(0x08, 0x08, 0x18);
 

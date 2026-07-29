@@ -17,20 +17,19 @@ namespace uqm::sim {
 
 // GRAVITY_MASS (element.h:198) is `mass > 100`; gravity.c/collide.c ask
 // `mass + 1 > 100` instead (gravity.c:34,45, collide.c:102,139) -- exempting
-// a fleeing ship (battle.c:92) from gravity/impulse but not damage (misc.c:214).
-inline constexpr i32 kMaxShipMass = 10;              // element.h:197
+// a fleeing ship (battle.c:92) from gravity/impulse but not damage
+// (misc.c:214).
+inline constexpr i32 kMaxShipMass = 10;                 // element.h:197
 inline constexpr i32 kGravityMass = kMaxShipMass * 10;  // 100
 
 // GRAVITY_MASS as written: does this push instead of being pushed?
-[[nodiscard]] constexpr bool
-isGravityMass(i32 massPoints) noexcept
+[[nodiscard]] constexpr bool isGravityMass(i32 massPoints) noexcept
 {
 	return massPoints > kGravityMass;
 }
 
 // GRAVITY_MASS as gravity.c asks it. See above for why they differ.
-[[nodiscard]] constexpr bool
-isGravitySource(i32 massPoints) noexcept
+[[nodiscard]] constexpr bool isGravitySource(i32 massPoints) noexcept
 {
 	return massPoints + 1 > kGravityMass;
 }
@@ -61,7 +60,8 @@ comp struct Allegiance
 
 	// The ship this came from: pParent in the C (element.h:192); a ship owns
 	// itself. IGNORE_SIMILAR skips a pair sharing an owner (stops a flame
-	// burning its own ship) -- owner, not player, so allied ships still collide.
+	// burning its own ship) -- owner, not player, so allied ships still
+	// collide.
 	EntityId owner = kNoEntity;
 };
 
@@ -77,8 +77,7 @@ comp struct AnimFrame
 // silhouette following the growth (ilwrath.c:126-139) -- unlike a directional
 // missile, whose frame follows its facing (Human.cpp's guidedShotPreProcess).
 comp struct FrameDriven
-{
-};
+{};
 
 }  // namespace uqm::sim
 

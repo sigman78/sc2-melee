@@ -1,0 +1,58 @@
+# Checks chosen to catch bugs, not to relitigate this codebase's style.
+# Anything disabled below is disabled because the tree does it deliberately
+# and docs/cpp-conventions.md says why -- printf over iostreams (section 4),
+# spelled-out types over auto, unnamed parameters for a join's filter
+# components, and i32/usize comparisons that are checked at their source.
+#
+# convert-member-functions-to-static is off because whether a method happens
+# to touch `this` today is not a reason to change a type's public shape;
+# assignment-in-if-condition because the Bresenham walks ported from C use
+# it deliberately; exception-escape because main() taking a path can throw
+# and there is nothing useful to do about it.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-assignment-in-if-condition,
+  -bugprone-exception-escape,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-pro-type-member-init,
+  cppcoreguidelines-slicing,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion,
+  -misc-include-cleaner,
+  -misc-use-anonymous-namespace,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-use-nodiscard,
+  -modernize-return-braced-init-list,
+  -modernize-use-std-print,
+  -modernize-use-designated-initializers,
+  -modernize-use-integer-sign-comparison,
+  -modernize-use-auto,
+  performance-*,
+  -performance-enum-size,
+  readability-*,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-braces-around-statements,
+  -readability-function-cognitive-complexity,
+  -readability-implicit-bool-conversion,
+  -readability-uppercase-literal-suffix,
+  -readability-else-after-return,
+  -readability-avoid-nested-conditional-operator,
+  -readability-math-missing-parentheses,
+  -readability-isolate-declaration,
+  -readability-named-parameter,
+  -readability-convert-member-functions-to-static,
+  -readability-static-accessed-through-instance
+
+# Only this tree's headers; never entt's, SDL's, spng's or miniz's -- their
+# paths contain "src" too, hence the explicit _deps exclusion.
+HeaderFilterRegex: '.*[/\](src|tests)[/\].*\.hpp$'
+ExcludeHeaderFilterRegex: '.*[/\](_deps|third_party)[/\].*'
+FormatStyle: file
+WarningsAsErrors: ''

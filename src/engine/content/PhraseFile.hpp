@@ -4,6 +4,7 @@
 #define UQM2_ENGINE_CONTENT_PHRASEFILE_HPP
 
 #include "ContentError.hpp"
+
 #include "engine/core/Types.hpp"
 
 #include <cassert>

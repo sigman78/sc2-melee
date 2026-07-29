@@ -8,6 +8,7 @@
 #include "sim/Targeting.hpp"
 #include "sim/Trig.hpp"
 
+#include <algorithm>
 #include <utility>
 
 namespace uqm::sim {
@@ -15,17 +16,14 @@ namespace uqm::sim {
 // Spends or restores energy, reporting whether it could; firing gates on
 // success (ship.c:296-299). Every success re-arms the regen countdown
 // (status.c:317-323); a failed spend does not.
-bool
-deltaEnergy(ShipState &s, i32 delta) noexcept
+bool deltaEnergy(ShipState &s, i32 delta) noexcept
 {
 	if (delta < 0 && s.energy + delta < 0)
 		return false;
 
 	s.energy += delta;
-	if (s.energy > s.spec->battery.max)
-		s.energy = s.spec->battery.max;
-	if (s.energy < 0)
-		s.energy = 0;
+	s.energy = std::min(s.energy, s.spec->battery.max);
+	s.energy = std::max(s.energy, 0);
 	s.energyCounter = s.spec->battery.wait;
 	return true;
 }
@@ -33,13 +31,12 @@ deltaEnergy(ShipState &s, i32 delta) noexcept
 // The silhouette follows the facing (process.c:159-160). Updates the
 // Collider if one is already attached, else attaches one fresh -- a ship
 // spawned with no initial mask gets its first Collider this way.
-void
-applyFacingMask(Battle &b, EntityId id, Facing facing, const ShipSpec &spec) noexcept
+void applyFacingMask(
+		Battle &b, EntityId id, Facing facing, const ShipSpec &spec) noexcept
 {
 	if (spec.facingMasks.empty())
 		return;
-	const usize i =
-			static_cast<usize>(facing.raw()) % spec.facingMasks.size();
+	const usize i = static_cast<usize>(facing.raw()) % spec.facingMasks.size();
 	const CollisionMask *mask = &spec.facingMasks[i];
 	if (Collider *c = b.find<Collider>(id))
 		c->mask = mask;
@@ -47,12 +44,11 @@ applyFacingMask(Battle &b, EntityId id, Facing facing, const ShipSpec &spec) noe
 		b.attach<Collider>(id, mask);
 }
 
-EntityId
-spawnPlayerShip(Battle &b, const ShipSpec &spec,
+EntityId spawnPlayerShip(Battle &b, const ShipSpec &spec,
 		Borrowed<const CollisionMask> mask, Vec2i at, Facing facing,
 		i32 playerNr, bool warpIn)
 {
-	Position pos{at, at, facing};
+	Position const pos{at, at, facing};
 	const Physique phys{spec.mass};
 	Spawned s = b.spawn(Layer::Field, pos, Motion{}, phys, mask,
 			Allegiance{playerNr, kNoEntity});
@@ -68,8 +64,7 @@ namespace {
 // Energy regeneration, gated by its own counter (ship.c:225-230). The
 // counter itself is re-armed inside deltaEnergy on every success, which is
 // how firing postpones regeneration.
-void
-regenEnergy(ShipState &s, const ShipSpec &spec) noexcept
+void regenEnergy(ShipState &s, const ShipSpec &spec) noexcept
 {
 	if (s.energyCounter > 0)
 	{
@@ -83,8 +78,8 @@ regenEnergy(ShipState &s, const ShipSpec &spec) noexcept
 
 // Turning. One facing step per turn_wait frames -- ships rotate in whole
 // facings, which is why the trig tables matter (ship.c:238-254).
-void
-turnShip(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
+void turnShip(
+		Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 {
 	const Input &in = b.get<Input>(id);
 	if (s.turnWait > 0)
@@ -103,9 +98,8 @@ turnShip(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 
 // Thrust (ship.c:256-276). The facing is passed in rather than read off a
 // global -- see Thrust.hpp.
-void
-applyThrustInput(Battle &b, EntityId id, ShipState &s,
-		const ShipSpec &spec) noexcept
+void applyThrustInput(
+		Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 {
 	const Input &in = b.get<Input>(id);
 	if (s.thrustWait > 0)
@@ -119,14 +113,16 @@ applyThrustInput(Battle &b, EntityId id, ShipState &s,
 		s.speed = thrust(motion.velocity, facing, spec.thrust,
 				ThrustState{s.speed, s.inGravityWell});
 		// ship.c:263-267 clears the whole speed/gravity group and ORs in the
-		// thrust result; gravity re-sets the well flag next frame if still inside
-		// one, so leaving the well loses the licence to exceed max speed at once.
+		// thrust result; gravity re-sets the well flag next frame if still
+		// inside one, so leaving the well loses the licence to exceed max speed
+		// at once.
 		s.inGravityWell = false;
 		s.thrustWait = spec.thrustWait;
 
-		// Exhaust only on frames the ship actually accelerates (ship.c:274), and
-		// not while FULLY cloaked (ship.c:271 gates on OBJECT_CLOAKED, true only at
-		// black) -- a half-faded ship still emits one (tactrans.c:792-832).
+		// Exhaust only on frames the ship actually accelerates (ship.c:274),
+		// and not while FULLY cloaked (ship.c:271 gates on OBJECT_CLOAKED, true
+		// only at black) -- a half-faded ship still emits one
+		// (tactrans.c:792-832).
 		if (!b.has<Cloaked>(id))
 			spawnIonTrail(b, id);
 	}
@@ -134,8 +130,8 @@ applyThrustInput(Battle &b, EntityId id, ShipState &s,
 
 // Firing. The energy is spent as part of the test, so a ship that cannot
 // afford the shot does not start the cooldown either.
-void
-fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
+void fireWeapon(
+		Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 {
 	const Input &in = b.get<Input>(id);
 	if (s.weaponCounter > 0)
@@ -159,9 +155,8 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 		view.blastOffset = spec.weapon.warhead.blastOffset;
 
 		SpawnBuffer buf{};
-		const usize n = spec.weapon.spawn != nullptr
-				? spec.weapon.spawn(view, buf)
-				: 0;
+		const usize n =
+				spec.weapon.spawn != nullptr ? spec.weapon.spawn(view, buf) : 0;
 
 		for (usize i = 0; i < n; ++i)
 		{
@@ -181,26 +176,29 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 			const CollisionMask *shotMask = spec.weapon.masks.empty()
 					? nullptr
 					: &spec.weapon.masks[static_cast<usize>(sp.frameIndex)
-							% spec.weapon.masks.size()];
+							  % spec.weapon.masks.size()];
 			wMotion.velocity.setVector(sp.speed, sp.facing);
 			// owner = id: pParent, what IGNORE_SIMILAR is tested against.
 			const Allegiance wAllegiance{sp.playerNr, id};
 
-			// Backed off by one frame of its own muzzle velocity, as the C does for
-			// every missile (weapon.c:126-127); the catch-up pass integrates it
-			// forward, so total travel over its life is life frames, not life + 1.
+			// Backed off by one frame of its own muzzle velocity, as the C does
+			// for every missile (weapon.c:126-127); the catch-up pass
+			// integrates it forward, so total travel over its life is life
+			// frames, not life + 1.
 			{
 				const Vec2i v0 = wMotion.velocity.current();
-				wPos.current = wrap(Vec2i{wPos.current.x - velocityToWorld(v0.x),
-						wPos.current.y - velocityToWorld(v0.y)});
+				wPos.current =
+						wrap(Vec2i{wPos.current.x - velocityToWorld(v0.x),
+								wPos.current.y - velocityToWorld(v0.y)});
 				wPos.next = wPos.current;
 			}
 
 			if (sp.inheritsVelocity)
 			{
-				// The ship's velocity adds on top of the muzzle velocity, and the start
-				// position backs off by one frame of it (ilwrath.c:219-222) -- otherwise
-				// the first frame of flame appears ahead of where the ship actually was.
+				// The ship's velocity adds on top of the muzzle velocity, and
+				// the start position backs off by one frame of it
+				// (ilwrath.c:219-222) -- otherwise the first frame of flame
+				// appears ahead of where the ship actually was.
 				const Vec2i v = shipMotion.velocity.current();
 				wMotion.velocity.deltaComponents(v.x, v.y);
 				wPos.current = wrap(Vec2i{wPos.current.x - velocityToWorld(v.x),
@@ -219,8 +217,9 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 					.allegiance = wAllegiance,
 					.weaponSpec = &spec.weapon,
 
-					// Attached verbatim: the spec's own literal already carries the
-					// wound clock (initialize_nuke seeds TRACK_WAIT, human.c:297-299).
+					// Attached verbatim: the spec's own literal already carries
+					// the wound clock (initialize_nuke seeds TRACK_WAIT,
+					// human.c:297-299).
 					.guided = spec.weapon.guided,
 
 					.ignoreSimilar = sp.ignoreSimilar,
@@ -241,9 +240,8 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 // SPECIAL: the engine only ticks the counter (ship.c:342-343). Decrement
 // first, then test the just-decremented value (ship.c:342-346) -- gating
 // in an else-branch instead adds a dead frame every cycle.
-void
-gateSpecial(Battle &b, EntityId id, ShipState &s,
-		const ShipSpec &spec) noexcept
+void gateSpecial(
+		Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 {
 	const Input &in = b.get<Input>(id);
 	if (s.specialCounter > 0)
@@ -260,13 +258,12 @@ void explosionStep(Battle &b, EntityId id) noexcept;
 
 }  // namespace
 
-void
-energyRegenPass(Battle &b) noexcept
+void energyRegenPass(Battle &b) noexcept
 {
 	// WarpingIn/Appearing are presence filters, so they belong in the query
 	// exclusion; crew == 0 is a value test and stays in the body.
-	b.view<ShipState>(entt::exclude<WarpingIn, Appearing>).each(
-			[](ShipState &s) {
+	b.view<ShipState>(entt::exclude<WarpingIn, Appearing>)
+			.each([](ShipState &s) {
 				if (s.crew == 0)
 					return;
 				regenEnergy(s, *s.spec);
@@ -279,8 +276,7 @@ namespace {
 // everything, the appearing frame is its own one-time init, a dead hull
 // only burns, and only what is left of those runs the ship's own preProcess
 // hook (the Ilwrath cloak). Turn and Thrust are their own passes below.
-void
-shipMachinesStep(Battle &b, EntityId id, ShipState &s) noexcept
+void shipMachinesStep(Battle &b, EntityId id, ShipState &s) noexcept
 {
 	const ShipSpec &spec = *s.spec;
 
@@ -315,22 +311,20 @@ shipMachinesStep(Battle &b, EntityId id, ShipState &s) noexcept
 
 }  // namespace
 
-void
-shipMachinesPass(Battle &b) noexcept
+void shipMachinesPass(Battle &b) noexcept
 {
 	b.eachOrdered<ShipState>(
 			[&b](EntityId id, ShipState &s) { shipMachinesStep(b, id, s); });
 }
 
-void
-turnPass(Battle &b) noexcept
+void turnPass(Battle &b) noexcept
 {
 	// ShipState alone selects the ships -- only a ship ever carries one.
 	// WarpingIn/Appearing are presence filters in the query's exclude;
 	// crew == 0 is a value test and stays in the body. Order-free: turning
 	// has no cross-entity or spawn-ordering dependency.
-	b.view<ShipState>(entt::exclude<WarpingIn, Appearing>).each(
-			[&b](EntityId id, ShipState &s) {
+	b.view<ShipState>(entt::exclude<WarpingIn, Appearing>)
+			.each([&b](EntityId id, ShipState &s) {
 				if (s.crew == 0)
 					return;
 				turnShip(b, id, s, *s.spec);
@@ -340,8 +334,7 @@ turnPass(Battle &b) noexcept
 // A thrusting ship queues an ion-trail spawn command; that command's
 // position in spawnCommands_ fixes the trail's Order (layer, seq) slot at
 // the sync point, matching eachOrdered's emission order.
-void
-thrustPass(Battle &b) noexcept
+void thrustPass(Battle &b) noexcept
 {
 	b.eachOrdered<ShipState>(entt::exclude<WarpingIn, Appearing>,
 			[&b](EntityId id, ShipState &s) {
@@ -351,14 +344,13 @@ thrustPass(Battle &b) noexcept
 			});
 }
 
-void
-fireAndSpecialGatePass(Battle &b) noexcept
+void fireAndSpecialGatePass(Battle &b) noexcept
 {
 	// No Appearing exclusion here, unlike Turn/Thrust: ShipMachines already
 	// forces Input::None on the appearing frame, so fireWeapon/gateSpecial
 	// see nothing pressed regardless.
-	b.eachOrdered<ShipState>(entt::exclude<WarpingIn>,
-			[&b](EntityId id, ShipState &s) {
+	b.eachOrdered<ShipState>(
+			entt::exclude<WarpingIn>, [&b](EntityId id, ShipState &s) {
 				if (s.crew == 0)
 					return;
 				fireWeapon(b, id, s, *s.spec);
@@ -366,15 +358,13 @@ fireAndSpecialGatePass(Battle &b) noexcept
 			});
 }
 
-void
-guidedSteerPass(Battle &b) noexcept
+void guidedSteerPass(Battle &b) noexcept
 {
 	b.eachOrdered<Guided>(
 			[&b](EntityId id, Guided &) { guidedShotPreProcess(b, id); });
 }
 
-void
-guidedShotPreProcess(Battle &b, EntityId id) noexcept
+void guidedShotPreProcess(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
@@ -416,13 +406,11 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 	// just launched.
 	i32 speed = ws->speed
 			+ (ws->lifetime.remaining - lifeSpanOf(b, id)) * g->thrustScale;
-	if (speed > g->maxSpeed)
-		speed = g->maxSpeed;
+	speed = std::min(speed, g->maxSpeed);
 	b.get<Motion>(id).velocity.setVector(speed, pos->facing);
 }
 
-void
-spawnIonTrail(Battle &b, EntityId ship) noexcept
+void spawnIonTrail(Battle &b, EntityId ship) noexcept
 {
 	if (!b.alive(ship))
 		return;
@@ -458,8 +446,7 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 
 namespace {
 
-void
-warpInStep(Battle &b, EntityId id) noexcept
+void warpInStep(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
@@ -500,7 +487,8 @@ warpInStep(Battle &b, EntityId id) noexcept
 				.layer = Layer::Background,
 				.position = shadowPos,
 				// Picks which ship's sprites to draw; no owner of its own.
-				.allegiance = Allegiance{b.get<Allegiance>(id).playerNr, kNoEntity},
+				.allegiance =
+						Allegiance{b.get<Allegiance>(id).playerNr, kNoEntity},
 				.effect = true,  // stationary: no Motion needed
 				.shadow = true,
 				.lifetime = Lifetime{Trail::kLife},
@@ -528,8 +516,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 // cleanup_dead_ship (tactrans.c:307-337): when the wreck finishes burning,
 // everything the dead ship still owns -- in-flight nukes, the flame stream --
 // goes with it. The C excepts drifting crew, which does not exist yet.
-void
-sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
+void sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 {
 	// Every live entity has an Allegiance (uniform attach), so requiring it
 	// in eachOrdered<Allegiance> is exact -- no null check needed.
@@ -542,8 +529,7 @@ sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 	});
 }
 
-void
-startShipExplosion(Battle &b, EntityId id) noexcept
+void startShipExplosion(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
@@ -567,8 +553,7 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 
 namespace {
 
-void
-explosionStep(Battle &b, EntityId id) noexcept
+void explosionStep(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
 		return;
@@ -591,8 +576,8 @@ explosionStep(Battle &b, EntityId id) noexcept
 	const Vec2i from = b.get<Position>(id).current;
 	for (int n = 0; n < count; ++n)
 	{
-		// Scattered around the hull: random bearing, up to 8 display pixels out, a
-		// third thrown 8 further so the cloud has an edge, not a rim
+		// Scattered around the hull: random bearing, up to 8 display pixels
+		// out, a third thrown 8 further so the cloud has an edge, not a rim
 		// (tactrans.c:597-604).
 		const u32 r0 = b.rng().next();
 		const Angle spot{static_cast<int>(r0 >> 16)};
@@ -601,18 +586,19 @@ explosionStep(Battle &b, EntityId id) noexcept
 			dist += displayToWorld(8);
 
 		// Drifting: its own bearing, up to 4 display pixels a frame. The speed
-		// slice is HIBYTE(LOWORD()) -- one byte, then modulo (tactrans.c:607-612);
-		// slicing different bits draws a different value from the same stream.
+		// slice is HIBYTE(LOWORD()) -- one byte, then modulo
+		// (tactrans.c:607-612); slicing different bits draws a different value
+		// from the same stream.
 		const u32 r1 = b.rng().next();
 		const Angle drift{static_cast<int>(r1)};
-		const i32 speed = displayToWorld(
-				static_cast<i32>(((r1 >> 8) & 0xFFu) % 5u));
+		const i32 speed =
+				displayToWorld(static_cast<i32>(((r1 >> 8) & 0xFFu) % 5u));
 
 		// NEUTRAL: wreckage belongs to nobody -- cmd.allegiance below
 		// defaults to exactly that.
 		Position dPos;
-		dPos.current = wrap(Vec2i{from.x + cosine(spot, dist),
-				from.y + sine(spot, dist)});
+		dPos.current = wrap(
+				Vec2i{from.x + cosine(spot, dist), from.y + sine(spot, dist)});
 		dPos.next = dPos.current;
 		// From components at the full 64-angle resolution, the way the C's
 		// SetVelocityComponents call is (tactrans.c:607-612). Rounding the
@@ -625,8 +611,8 @@ explosionStep(Battle &b, EntityId id) noexcept
 				.layer = Layer::Background,
 				.position = dPos,
 				.motion = dMotion,
-				// Never collidable, but the one decoration that drifts, so it needs
-				// Motion where the others don't.
+				// Never collidable, but the one decoration that drifts, so it
+				// needs Motion where the others don't.
 				.effect = true,
 				.effectMoves = true,
 				.debris = true,

@@ -9,8 +9,8 @@
 
 namespace uqm::content {
 
-ResourceMap
-ResourceMap::parse(std::string_view text, std::vector<ContentError> *problems)
+ResourceMap ResourceMap::parse(
+		std::string_view text, std::vector<ContentError> *problems)
 {
 	using enum ContentErrorCode;
 
@@ -65,16 +65,15 @@ ResourceMap::parse(std::string_view text, std::vector<ContentError> *problems)
 
 	// Duplicate keys mean one of them silently wins. Which one depended on
 	// std::map's insert-first-wins before; now it is at least reported.
-	const auto dup = std::ranges::adjacent_find(
-			map.entries_, {}, &Resource::key);
+	const auto dup =
+			std::ranges::adjacent_find(map.entries_, {}, &Resource::key);
 	if (dup != map.entries_.end())
 		note(BadFieldCount, 0);
 
 	return map;
 }
 
-const Resource *
-ResourceMap::find(std::string_view key) const noexcept
+const Resource *ResourceMap::find(std::string_view key) const noexcept
 {
 	const auto it = std::ranges::lower_bound(entries_, key, {}, &Resource::key);
 	if (it == entries_.end() || it->key != key)

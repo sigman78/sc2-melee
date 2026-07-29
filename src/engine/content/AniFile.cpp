@@ -9,20 +9,18 @@
 
 namespace uqm::content {
 
-AniFile
-parseAni(std::string_view text, std::vector<ContentError> *problems)
+AniFile parseAni(std::string_view text, std::vector<ContentError> *problems)
 {
 	using enum ContentErrorCode;
 
 	AniFile ani;
 
 	const auto note = [problems](ContentErrorCode code, usize line,
-								  u64 expected = 0,
-								  u64 actual = 0) {
+							  u64 expected = 0, u64 actual = 0) {
 		if (problems != nullptr)
 		{
-			problems->emplace_back(code, static_cast<u32>(line),
-					expected, actual);
+			problems->emplace_back(
+					code, static_cast<u32>(line), expected, actual);
 		}
 	};
 
@@ -69,26 +67,25 @@ parseAni(std::string_view text, std::vector<ContentError> *problems)
 		// one, which the loader cannot tell apart until the PNG is open.
 		switch (transparent)
 		{
-			case -1:
-				cel.transparency = Transparency::None;
-				break;
-			case -2:
-				cel.transparency = Transparency::PngAlpha;
-				break;
-			case 0:
-				cel.transparency = Transparency::BlackIsClear;
-				cel.transparentIndex = 0;
-				break;
-			default:
-				if (transparent < 0)
-				{
-					note(BadTransparency, lineNo, 0,
-							static_cast<u64>(transparent));
-					return;
-				}
-				cel.transparency = Transparency::PaletteIndex;
-				cel.transparentIndex = transparent;
-				break;
+		case -1:
+			cel.transparency = Transparency::None;
+			break;
+		case -2:
+			cel.transparency = Transparency::PngAlpha;
+			break;
+		case 0:
+			cel.transparency = Transparency::BlackIsClear;
+			cel.transparentIndex = 0;
+			break;
+		default:
+			if (transparent < 0)
+			{
+				note(BadTransparency, lineNo, 0, static_cast<u64>(transparent));
+				return;
+			}
+			cel.transparency = Transparency::PaletteIndex;
+			cel.transparentIndex = transparent;
+			break;
 		}
 
 		ani.cels.push_back(cel);

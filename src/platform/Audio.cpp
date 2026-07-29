@@ -27,18 +27,14 @@ Sound::~Sound()
 }
 
 Sound::Sound(Sound &&other) noexcept
-	: data_(other.data_)
-	, length_(other.length_)
-	, format_(other.format_)
-	, channels_(other.channels_)
-	, rate_(other.rate_)
+	: data_(other.data_), length_(other.length_), format_(other.format_),
+	  channels_(other.channels_), rate_(other.rate_)
 {
 	other.data_ = nullptr;
 	other.length_ = 0;
 }
 
-Sound &
-Sound::operator=(Sound &&other) noexcept
+Sound &Sound::operator=(Sound &&other) noexcept
 {
 	if (this != &other)
 	{
@@ -94,8 +90,7 @@ Audio::~Audio()
 		SDL_DestroyAudioStream(s);
 }
 
-Sound
-Audio::load(const std::filesystem::path &wav) const
+Sound Audio::load(const std::filesystem::path &wav) const
 {
 	Sound out;
 
@@ -113,8 +108,7 @@ Audio::load(const std::filesystem::path &wav) const
 	return out;
 }
 
-void
-Audio::play(const Sound &s, float gain)
+void Audio::play(const Sound &s, float gain)
 {
 	if (streams_.empty() || !s.valid())
 		return;

@@ -9,8 +9,7 @@
 
 namespace uqm::sim {
 
-bool
-calculateGravity(Battle &b, EntityId id)
+bool calculateGravity(Battle &b, EntityId id)
 {
 	if (!b.alive(id))
 		return false;
@@ -86,8 +85,7 @@ calculateGravity(Battle &b, EntityId id)
 	return insideAWell;
 }
 
-void
-gravityPass(Battle &b)
+void gravityPass(Battle &b)
 {
 	// The well is whichever entity carries Planet, not whichever entity's
 	// mass happens to clear kGravityMass -- there is only ever one.

@@ -12,8 +12,7 @@
 
 namespace uqm::sim {
 
-bool
-deltaCrew(ShipState &s, i32 delta) noexcept
+bool deltaCrew(ShipState &s, i32 delta) noexcept
 {
 	if (delta > 0)
 	{
@@ -40,8 +39,8 @@ namespace {
 // emplace_or_accumulate: the first hit this frame attaches the component,
 // every later one just adds to it, so several sources stack into one
 // summed application at the sync point.
-void
-accumulateDamage(Battle &b, EntityId id, i32 amount, EntityId from) noexcept
+void accumulateDamage(
+		Battle &b, EntityId id, i32 amount, EntityId from) noexcept
 {
 	if (DamageIncoming *di = b.find<DamageIncoming>(id))
 	{
@@ -56,16 +55,13 @@ accumulateDamage(Battle &b, EntityId id, i32 amount, EntityId from) noexcept
 
 }  // namespace
 
-void
-doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
+void doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 {
 	if (!b.alive(id))
 		return;
 
 	if (b.has<ShipState>(id))
 	{
-		if (b.ship(id) == nullptr)
-			return;
 		// A crewed hull's damage stacks in DamageIncoming; Battle::step's
 		// sync point sums every source this frame into one deltaCrew call
 		// and one death check.
@@ -98,8 +94,7 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 	b.detach<Collider>(id);
 }
 
-void
-weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
+void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 {
 	if (!b.alive(id))
 		return;
@@ -113,7 +108,7 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 
 	if (!b.alive(targetId))
 		return;
-	CollisionScratch &targetScratch = b.get<CollisionScratch>(targetId);
+	CollisionScratch const &targetScratch = b.get<CollisionScratch>(targetId);
 
 	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
 	const i32 damage = b.get<Physique>(id).mass;
@@ -140,10 +135,10 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 
 	// Dies here against a solid target, always; against a finite one, only if
 	// it hasn't already stopped and isn't tough enough to pierce -- hit points
-	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame don't).
+	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame
+	// don't).
 	Vitality &wVital = b.get<Vitality>(id);
-	if (b.alive(targetId)
-			&& isFiniteLife(b, targetId)
+	if (b.alive(targetId) && isFiniteLife(b, targetId)
 			&& (targetScratch.collided
 					|| wVital.hitPoints > b.get<Physique>(targetId).mass))
 		return;
@@ -171,8 +166,9 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// weapon's playerNr, no owner of its own.
 	const i32 shooterPlayerNr = b.get<Allegiance>(id).playerNr;
 	Position blastPos;
-	blastPos.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(warhead.blastOffset)),
-			at.y + sine(angle, displayToWorld(warhead.blastOffset))});
+	blastPos.current = wrap(
+			Vec2i{at.x + cosine(angle, displayToWorld(warhead.blastOffset)),
+					at.y + sine(angle, displayToWorld(warhead.blastOffset))});
 	blastPos.next = blastPos.current;
 
 	// Queued, not spawned: it enters the world at the sync point and acts
@@ -187,8 +183,7 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	});
 }
 
-void
-solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept
+void solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept
 {
 	if (!b.alive(id))
 		return;
@@ -210,8 +205,9 @@ solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept
 		return;
 
 	// ship.c:364-367: damage = hit_points >> 2, floored at one. For a
-	// PLAYER_SHIP, hit_points IS crew_level (one union field, element.h:126-133);
-	// anything else here (asteroid, planet) has a Vitality instead.
+	// PLAYER_SHIP, hit_points IS crew_level (one union field,
+	// element.h:126-133); anything else here (asteroid, planet) has a Vitality
+	// instead.
 	const ShipState *ss = b.ship(id);
 	const Vitality *v = b.find<Vitality>(id);
 	const i32 own = ss != nullptr ? ss->crew : v != nullptr ? v->hitPoints : 0;

@@ -13,9 +13,9 @@
 #include "sim/Random.hpp"
 #include "sim/Ship.hpp"
 #include "sim/ShipSystems.hpp"
+#include "sim/Trig.hpp"
 #include "sim/ships/Human.hpp"
 #include "sim/ships/Ilwrath.hpp"
-#include "sim/Trig.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -37,8 +37,7 @@ namespace {
 // Battle setup: mirrors app/melee/Game.cpp's setUpBattle, headless -- no
 // content, no stars, no window.
 
-CollisionMask
-solid(u32 w, u32 h)
+CollisionMask solid(u32 w, u32 h)
 {
 	const std::vector<u8> bits(static_cast<usize>(w) * h, 1);
 	return CollisionMask(Extent2u{w, h},
@@ -54,8 +53,7 @@ const CollisionMask kPlanetMask = solid(28, 28);
 // collidable() would exclude it. One synthetic mask stands in for both ships.
 const CollisionMask kWeaponMaskArray[1]{solid(4, 4)};
 
-const ShipSpec &
-materializedCruiser() noexcept
+const ShipSpec &materializedCruiser() noexcept
 {
 	static const ShipSpec spec = [] {
 		ShipSpec s = earthlingCruiser();
@@ -65,8 +63,7 @@ materializedCruiser() noexcept
 	return spec;
 }
 
-const ShipSpec &
-materializedAvenger() noexcept
+const ShipSpec &materializedAvenger() noexcept
 {
 	static const ShipSpec spec = [] {
 		ShipSpec s = ilwrathAvenger();
@@ -88,10 +85,9 @@ struct Ships
 // Cruiser vs Avenger, one of each fully spawned and placed before the next --
 // Game.cpp's order, since placement rejects on overlap with what already
 // exists.
-Ships
-setUpBattle(Battle &b)
+Ships setUpBattle(Battle &b)
 {
-	Ships s;
+	Ships s{};
 	const Facing f0 = Facing(static_cast<int>(b.rng().next() & 0xFFu));
 	s.cruiser = spawnPlayerShip(b, materializedCruiser(), &kShipMask,
 			Vec2i{0, 0}, f0, 0, /*warpIn=*/true);
@@ -115,14 +111,12 @@ setUpBattle(Battle &b)
 constexpr u32 kInputSalt = 0x9E3779B9u;
 constexpr int kInputPeriod = 8;
 
-Rng
-inputRngFor(u32 battleSeed, int playerIndex) noexcept
+Rng inputRngFor(u32 battleSeed, int playerIndex) noexcept
 {
 	return Rng(battleSeed ^ (kInputSalt * static_cast<u32>(playerIndex + 1)));
 }
 
-ShipInput
-wordToInput(u32 w) noexcept
+ShipInput wordToInput(u32 w) noexcept
 {
 	ShipInput in = ShipInput::None;
 	if ((w & 1u) != 0u)
@@ -150,8 +144,7 @@ wordToInput(u32 w) noexcept
 constexpr u64 kFnvOffset = 0xcbf29ce484222325ull;
 constexpr u64 kFnvPrime = 0x100000001b3ull;
 
-void
-foldBytes(u64 &h, const u8 *p, usize n) noexcept
+void foldBytes(u64 &h, const u8 *p, usize n) noexcept
 {
 	for (usize i = 0; i < n; ++i)
 	{
@@ -160,24 +153,21 @@ foldBytes(u64 &h, const u8 *p, usize n) noexcept
 	}
 }
 
-void
-foldI32(u64 &h, i32 v) noexcept
+void foldI32(u64 &h, i32 v) noexcept
 {
 	u8 b[4];
 	std::memcpy(b, &v, sizeof(b));
 	foldBytes(h, b, sizeof(b));
 }
 
-void
-foldU64(u64 &h, u64 v) noexcept
+void foldU64(u64 &h, u64 v) noexcept
 {
 	u8 b[8];
 	std::memcpy(b, &v, sizeof(b));
 	foldBytes(h, b, sizeof(b));
 }
 
-std::string
-hex16(u64 v)
+std::string hex16(u64 v)
 {
 	std::ostringstream oss;
 	oss << std::hex << std::setfill('0') << std::setw(16) << v;
@@ -192,8 +182,7 @@ constexpr int kMaxSteps = 2400;
 constexpr int kDeathBuffer = 48;
 constexpr u64 kCheckpointInterval = 64;  // frames per running-hash checkpoint
 
-u32
-seedFor(int i) noexcept
+u32 seedFor(int i) noexcept
 {
 	return (1000003u * static_cast<u32>(i) + 7u) | 1u;
 }
@@ -213,8 +202,7 @@ struct BattleResult
 
 // Runs one battle. `trace`, if non-null, gets one line per element per frame
 // -- see doTrace.
-BattleResult
-simulateBattle(u32 seed, std::ostream *trace)
+BattleResult simulateBattle(u32 seed, std::ostream *trace)
 {
 	BattleResult r;
 	r.seed = seed;
@@ -253,12 +241,14 @@ simulateBattle(u32 seed, std::ostream *trace)
 			// A beam has no Position -- its Beam.from is what this digest
 			// folds as `current` instead, to keep the hash stable.
 			const Position *pos = b.find<Position>(id);
-			const Vec2i at = pos != nullptr ? pos->current : b.find<Beam>(id)->from;
+			const Vec2i at =
+					pos != nullptr ? pos->current : b.find<Beam>(id)->from;
 			foldI32(frameDigest, at.x);
 			foldI32(frameDigest, at.y);
 			// find<Lifetime> ? remaining : 1 -- the persistent-element value
 			// Lifetime replaces, so the digest matches bit-for-bit against the
-			// baseline; the planet's fold is 1 here, not 2 (one legal re-record).
+			// baseline; the planet's fold is 1 here, not 2 (one legal
+			// re-record).
 			foldI32(frameDigest, lifeSpanOf(b, id));
 			const ShipState *ss = b.ship(id);
 			if (ss != nullptr)
@@ -268,8 +258,8 @@ simulateBattle(u32 seed, std::ostream *trace)
 			}
 			if (trace != nullptr)
 			{
-				*trace << b.frame() << ' ' << walkIndex << ' ' << at.x
-						<< ' ' << at.y << ' ' << lifeSpanOf(b, id);
+				*trace << b.frame() << ' ' << walkIndex << ' ' << at.x << ' '
+					   << at.y << ' ' << lifeSpanOf(b, id);
 				if (ss != nullptr)
 					*trace << ' ' << ss->crew << ' ' << ss->energy;
 				*trace << '\n';
@@ -281,8 +271,7 @@ simulateBattle(u32 seed, std::ostream *trace)
 		if (b.frame() % kCheckpointInterval == 0)
 			r.checkpoints.push_back(battleHash);
 
-		if (deathFrame < 0
-				&& (!b.alive(shipId[0]) || !b.alive(shipId[1])))
+		if (deathFrame < 0 && (!b.alive(shipId[0]) || !b.alive(shipId[1])))
 			deathFrame = frame;
 		if (deathFrame >= 0 && frame >= deathFrame + kDeathBuffer)
 			break;
@@ -304,17 +293,16 @@ simulateBattle(u32 seed, std::ostream *trace)
 
 constexpr char kBaselineHeader[] = "replay-baseline v1";
 
-void
-writeBaseline(std::ostream &out, const std::vector<BattleResult> &results)
+void writeBaseline(std::ostream &out, const std::vector<BattleResult> &results)
 {
 	out << kBaselineHeader << '\n';
 	for (const BattleResult &r : results)
 	{
 		out << r.seed << ' ' << r.winner << ' ' << r.endFrame << ' '
-				<< hex16(r.hash) << ' ' << r.crewLost0 << ' ' << r.crewLost1
-				<< ' ' << r.shots << ' ' << r.collisions << '\n';
+			<< hex16(r.hash) << ' ' << r.crewLost0 << ' ' << r.crewLost1 << ' '
+			<< r.shots << ' ' << r.collisions << '\n';
 		out << "ck " << r.checkpoints.size();
-		for (u64 c : r.checkpoints)
+		for (u64 const c : r.checkpoints)
 			out << ' ' << hex16(c);
 		out << '\n';
 	}
@@ -333,8 +321,7 @@ struct BaselineEntry
 	std::vector<u64> checkpoints;
 };
 
-bool
-loadBaseline(const std::string &path, std::vector<BaselineEntry> &out,
+bool loadBaseline(const std::string &path, std::vector<BaselineEntry> &out,
 		std::string &err)
 {
 	std::ifstream in(path);
@@ -396,8 +383,7 @@ loadBaseline(const std::string &path, std::vector<BaselineEntry> &out,
 
 // Localizes a hash mismatch to the 64-frame window it first appears in, using
 // the running-hash checkpoints either side carries.
-void
-reportFirstDivergence(
+void reportFirstDivergence(
 		const std::vector<u64> &baseCk, const std::vector<u64> &actualCk)
 {
 	const usize n = std::max(baseCk.size(), actualCk.size());
@@ -432,8 +418,7 @@ reportFirstDivergence(
 	}
 }
 
-std::vector<BaselineEntry>
-requireBaseline(const std::string &path, bool &ok)
+std::vector<BaselineEntry> requireBaseline(const std::string &path, bool &ok)
 {
 	std::vector<BaselineEntry> baseline;
 	std::string err;
@@ -457,8 +442,7 @@ requireBaseline(const std::string &path, bool &ok)
 // --------------------------------------------------------------------------
 // Modes.
 
-int
-doRecord(const std::string &path)
+int doRecord(const std::string &path)
 {
 	std::vector<BattleResult> results;
 	results.reserve(kNumBattles);
@@ -478,8 +462,7 @@ doRecord(const std::string &path)
 // `limit` runs/checks only the first `limit` battles -- baseline parsing is
 // unchanged (still the full file), so this is an inner-loop gate over the
 // same baseline, not a different one.
-int
-doCompare(const std::string &path, int limit = kNumBattles)
+int doCompare(const std::string &path, int limit = kNumBattles)
 {
 	bool ok = false;
 	const std::vector<BaselineEntry> baseline = requireBaseline(path, ok);
@@ -495,7 +478,8 @@ doCompare(const std::string &path, int limit = kNumBattles)
 
 		bool printedHeader = false;
 		bool battleOk = true;
-		const auto field = [&](const char *name, auto wantV, auto gotV) {
+		const auto field = [&](const char *name, const auto &wantV,
+								   const auto &gotV) {
 			if (!(wantV == gotV))
 			{
 				if (!printedHeader)
@@ -537,12 +521,11 @@ doCompare(const std::string &path, int limit = kNumBattles)
 	return 0;
 }
 
-double
-medianU64(std::vector<u64> v)
+double medianU64(std::vector<u64> v)
 {
 	if (v.empty())
 		return 0.0;
-	std::sort(v.begin(), v.end());
+	std::ranges::sort(v);
 	const usize mid = v.size() / 2;
 	if (v.size() % 2 == 1)
 		return static_cast<double>(v[mid]);
@@ -550,8 +533,7 @@ medianU64(std::vector<u64> v)
 			/ 2.0;
 }
 
-int
-doSimilar(const std::string &path)
+int doSimilar(const std::string &path)
 {
 	bool ok = false;
 	const std::vector<BaselineEntry> baseline = requireBaseline(path, ok);
@@ -619,8 +601,9 @@ doSimilar(const std::string &path)
 	if (shotsDiff > shotsThreshold)
 		pass = false;
 
-	const double collisionsDiff = std::fabs(static_cast<double>(actualCollisions)
-			- static_cast<double>(baseCollisions));
+	const double collisionsDiff =
+			std::fabs(static_cast<double>(actualCollisions)
+					- static_cast<double>(baseCollisions));
 	const double collisionsThreshold =
 			static_cast<double>(baseCollisions) * 0.30;
 	std::printf("collisions: baseline %llu, actual %llu (threshold %.1f)\n",
@@ -633,8 +616,8 @@ doSimilar(const std::string &path)
 	const double endFrameMedianDiff = medianU64(endFrameDiffs);
 	const double endFrameMedianBase = medianU64(baseEndFrames);
 	const double endFrameThreshold = endFrameMedianBase * 0.15;
-	std::printf(
-			"endFrame: median |diff| %.1f, baseline median %.1f (threshold %.1f)\n",
+	std::printf("endFrame: median |diff| %.1f, baseline median %.1f (threshold "
+				"%.1f)\n",
 			endFrameMedianDiff, endFrameMedianBase, endFrameThreshold);
 	if (endFrameMedianDiff > endFrameThreshold)
 		pass = false;
@@ -643,8 +626,7 @@ doSimilar(const std::string &path)
 	return pass ? 0 : 1;
 }
 
-int
-doTrace(int battleIndex, const std::string &outPath)
+int doTrace(int battleIndex, const std::string &outPath)
 {
 	if (battleIndex < 0 || battleIndex >= kNumBattles)
 	{
@@ -665,8 +647,7 @@ doTrace(int battleIndex, const std::string &outPath)
 
 }  // namespace
 
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
 	if (argc == 3 && std::strcmp(argv[1], "--record") == 0)
 		return doRecord(argv[2]);

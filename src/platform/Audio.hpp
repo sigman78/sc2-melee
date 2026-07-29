@@ -68,7 +68,8 @@ public:
 
 	// Starts `s` on the stream already playing it, if any -- one voice per
 	// distinct sound governs loudness; round-robin alone lets a fast-repeating
-	// effect stack copies additively. Matches the C's per-source channel (sound.c).
+	// effect stack copies additively. Matches the C's per-source channel
+	// (sound.c).
 	//
 	// `gain` is a multiplier, 1.0 being the file's own level.
 	void play(const Sound &s, float gain = 1.0f);

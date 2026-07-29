@@ -4,10 +4,11 @@
 
 #include "engine/core/Types.hpp"
 
+#include <spng.h>
+
 #include <cstdlib>
 #include <cstring>
 #include <memory>
-#include <spng.h>
 #include <utility>
 
 namespace uqm::content {
@@ -29,8 +30,7 @@ struct MallocDeleter
 // png2sdl.c:92-110. A tRNS on an indexed image can stay a colour key only if
 // exactly one entry is fully transparent and none is partial. Anything else
 // has to become real alpha, which means giving up the indices.
-bool
-trnsIsColorKey(const spng_trns &trns, i32 &key) noexcept
+bool trnsIsColorKey(const spng_trns &trns, i32 &key) noexcept
 {
 	i32 found = -1;
 	for (u32 i = 0; i < trns.n_type3_entries; ++i)
@@ -50,15 +50,14 @@ trnsIsColorKey(const spng_trns &trns, i32 &key) noexcept
 
 }  // namespace
 
-std::expected<PngImage, ContentError>
-decodePng(Bytes bytes)
+std::expected<PngImage, ContentError> decodePng(Bytes bytes)
 {
 	using enum ContentErrorCode;
 
 	if (bytes.empty())
 		return std::unexpected(ContentError{Empty});
 
-	CtxPtr ctx(spng_ctx_new(0));
+	CtxPtr const ctx(spng_ctx_new(0));
 	// Allocation failure is not a content error and there is nothing to
 	// recover to (docs/cpp-conventions.md rule 3).
 	assert(ctx && "out of memory allocating an spng context");
@@ -113,12 +112,13 @@ decodePng(Bytes bytes)
 	for (u32 i = 0; i < plte.n_entries && i < kPaletteSize; ++i)
 	{
 		image.palette_[i] = Rgb{plte.entries[i].red, plte.entries[i].green,
-			plte.entries[i].blue};
+				plte.entries[i].blue};
 	}
 
 	// SPNG_FMT_PNG keeps the file's packing, so sub-8-bit rows must be
 	// widened, not rescaled -- these are indices, and scaling would recolor
-	// the image (png2sdl.c:120-132). Three files in the tree exercise this path.
+	// the image (png2sdl.c:120-132). Three files in the tree exercise this
+	// path.
 	if (ihdr.bit_depth == 8)
 	{
 		image.pixels_ = std::move(raw);
@@ -148,8 +148,8 @@ decodePng(Bytes bytes)
 	return image;
 }
 
-std::expected<std::vector<std::byte>, ContentError>
-encodeRgbaPng(Extent2u size, std::span<const u8> rgba)
+std::expected<std::vector<std::byte>, ContentError> encodeRgbaPng(
+		Extent2u size, std::span<const u8> rgba)
 {
 	using enum ContentErrorCode;
 
@@ -157,7 +157,7 @@ encodeRgbaPng(Extent2u size, std::span<const u8> rgba)
 	if (rgba.size() != want)
 		return std::unexpected(ContentError{WrongSize, 0, want, rgba.size()});
 
-	CtxPtr ctx(spng_ctx_new(SPNG_CTX_ENCODER));
+	CtxPtr const ctx(spng_ctx_new(SPNG_CTX_ENCODER));
 	assert(ctx && "out of memory allocating an spng encoder");
 
 	spng_set_option(ctx.get(), SPNG_ENCODE_TO_BUFFER, 1);
@@ -177,7 +177,7 @@ encodeRgbaPng(Extent2u size, std::span<const u8> rgba)
 
 	int err = 0;
 	usize encoded = 0;
-	std::unique_ptr<void, MallocDeleter> buf(
+	std::unique_ptr<void, MallocDeleter> const buf(
 			spng_get_png_buffer(ctx.get(), &encoded, &err));
 	if (!buf)
 		return std::unexpected(ContentError{EncodeFailed});

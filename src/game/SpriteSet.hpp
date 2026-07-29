@@ -25,15 +25,13 @@ struct SpriteSet
 	// Tinting the real cels instead only darkens them; colour-mod multiplies.
 	std::vector<platform::Texture> silhouettes;
 
-	[[nodiscard]] bool
-	valid() const noexcept
+	[[nodiscard]] bool valid() const noexcept
 	{
 		return !frames.empty() && frames.size() == masks.size();
 	}
 
 	// Wraps, because facings run 0..15 and callers do arithmetic on them.
-	[[nodiscard]] const sim::CollisionMask *
-	maskFor(int facing) const noexcept
+	[[nodiscard]] const sim::CollisionMask *maskFor(int facing) const noexcept
 	{
 		if (masks.empty())
 			return nullptr;

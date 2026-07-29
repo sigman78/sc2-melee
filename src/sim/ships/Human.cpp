@@ -13,8 +13,7 @@
 
 namespace uqm::sim {
 
-usize
-spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
+usize spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 {
 	assert(!out.empty() && "spawn buffer must have room");
 
@@ -37,8 +36,7 @@ spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 	return 1;
 }
 
-void
-cruiserSpecial(Battle &b, EntityId id) noexcept
+void cruiserSpecial(Battle &b, EntityId id) noexcept
 {
 	const Allegiance *shipAllegiance = b.find<Allegiance>(id);
 	if (shipAllegiance == nullptr)
@@ -58,7 +56,8 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 	// Every shot in range, not just the nearest: the C walks the whole list
 	// and fires at each, paying once for the volley (human.c:225-236) -- a
-	// Cruiser surrounded by fire clears all of it, or none if it can't afford it.
+	// Cruiser surrounded by fire clears all of it, or none if it can't afford
+	// it.
 	b.eachOrdered<Physique, Position>([&](EntityId other, Physique &otherPhys,
 											  Position &otherPos) {
 		if (cannotAfford || shipAllegiance == nullptr || other == id)
@@ -98,9 +97,9 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		doDamage(b, other, 1, id);
 
-		// The beam is decorative -- only the damage above is real, deterministic
-		// geometry. LASER_LIFE is 1 (weapon.c:52); Beam{from,to} carries the
-		// ends, not motion -- this entity has no Position.
+		// The beam is decorative -- only the damage above is real,
+		// deterministic geometry. LASER_LIFE is 1 (weapon.c:52); Beam{from,to}
+		// carries the ends, not motion -- this entity has no Position.
 		const Vec2i beamTo = tNext;
 
 		// Queued, not spawned: it enters the world at the sync point and
@@ -117,39 +116,42 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 	});
 }
 
-const ShipSpec &
-earthlingCruiser() noexcept
+const ShipSpec &earthlingCruiser() noexcept
 {
 	// human.c:26-55. Speeds store post-DISPLAY_TO_WORLD values; offsets
 	// store raw display pixels.
 	static const ShipSpec data{
-		.maxCrew = 18,
-		.thrust{.max = 24, .increment = 3},
-		.battery{.max = 18, .regen = 1, .wait = 8},
-		.thrustWait = 4,
-		.turnWait = 1,
-		.mass = 6,
-		.weapon{
-			.wait = 10,
-			.energyCost = 9,
-			.speed = 40,  // max(MAX_THRUST, DISPLAY_TO_WORLD(10)), human.c:42-45
-			.muzzleOffset = 42,  // HUMAN_OFFSET
-			.lifetime{.remaining = 60},
-			.vitality{.hitPoints = 1},
-			.warhead{.damage = 4, .blastOffset = 8},  // NUKE_OFFSET
-			// Guided and accelerating (human.c:43-50): TRACK_WAIT 3,
-			// DISPLAY_TO_WORLD(20) == 80, DISPLAY_TO_WORLD(1) == 4. The
-			// clock starts already wound to trackWait (human.c:297-299).
-			.guided = Guided{
-					.trackWait = 3, .maxSpeed = 80, .thrustScale = 4, .clock = 3},
-			.spawn = spawnCruiserPrimary,
-		},
-		.special{
-			.wait = 9,
-			.energyCost = 4,
-			.hook = cruiserSpecial,
-			.pointDefenceRange = 100,  // LASER_RANGE, display px
-		},
+			.maxCrew = 18,
+			.thrust{.max = 24, .increment = 3},
+			.battery{.max = 18, .regen = 1, .wait = 8},
+			.thrustWait = 4,
+			.turnWait = 1,
+			.mass = 6,
+			.weapon{
+					.wait = 10,
+					.energyCost = 9,
+					.speed = 40,  // max(MAX_THRUST, DISPLAY_TO_WORLD(10)),
+								  // human.c:42-45
+					.muzzleOffset = 42,  // HUMAN_OFFSET
+					.lifetime{.remaining = 60},
+					.vitality{.hitPoints = 1},
+					.warhead{.damage = 4, .blastOffset = 8},  // NUKE_OFFSET
+					// Guided and accelerating (human.c:43-50): TRACK_WAIT 3,
+					// DISPLAY_TO_WORLD(20) == 80, DISPLAY_TO_WORLD(1) == 4. The
+					// clock starts already wound to trackWait
+					// (human.c:297-299).
+					.guided = Guided{.trackWait = 3,
+							.maxSpeed = 80,
+							.thrustScale = 4,
+							.clock = 3},
+					.spawn = spawnCruiserPrimary,
+			},
+			.special{
+					.wait = 9,
+					.energyCost = 4,
+					.hook = cruiserSpecial,
+					.pointDefenceRange = 100,  // LASER_RANGE, display px
+			},
 	};
 	return data;
 }

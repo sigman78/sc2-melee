@@ -20,11 +20,10 @@ struct Header
 // One strtok step: skip leading delimiters, then take everything up to the
 // next one. nullopt is strtok's NULL -- "no token at all" -- which the caller
 // has to tell apart from "empty token".
-std::optional<std::string_view>
-strtokStep(std::string_view &rest, std::string_view delims) noexcept
+std::optional<std::string_view> strtokStep(
+		std::string_view &rest, std::string_view delims) noexcept
 {
-	while (!rest.empty()
-			&& delims.find(rest.front()) != std::string_view::npos)
+	while (!rest.empty() && delims.find(rest.front()) != std::string_view::npos)
 		rest.remove_prefix(1);
 	if (rest.empty())
 		return std::nullopt;
@@ -39,8 +38,7 @@ strtokStep(std::string_view &rest, std::string_view delims) noexcept
 // getstr.c:523-546, reproduced exactly: "#()" yields no token, so strtok's
 // NULL drops the line entirely (not even as body text) -- base/gamestrings.txt
 // relies on this. A bare '#' line is a header with a silly name, not a comment.
-std::optional<Header>
-parseHeader(std::string_view line) noexcept
+std::optional<Header> parseHeader(std::string_view line) noexcept
 {
 	if (line.empty() || line.front() != '#')
 		return std::nullopt;
@@ -51,13 +49,13 @@ parseHeader(std::string_view line) noexcept
 		return std::nullopt;
 
 	// The C's second strtok, with a different delimiter set.
-	return Header{*name, strtokStep(rest, " \t\r\n)").value_or(std::string_view{})};
+	return Header{
+			*name, strtokStep(rest, " \t\r\n)").value_or(std::string_view{})};
 }
 
 }  // namespace
 
-const Phrase *
-PhraseFile::byName(std::string_view name) const noexcept
+const Phrase *PhraseFile::byName(std::string_view name) const noexcept
 {
 	for (const Phrase &p : phrases_)
 		if (p.name == name)
@@ -65,16 +63,15 @@ PhraseFile::byName(std::string_view name) const noexcept
 	return nullptr;
 }
 
-const Phrase *
-PhraseFile::byOrdinal(usize ordinal) const noexcept
+const Phrase *PhraseFile::byOrdinal(usize ordinal) const noexcept
 {
 	if (ordinal == 0 || ordinal > phrases_.size())
 		return nullptr;
 	return &phrases_[ordinal - 1];
 }
 
-PhraseFile
-parsePhrases(std::string_view text, std::vector<ContentError> *problems)
+PhraseFile parsePhrases(
+		std::string_view text, std::vector<ContentError> *problems)
 {
 	PhraseFile file;
 
@@ -86,7 +83,8 @@ parsePhrases(std::string_view text, std::vector<ContentError> *problems)
 	bool skippedInBody = false;
 
 	const auto closeBody = [&] {
-		if (!file.phrases_.empty() && bodyBegin != nullptr && bodyEnd != nullptr)
+		if (!file.phrases_.empty() && bodyBegin != nullptr
+				&& bodyEnd != nullptr)
 		{
 			file.phrases_.back().text = std::string_view(
 					bodyBegin, static_cast<usize>(bodyEnd - bodyBegin));
@@ -137,8 +135,8 @@ parsePhrases(std::string_view text, std::vector<ContentError> *problems)
 				// Text after a dropped "#()" in the same phrase. The C
 				// concatenates across it; a view cannot, so say so rather
 				// than hand back a body with a stray "#()" inside it.
-				problems->emplace_back(ContentErrorCode::WrongSize,
-						static_cast<u32>(lineNo));
+				problems->emplace_back(
+						ContentErrorCode::WrongSize, static_cast<u32>(lineNo));
 			}
 			skippedInBody = false;
 			bodyEnd = line.data() + line.size();
@@ -149,8 +147,7 @@ parsePhrases(std::string_view text, std::vector<ContentError> *problems)
 	return file;
 }
 
-bool
-attachTimestamps(PhraseFile &file, std::string_view ts,
+bool attachTimestamps(PhraseFile &file, std::string_view ts,
 		std::vector<ContentError> *problems)
 {
 	using enum ContentErrorCode;

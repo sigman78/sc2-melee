@@ -28,20 +28,19 @@ namespace {
 
 int failures = 0;
 
-#define CHECK(cond, ...)                                                      \
-	do                                                                        \
-	{                                                                         \
-		if (!(cond))                                                          \
-		{                                                                     \
-			std::printf("FAIL %s:%d: ", __FILE__, __LINE__);                  \
-			std::printf(__VA_ARGS__);                                         \
-			std::printf("\n");                                                \
-			++failures;                                                       \
-		}                                                                     \
+#define CHECK(cond, ...)                                                       \
+	do                                                                         \
+	{                                                                          \
+		if (!(cond))                                                           \
+		{                                                                      \
+			std::printf("FAIL %s:%d: ", __FILE__, __LINE__);                   \
+			std::printf(__VA_ARGS__);                                          \
+			std::printf("\n");                                                 \
+			++failures;                                                        \
+		}                                                                      \
 	} while (0)
 
-void
-checkResolves(const content::ResourceMap &map, std::string_view id,
+void checkResolves(const content::ResourceMap &map, std::string_view id,
 		std::string_view what)
 {
 	const content::Resource *res = map.find(id);
@@ -50,8 +49,7 @@ checkResolves(const content::ResourceMap &map, std::string_view id,
 			static_cast<int>(id.size()), id.data());
 }
 
-void
-testCatalog(const content::ResourceMap &map)
+void testCatalog(const content::ResourceMap &map)
 {
 	CHECK(!game::shipCatalog().empty(), "the catalog is empty");
 
@@ -76,8 +74,7 @@ testCatalog(const content::ResourceMap &map)
 			"an unknown key should find nothing");
 }
 
-void
-testMeleeArt(const content::ResourceMap &map)
+void testMeleeArt(const content::ResourceMap &map)
 {
 	checkResolves(map, game::kMeleeArt.asteroid, "melee.asteroid");
 	checkResolves(map, game::kMeleeArt.blast, "melee.blast");
@@ -89,8 +86,8 @@ testMeleeArt(const content::ResourceMap &map)
 
 // BattleSound names battle.snd's lines through Damaged6Plus = 5; that is a
 // claim about the content, so the content gets to veto it.
-void
-testBattleSoundSlots(const content::ResourceMap &map, const fs::path &content)
+void testBattleSoundSlots(
+		const content::ResourceMap &map, const fs::path &content)
 {
 	const content::Resource *res = map.find(game::kMeleeArt.battleSounds);
 	if (res == nullptr)
@@ -102,20 +99,18 @@ testBattleSoundSlots(const content::ResourceMap &map, const fs::path &content)
 		return;
 
 	usize lines = 0;
-	forEachLine(platform::asText(*bytes), [&](std::string_view line,
-											  usize) {
+	forEachLine(platform::asText(*bytes), [&](std::string_view line, usize) {
 		if (!trim(line).empty())
 			++lines;
 	});
 	CHECK(lines > slot(game::BattleSound::Damaged6Plus),
-			"battle.snd has %zu slots; BattleSound expects at least %zu",
-			lines, slot(game::BattleSound::Damaged6Plus) + 1);
+			"battle.snd has %zu slots; BattleSound expects at least %zu", lines,
+			slot(game::BattleSound::Damaged6Plus) + 1);
 }
 
 }  // namespace
 
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
 	if (argc < 2)
 	{

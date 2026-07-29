@@ -90,8 +90,7 @@ public:
 	[[nodiscard]] SDL_Renderer *renderer() const noexcept { return renderer_; }
 
 	void clear(u8 r, u8 g, u8 b) noexcept;
-	void fillRect(Vec2i topLeft, Extent2u size, u8 r,
-			u8 g, u8 b) noexcept;
+	void fillRect(Vec2i topLeft, Extent2u size, u8 r, u8 g, u8 b) noexcept;
 
 	// Uploads 8-bit RGBA. Returns an invalid Texture if `rgba` is the wrong
 	// size for `size`, which is a content bug and worth not crashing over.
@@ -106,13 +105,12 @@ public:
 
 	// Draws `t` multiplied by a colour. With a white-filled texture that is a
 	// flat silhouette of any colour, which is what the C's STAMPFILL_PRIM is.
-	void drawTinted(const Texture &t, Vec2i topLeft, Extent2u dest,
-			u8 r, u8 g, u8 b) noexcept;
+	void drawTinted(const Texture &t, Vec2i topLeft, Extent2u dest, u8 r, u8 g,
+			u8 b) noexcept;
 
 	// A one-pixel line. Only the debug overlay uses this -- the game draws
 	// sprites -- but drawing a vector is how you see a vector.
-	void drawLine(Vec2i from, Vec2i to, u8 r, u8 g,
-			u8 b) noexcept;
+	void drawLine(Vec2i from, Vec2i to, u8 r, u8 g, u8 b) noexcept;
 
 	void present() noexcept;
 

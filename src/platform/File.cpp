@@ -17,18 +17,17 @@ namespace {
 // string literals and not a std::string in sight
 // (docs/cpp-conventions.md rule 1).
 constexpr std::array<std::string_view, 6> kFileErrorText{
-	"file not found",
-	"not a regular file",
-	"could not be opened",
-	"read failed",
-	"write failed",
-	"file is too large to load",
+		"file not found",
+		"not a regular file",
+		"could not be opened",
+		"read failed",
+		"write failed",
+		"file is too large to load",
 };
 
 }  // namespace
 
-std::string_view
-describe(FileError e) noexcept
+std::string_view describe(FileError e) noexcept
 {
 	const auto i = static_cast<usize>(e);
 	assert(i < kFileErrorText.size());
@@ -40,12 +39,9 @@ File::~File()
 	close();
 }
 
-File::File(File &&other) noexcept : fp_(std::exchange(other.fp_, nullptr))
-{
-}
+File::File(File &&other) noexcept : fp_(std::exchange(other.fp_, nullptr)) {}
 
-File &
-File::operator=(File &&other) noexcept
+File &File::operator=(File &&other) noexcept
 {
 	if (this != &other)
 	{
@@ -55,8 +51,7 @@ File::operator=(File &&other) noexcept
 	return *this;
 }
 
-void
-File::close() noexcept
+void File::close() noexcept
 {
 	if (fp_ != nullptr)
 	{
@@ -65,10 +60,10 @@ File::close() noexcept
 	}
 }
 
-std::expected<File, FileError>
-File::open(const std::filesystem::path &path, Mode mode)
+std::expected<File, FileError> File::open(
+		const std::filesystem::path &path, Mode mode)
 {
-#if defined(_WIN32)
+#ifdef _WIN32
 	// The narrow CRT entry point would mangle any non-ASCII path through the
 	// active code page; content directories are user-chosen, so take the
 	// wide one.
@@ -81,8 +76,7 @@ File::open(const std::filesystem::path &path, Mode mode)
 	return File(fp);
 }
 
-std::expected<usize, FileError>
-File::read(std::span<std::byte> into)
+std::expected<usize, FileError> File::read(std::span<std::byte> into)
 {
 	assert(isOpen() && "read from a closed File");
 	if (into.empty())
@@ -94,8 +88,7 @@ File::read(std::span<std::byte> into)
 	return got;
 }
 
-std::expected<usize, FileError>
-File::write(std::span<const std::byte> from)
+std::expected<usize, FileError> File::write(std::span<const std::byte> from)
 {
 	assert(isOpen() && "write to a closed File");
 	if (from.empty())
@@ -112,8 +105,8 @@ namespace {
 // Size from the directory entry, not by seeking: one query instead of two,
 // it leaves the stream position alone, and it avoids ftell's 32-bit `long`
 // on Windows. The buffer is then allocated once, at the right size.
-std::expected<std::uintmax_t, FileError>
-sizeOnDisk(const std::filesystem::path &path)
+std::expected<std::uintmax_t, FileError> sizeOnDisk(
+		const std::filesystem::path &path)
 {
 	std::error_code ec;
 	const auto status = std::filesystem::status(path, ec);
@@ -132,8 +125,8 @@ sizeOnDisk(const std::filesystem::path &path)
 
 }  // namespace
 
-std::expected<std::span<const std::byte>, FileError>
-readFileInto(const std::filesystem::path &path, std::vector<std::byte> &buffer)
+std::expected<std::span<const std::byte>, FileError> readFileInto(
+		const std::filesystem::path &path, std::vector<std::byte> &buffer)
 {
 	const auto bytes = sizeOnDisk(path);
 	if (!bytes)
@@ -153,8 +146,8 @@ readFileInto(const std::filesystem::path &path, std::vector<std::byte> &buffer)
 	return std::span<const std::byte>(buffer.data(), *got);
 }
 
-std::expected<std::vector<std::byte>, FileError>
-readFile(const std::filesystem::path &path)
+std::expected<std::vector<std::byte>, FileError> readFile(
+		const std::filesystem::path &path)
 {
 	std::vector<std::byte> buffer;
 	const auto view = readFileInto(path, buffer);
@@ -164,8 +157,8 @@ readFile(const std::filesystem::path &path)
 	return buffer;
 }
 
-std::expected<void, FileError>
-writeFile(const std::filesystem::path &path, std::span<const std::byte> bytes)
+std::expected<void, FileError> writeFile(
+		const std::filesystem::path &path, std::span<const std::byte> bytes)
 {
 	auto file = File::open(path, File::Mode::Write);
 	if (!file)

@@ -73,3 +73,28 @@ jobs:
       # Exercises option parsing and startup without needing content.
       # SC2M_NO_MSGBOX matters: on Windows and macOS the end-of-run log box is
       # a modal dialog and would hang the job forever.
+
+  lint:
+    name: format and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             clang-format clang-tidy cmake ninja-build             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev             libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev             libwayland-dev wayland-protocols libdecor-0-dev             libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
+
+      # The same check .githooks/pre-commit runs, over everything.
+      - name: Format
+        run: |
+          files=$(git ls-files 'src/*.cpp' 'src/*.hpp' 'tests/*.cpp' 'tests/*.hpp')
+          clang-format --dry-run -Werror $files
+
+      # Too slow for a pre-commit hook, which is why it lives here.
+      - name: Lint
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          for f in $(git ls-files 'src/*.cpp' 'tests/*.cpp'); do
+            clang-tidy -p build "$f" --quiet --warnings-as-errors='*'
+          done

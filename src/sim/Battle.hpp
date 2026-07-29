@@ -151,7 +151,8 @@ struct SpawnCommand
 	// Escape hatch for a spawn whose construction (e.g. RNG draws) must
 	// happen at the sync point, not at emission (Field.cpp's rubbleDeath).
 	// When set, every field above is ignored; deferred does its own spawn().
-	void (*deferred)(Battle &, Borrowed<const CollisionMask>) noexcept = nullptr;
+	void (*deferred)(
+			Battle &, Borrowed<const CollisionMask>) noexcept = nullptr;
 	Borrowed<const CollisionMask> deferredMask = nullptr;
 };
 
@@ -202,14 +203,14 @@ public:
 	// A beam's own spawn: no Position, Collider, Motion/Physique/
 	// PriorSilhouette/CollisionScratch, or Appearing -- a beam never moves
 	// or collides. Still gets Order and Allegiance, same as spawn().
-	Spawned spawnBeam(Layer layer, Beam beam,
-			Allegiance allegiance = Allegiance{});
+	Spawned spawnBeam(
+			Layer layer, Beam beam, Allegiance allegiance = Allegiance{});
 
 	// A decorative particle (ion trail, warp-in shadow, impact blast,
 	// rubble): Position is set once and never touched again, so it carries
 	// none of spawn()'s collision scaffold. Still gets Order and Allegiance.
-	Spawned spawnEffect(Layer layer, Position pos,
-			Allegiance allegiance = Allegiance{});
+	Spawned spawnEffect(
+			Layer layer, Position pos, Allegiance allegiance = Allegiance{});
 
 	// The one decoration that actually drifts (the explosion's debris):
 	// spawnEffect's shape plus Motion, so Integrate still advances it --
@@ -286,62 +287,49 @@ public:
 	{
 		return reg_.emplace_or_replace<T>(id, std::forward<Args>(args)...);
 	}
-	template <class T>
-	[[nodiscard]] T *find(EntityId id) noexcept
+	template <class T> [[nodiscard]] T *find(EntityId id) noexcept
 	{
 		return reg_.valid(id) ? reg_.try_get<T>(id) : nullptr;
 	}
-	template <class T>
-	[[nodiscard]] const T *find(EntityId id) const noexcept
+	template <class T> [[nodiscard]] const T *find(EntityId id) const noexcept
 	{
 		return reg_.valid(id) ? reg_.try_get<T>(id) : nullptr;
 	}
 	// Asserts every Ts is attached and returns references (a tuple for
 	// several) -- for a site where presence is already guaranteed. find<T>
 	// stays the null-returning form for a site that must still ask.
-	template <class... Ts>
-	[[nodiscard]] decltype(auto) get(EntityId id)
+	template <class... Ts> [[nodiscard]] decltype(auto) get(EntityId id)
 	{
 		return reg_.get<Ts...>(id);
 	}
-	template <class T>
-	[[nodiscard]] bool has(EntityId id) const noexcept
+	template <class T> [[nodiscard]] bool has(EntityId id) const noexcept
 	{
 		return reg_.valid(id) && reg_.all_of<T>(id);
 	}
-	template <class T>
-	void detach(EntityId id)
-	{
-		reg_.remove<T>(id);
-	}
+	template <class T> void detach(EntityId id) { reg_.remove<T>(id); }
 
 	// The singleton surface: one value per type, belonging to the world
 	// rather than to any entity (camera, match state, config). Same rule
 	// as the component surface: entt::registry never escapes Battle.
-	template <class T>
-	T &setContext(T v)
+	template <class T> T &setContext(T v)
 	{
 		return reg_.ctx().insert_or_assign(std::move(v));
 	}
-	template <class T>
-	[[nodiscard]] T &context()
+	template <class T> [[nodiscard]] T &context()
 	{
 		return reg_.ctx().get<T>();
 	}
-	template <class T>
-	[[nodiscard]] const T &context() const
+	template <class T> [[nodiscard]] const T &context() const
 	{
 		return reg_.ctx().get<T>();
 	}
 	// For a reader that runs before the value is installed, or when its
 	// absence is itself the answer.
-	template <class T>
-	[[nodiscard]] T *findContext() noexcept
+	template <class T> [[nodiscard]] T *findContext() noexcept
 	{
 		return reg_.ctx().find<T>();
 	}
-	template <class T>
-	[[nodiscard]] const T *findContext() const noexcept
+	template <class T> [[nodiscard]] const T *findContext() const noexcept
 	{
 		return reg_.ctx().find<T>();
 	}
@@ -349,13 +337,11 @@ public:
 	// entt's own view vocabulary, not a hand-rolled fraction of it: the
 	// caller gets iterators, use<>, size_hint and storage through the view.
 	// entt::registry itself never escapes Battle -- only the view does.
-	template <class... Ts>
-	[[nodiscard]] auto view()
+	template <class... Ts> [[nodiscard]] auto view()
 	{
 		return reg_.view<Ts...>();
 	}
-	template <class... Ts>
-	[[nodiscard]] auto view() const
+	template <class... Ts> [[nodiscard]] auto view() const
 	{
 		return reg_.view<const Ts...>();
 	}
@@ -377,13 +363,12 @@ public:
 	// One template, not two overloads: an explicit empty Ts pack is
 	// otherwise ambiguous between them. Zero Ts walks bare ids;
 	// eachOrdered<Ts...> joins, dropping entities missing any Ts.
-	template <class... Ts, class Fn>
-	void eachOrdered(Fn &&fn)
+	template <class... Ts, class Fn> void eachOrdered(Fn &&fn)
 	{
 		ensureOrdered();
 		if constexpr (sizeof...(Ts) == 0)
 		{
-			for (EntityId id : reg_.view<Order>())
+			for (EntityId const id : reg_.view<Order>())
 				fn(id);
 		}
 		else
@@ -419,8 +404,7 @@ public:
 	// The same sorted-and-driven view eachOrdered iterates internally,
 	// handed back instead of walked -- for a caller that wants entt's own
 	// iterator/size_hint surface over the declared order.
-	template <class... Ts>
-	[[nodiscard]] auto ordered()
+	template <class... Ts> [[nodiscard]] auto ordered()
 	{
 		ensureOrdered();
 		auto v = reg_.view<Order, Ts...>();
@@ -445,15 +429,15 @@ private:
 	void ageAndReapMarkPass();
 	void animatePass();
 	void integratePass() noexcept;
-	void ageDecrementPass() noexcept;    // the decrement half of aging --
-	                                      // runs after Integrate, before
-	                                      // Collide; see the .cpp for why
+	void ageDecrementPass() noexcept;  // the decrement half of aging --
+									   // runs after Integrate, before
+									   // Collide; see the .cpp for why
 	void collidePass();
 	void applyDamageIncoming() noexcept;
 	void reapPass() noexcept;
-	void flagsEndOfFramePass() noexcept; // must run before drainSpawnCommands
-	                                      // so a fresh spawn's own Appearing
-	                                      // survives its first frame
+	void flagsEndOfFramePass() noexcept;  // must run before drainSpawnCommands
+										  // so a fresh spawn's own Appearing
+										  // survives its first frame
 	void drainSpawnCommands();
 	void commitPass() noexcept;
 
@@ -522,8 +506,7 @@ public:
 	// A tag still reads as `.with(Appearing{})` at the call site: entt's
 	// emplace has no value-carrying overload for an empty type, so this
 	// picks the zero-arg attach instead.
-	template <class T>
-	Spawned &with(T &&value)
+	template <class T> Spawned &with(T &&value)
 	{
 		using U = std::decay_t<T>;
 		if constexpr (std::is_empty_v<U>)

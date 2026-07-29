@@ -22,7 +22,7 @@ namespace uqm::sim {
 // reason to reach for a global.
 struct ShipView
 {
-	Vec2i position;          // hotspot, world units
+	Vec2i position;  // hotspot, world units
 	Velocity velocity;
 	Facing facing;
 	int playerNr = 0;
@@ -32,7 +32,7 @@ struct ShipView
 	i32 weaponLife = 0;
 	i32 weaponDamage = 0;
 	i32 weaponHitPoints = 0;
-	i32 muzzleOffset = 0;   // pixels forward of the hotspot
+	i32 muzzleOffset = 0;  // pixels forward of the hotspot
 	i32 blastOffset = 0;
 };
 

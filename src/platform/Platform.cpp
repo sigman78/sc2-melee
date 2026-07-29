@@ -13,8 +13,7 @@
 namespace uqm::platform {
 namespace {
 
-[[noreturn]] void
-fatal(const char *what) noexcept
+[[noreturn]] void fatal(const char *what) noexcept
 {
 	// Rule 3: a failure here is not recoverable and there is nothing useful a
 	// caller could do with it. Say what broke, say what SDL said, stop.
@@ -43,14 +42,12 @@ constexpr std::array<Binding, 13> kDefaultBindings{{
 
 }  // namespace
 
-std::span<const Binding>
-defaultBindings() noexcept
+std::span<const Binding> defaultBindings() noexcept
 {
 	return kDefaultBindings;
 }
 
-std::filesystem::path
-executableDirectory()
+std::filesystem::path executableDirectory()
 {
 	// SDL owns the returned string and keeps it for the process lifetime, so
 	// there is nothing to free and nothing to outlive.
@@ -67,8 +64,7 @@ Platform::Platform(const char *title, Extent2u logical, int scale)
 	if (!SDL_Init(SDL_INIT_VIDEO))
 		fatal("SDL_Init");
 
-	window_ = SDL_CreateWindow(title,
-			static_cast<int>(logical.w) * scale,
+	window_ = SDL_CreateWindow(title, static_cast<int>(logical.w) * scale,
 			static_cast<int>(logical.h) * scale, SDL_WINDOW_RESIZABLE);
 	if (window_ == nullptr)
 		fatal("SDL_CreateWindow");
@@ -81,8 +77,7 @@ Platform::Platform(const char *title, Extent2u logical, int scale)
 	// world is a fixed logical size and the window is a presentation detail.
 	// Letterbox, not stretch, so the aspect cannot change under the game.
 	if (!SDL_SetRenderLogicalPresentation(renderer_,
-				static_cast<int>(logical.w),
-				static_cast<int>(logical.h),
+				static_cast<int>(logical.w), static_cast<int>(logical.h),
 				SDL_LOGICAL_PRESENTATION_LETTERBOX))
 		fatal("SDL_SetRenderLogicalPresentation");
 
@@ -98,8 +93,7 @@ Platform::~Platform()
 	SDL_Quit();
 }
 
-Ticks
-Platform::now() const noexcept
+Ticks Platform::now() const noexcept
 {
 	const u64 ns = SDL_GetTicksNS() - startNs_;
 
@@ -111,8 +105,7 @@ Platform::now() const noexcept
 			+ (ns % kNsPerSecond) * kOneSecond / kNsPerSecond);
 }
 
-bool
-Platform::pump(std::span<input::InputAccumulator> players,
+bool Platform::pump(std::span<input::InputAccumulator> players,
 		std::span<const Binding> bindings) noexcept
 {
 	SDL_Event e;
@@ -120,58 +113,52 @@ Platform::pump(std::span<input::InputAccumulator> players,
 	{
 		switch (e.type)
 		{
-			case SDL_EVENT_QUIT:
-				return false;
+		case SDL_EVENT_QUIT:
+			return false;
 
-			case SDL_EVENT_WINDOW_FOCUS_LOST:
-				// Drop everything, including the sticky half. A key pressed
-				// while the window was not focused must not fire on return,
-				// and a key held when focus was lost will not send its release.
-				for (input::InputAccumulator &p : players)
-					p.reset();
+		case SDL_EVENT_WINDOW_FOCUS_LOST:
+			// Drop everything, including the sticky half. A key pressed
+			// while the window was not focused must not fire on return,
+			// and a key held when focus was lost will not send its release.
+			for (input::InputAccumulator &p : players)
+				p.reset();
+			break;
+
+		case SDL_EVENT_KEY_DOWN:
+		case SDL_EVENT_KEY_UP:
+		{
+			if (e.key.repeat)
 				break;
-
-			case SDL_EVENT_KEY_DOWN:
-			case SDL_EVENT_KEY_UP:
+			const bool down = e.type == SDL_EVENT_KEY_DOWN;
+			for (const Binding &b : bindings)
 			{
-				if (e.key.repeat)
-					break;
-				const bool down = e.type == SDL_EVENT_KEY_DOWN;
-				for (const Binding &b : bindings)
-				{
-					if (b.scancode != static_cast<int>(e.key.scancode))
-						continue;
-					if (b.player < 0
-							|| static_cast<usize>(b.player)
-									>= players.size())
-						continue;
-					if (down)
-						players[static_cast<usize>(b.player)].press(
-								b.button);
-					else
-						players[static_cast<usize>(b.player)].release(
-								b.button);
-				}
-				break;
+				if (b.scancode != static_cast<int>(e.key.scancode))
+					continue;
+				if (b.player < 0
+						|| static_cast<usize>(b.player) >= players.size())
+					continue;
+				if (down)
+					players[static_cast<usize>(b.player)].press(b.button);
+				else
+					players[static_cast<usize>(b.player)].release(b.button);
 			}
+			break;
+		}
 
-			default:
-				break;
+		default:
+			break;
 		}
 	}
 	return true;
 }
 
-void
-Platform::clear(u8 r, u8 g, u8 b) noexcept
+void Platform::clear(u8 r, u8 g, u8 b) noexcept
 {
 	SDL_SetRenderDrawColor(renderer_, r, g, b, SDL_ALPHA_OPAQUE);
 	SDL_RenderClear(renderer_);
 }
 
-void
-Platform::fillRect(Vec2i topLeft, Extent2u size, u8 r,
-		u8 g, u8 b) noexcept
+void Platform::fillRect(Vec2i topLeft, Extent2u size, u8 r, u8 g, u8 b) noexcept
 {
 	SDL_SetRenderDrawColor(renderer_, r, g, b, SDL_ALPHA_OPAQUE);
 	const SDL_FRect rect{static_cast<float>(topLeft.x),
@@ -193,8 +180,7 @@ Texture::Texture(Texture &&other) noexcept
 	other.size_ = Extent2u{};
 }
 
-Texture &
-Texture::operator=(Texture &&other) noexcept
+Texture &Texture::operator=(Texture &&other) noexcept
 {
 	if (this != &other)
 	{
@@ -208,8 +194,7 @@ Texture::operator=(Texture &&other) noexcept
 	return *this;
 }
 
-Texture
-Platform::upload(Extent2u size, std::span<const u8> rgba) noexcept
+Texture Platform::upload(Extent2u size, std::span<const u8> rgba) noexcept
 {
 	Texture t;
 	const usize need = static_cast<usize>(size.w) * size.h * 4;
@@ -233,9 +218,8 @@ Platform::upload(Extent2u size, std::span<const u8> rgba) noexcept
 	return t;
 }
 
-void
-Platform::draw(const Texture &t, Vec2i topLeft, Extent2u dest,
-		u8 alpha) noexcept
+void Platform::draw(
+		const Texture &t, Vec2i topLeft, Extent2u dest, u8 alpha) noexcept
 {
 	if (!t.valid() || dest.empty())
 		return;
@@ -251,9 +235,8 @@ Platform::draw(const Texture &t, Vec2i topLeft, Extent2u dest,
 		SDL_SetTextureAlphaMod(t.handle_, 255);
 }
 
-void
-Platform::drawTinted(const Texture &t, Vec2i topLeft, Extent2u dest,
-		u8 r, u8 g, u8 b) noexcept
+void Platform::drawTinted(const Texture &t, Vec2i topLeft, Extent2u dest, u8 r,
+		u8 g, u8 b) noexcept
 {
 	if (!t.valid() || dest.empty())
 		return;
@@ -266,9 +249,7 @@ Platform::drawTinted(const Texture &t, Vec2i topLeft, Extent2u dest,
 	SDL_SetTextureColorMod(t.handle_, 255, 255, 255);
 }
 
-void
-Platform::drawLine(Vec2i from, Vec2i to, u8 r, u8 g,
-		u8 b) noexcept
+void Platform::drawLine(Vec2i from, Vec2i to, u8 r, u8 g, u8 b) noexcept
 {
 	SDL_SetRenderDrawColor(renderer_, r, g, b, SDL_ALPHA_OPAQUE);
 	SDL_RenderLine(renderer_, static_cast<float>(from.x),
@@ -276,8 +257,7 @@ Platform::drawLine(Vec2i from, Vec2i to, u8 r, u8 g,
 			static_cast<float>(to.y));
 }
 
-void
-Platform::present() noexcept
+void Platform::present() noexcept
 {
 	SDL_RenderPresent(renderer_);
 }

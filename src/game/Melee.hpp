@@ -29,27 +29,26 @@ struct MeleeArt
 // The order is a content contract, written down once.
 enum class BattleSound : usize
 {
-	GrabCrew = 0,      // unused until crew pickup exists
+	GrabCrew = 0,  // unused until crew pickup exists
 	ShipExplodes = 1,
-	Damaged1 = 2,      // TARGET_DAMAGED_FOR_1_PT, then _2_3, _4_5 ...
+	Damaged1 = 2,  // TARGET_DAMAGED_FOR_1_PT, then _2_3, _4_5 ...
 	Damaged23 = 3,
 	Damaged45 = 4,
 	Damaged6Plus = 5,  // ... and _6_PLUS_PT, the loudest and the cap
 };
 
-[[nodiscard]] constexpr usize
-slot(BattleSound s) noexcept
+[[nodiscard]] constexpr usize slot(BattleSound s) noexcept
 {
 	return static_cast<usize>(s);
 }
 
 inline constexpr MeleeArt kMeleeArt{
-	.asteroid = "graphics.asteroid.large",
-	.blast = "graphics.blast.large",
-	.boom = "graphics.boom.large",
-	.planet = "planet.acid.large",
-	.stars = "graphics.stars",
-	.battleSounds = "sounds.battle",
+		.asteroid = "graphics.asteroid.large",
+		.blast = "graphics.blast.large",
+		.boom = "graphics.boom.large",
+		.planet = "planet.acid.large",
+		.stars = "graphics.stars",
+		.battleSounds = "sounds.battle",
 };
 
 }  // namespace uqm::game

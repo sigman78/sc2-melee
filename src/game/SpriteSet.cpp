@@ -24,8 +24,7 @@ namespace {
 // range of slots, so one entry can populate many.
 using SlotMap = std::map<int, content::Palette>;
 
-SlotMap
-loadColormaps(const fs::path &ct)
+SlotMap loadColormaps(const fs::path &ct)
 {
 	SlotMap slots;
 
@@ -52,8 +51,7 @@ loadColormaps(const fs::path &ct)
 
 }  // namespace
 
-SpriteSet
-loadSprites(platform::Platform &window, const fs::path &ani,
+SpriteSet loadSprites(platform::Platform &window, const fs::path &ani,
 		const fs::path &colortable)
 {
 	SpriteSet out;

@@ -17,16 +17,16 @@ namespace {
 
 int g_failures = 0;
 
-#define CHECK(cond, ...)                                                      \
-	do                                                                        \
-	{                                                                         \
-		if (!(cond))                                                          \
-		{                                                                     \
-			++g_failures;                                                     \
-			std::fprintf(stderr, "FAIL %s:%d: ", __FILE__, __LINE__);         \
-			std::fprintf(stderr, __VA_ARGS__);                                \
-			std::fputc('\n', stderr);                                         \
-		}                                                                     \
+#define CHECK(cond, ...)                                                       \
+	do                                                                         \
+	{                                                                          \
+		if (!(cond))                                                           \
+		{                                                                      \
+			++g_failures;                                                      \
+			std::fprintf(stderr, "FAIL %s:%d: ", __FILE__, __LINE__);          \
+			std::fprintf(stderr, __VA_ARGS__);                                 \
+			std::fputc('\n', stderr);                                          \
+		}                                                                      \
 	} while (0)
 
 using namespace uqm;
@@ -35,8 +35,7 @@ using namespace uqm::input;
 // --------------------------------------------------------------------------
 // The input accumulator
 
-void
-testHeldButtonsAreSeenEveryStep()
+void testHeldButtonsAreSeenEveryStep()
 {
 	InputAccumulator in;
 	in.press(Button::Thrust);
@@ -53,8 +52,7 @@ testHeldButtonsAreSeenEveryStep()
 			"and should stop the step after release");
 }
 
-void
-testTapBetweenStepsIsNotLost()
+void testTapBetweenStepsIsNotLost()
 {
 	// The bug this whole class exists for. The C polls the controller once a
 	// frame (battle.c:198-210), so a press and release that both land inside
@@ -68,8 +66,7 @@ testTapBetweenStepsIsNotLost()
 			"a tap that started and ended between steps must still fire");
 }
 
-void
-testTapIsSeenExactlyOnce()
+void testTapIsSeenExactlyOnce()
 {
 	// The other half of the contract, and the one that is easy to lose while
 	// fixing the first: a single tap must not fire twice.
@@ -82,8 +79,7 @@ testTapIsSeenExactlyOnce()
 	CHECK(!in.consume().test(Button::Weapon), "nor the one after that");
 }
 
-void
-testRepeatedTapsInOneStepCollapse()
+void testRepeatedTapsInOneStepCollapse()
 {
 	// At 144Hz there are six event pumps per simulation step. Someone mashing
 	// the key gets one shot per step, not six -- the step is the rate limit,
@@ -99,8 +95,7 @@ testRepeatedTapsInOneStepCollapse()
 	CHECK(!in.consume().test(Button::Weapon), "and not again");
 }
 
-void
-testHeldSurvivesConsumeButStickyDoesNot()
+void testHeldSurvivesConsumeButStickyDoesNot()
 {
 	// A button still physically down reports through `held`, which consume()
 	// must not clear -- only the sticky half is spent.
@@ -112,8 +107,7 @@ testHeldSurvivesConsumeButStickyDoesNot()
 	CHECK(in.consume().test(Button::Left), "so still reported");
 }
 
-void
-testResetDropsPendingInput()
+void testResetDropsPendingInput()
 {
 	// Losing window focus mid-tap must not fire on return.
 	InputAccumulator in;
@@ -125,8 +119,7 @@ testResetDropsPendingInput()
 			"a reset should drop the sticky press, not bank it");
 }
 
-void
-testButtonsAreIndependent()
+void testButtonsAreIndependent()
 {
 	InputAccumulator in;
 	in.press(Button::Left);
@@ -151,16 +144,14 @@ testButtonsAreIndependent()
 // evenly by every refresh rate -- 840/144 truncates to 5 and a clock built
 // out of those runs 14% slow. The display rate is not required to divide the
 // tick rate, and the Pacer has to hold 24 Hz when it does not.
-constexpr uqm::Ticks
-frameTime(int f, int fps)
+constexpr uqm::Ticks frameTime(int f, int fps)
 {
 	return uqm::kOneSecond * f / fps;
 }
 
 // Runs `seconds` of display frames at `fps` and counts simulation steps, the
 // way the real loop would.
-constexpr int
-runPacer(uqm::Pacer &pacer, int fps, int seconds)
+constexpr int runPacer(uqm::Pacer &pacer, int fps, int seconds)
 {
 	int steps = 0;
 	for (int f = 1; f <= fps * seconds; ++f)
@@ -170,8 +161,7 @@ runPacer(uqm::Pacer &pacer, int fps, int seconds)
 
 // The naive form the plan warns about: deadline reset to `now` rather than
 // advanced by a period. Reproduced here so the test can show what it costs.
-constexpr int
-runNaive(uqm::Ticks period, int fps, int seconds)
+constexpr int runNaive(uqm::Ticks period, int fps, int seconds)
 {
 	int steps = 0;
 	uqm::Ticks next = 0;
@@ -187,8 +177,7 @@ runNaive(uqm::Ticks period, int fps, int seconds)
 	return steps;
 }
 
-void
-testPacingHitsTwentyFourHertz()
+void testPacingHitsTwentyFourHertz()
 {
 	using namespace uqm;
 
@@ -219,8 +208,7 @@ testPacingHitsTwentyFourHertz()
 			"24 Hz should survive a 30 Hz display loop, got %d", slowSteps);
 }
 
-void
-testPacingBoundsCatchUp()
+void testPacingBoundsCatchUp()
 {
 	using namespace uqm;
 
@@ -240,8 +228,7 @@ testPacingBoundsCatchUp()
 // --------------------------------------------------------------------------
 // The melee camera
 
-void
-testCameraCentresBetweenTheShips()
+void testCameraCentresBetweenTheShips()
 {
 	using namespace uqm::game;
 
@@ -265,8 +252,7 @@ testCameraCentresBetweenTheShips()
 			"and level with each other");
 }
 
-void
-testCameraZoomsOutAsShipsSeparate()
+void testCameraZoomsOutAsShipsSeparate()
 {
 	using namespace uqm::game;
 
@@ -275,10 +261,8 @@ testCameraZoomsOutAsShipsSeparate()
 	{
 		Camera cam;
 		const std::array<Vec2i, 2> ships{
-				Vec2i{sim::kArena.w / 2 - gap / 2,
-					sim::kArena.h / 2},
-				Vec2i{sim::kArena.w / 2 + gap / 2,
-					sim::kArena.h / 2}};
+				Vec2i{sim::kArena.w / 2 - gap / 2, sim::kArena.h / 2},
+				Vec2i{sim::kArena.w / 2 + gap / 2, sim::kArena.h / 2}};
 		cam.follow(ships);
 
 		CHECK(cam.zoom() >= previous,
@@ -296,8 +280,7 @@ testCameraZoomsOutAsShipsSeparate()
 			static_cast<long>(previous));
 }
 
-void
-testCameraKeepsBothShipsOnScreen()
+void testCameraKeepsBothShipsOnScreen()
 {
 	using namespace uqm::game;
 
@@ -308,10 +291,8 @@ testCameraKeepsBothShipsOnScreen()
 	{
 		Camera cam;
 		const std::array<Vec2i, 2> ships{
-				Vec2i{sim::kArena.w / 2 - gap / 2,
-					sim::kArena.h / 2},
-				Vec2i{sim::kArena.w / 2 + gap / 2,
-					sim::kArena.h / 2}};
+				Vec2i{sim::kArena.w / 2 - gap / 2, sim::kArena.h / 2},
+				Vec2i{sim::kArena.w / 2 + gap / 2, sim::kArena.h / 2}};
 		cam.follow(ships);
 
 		for (const Vec2i &s : ships)
@@ -325,8 +306,7 @@ testCameraKeepsBothShipsOnScreen()
 	}
 }
 
-void
-testCameraDoesNotJitter()
+void testCameraDoesNotJitter()
 {
 	using namespace uqm::game;
 
@@ -382,8 +362,7 @@ testCameraDoesNotJitter()
 	}
 }
 
-void
-testContinuousZoomRescalesEveryFrame()
+void testContinuousZoomRescalesEveryFrame()
 {
 	using namespace uqm::game;
 
@@ -422,8 +401,7 @@ testContinuousZoomRescalesEveryFrame()
 				changes);
 }
 
-void
-testCameraMeasuresAcrossTheSeam()
+void testCameraMeasuresAcrossTheSeam()
 {
 	using namespace uqm::game;
 
@@ -450,8 +428,7 @@ testCameraMeasuresAcrossTheSeam()
 
 }  // namespace
 
-int
-main()
+int main()
 {
 	testCameraCentresBetweenTheShips();
 	testCameraZoomsOutAsShipsSeparate();

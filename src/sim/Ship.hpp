@@ -35,25 +35,19 @@ enum class ShipInput : u8
 	Special = 1u << 4,
 };
 
-[[nodiscard]] constexpr ShipInput
-operator|(ShipInput a, ShipInput b) noexcept
+[[nodiscard]] constexpr ShipInput operator|(ShipInput a, ShipInput b) noexcept
 {
-	return static_cast<ShipInput>(
-			static_cast<u8>(a) | static_cast<u8>(b));
+	return static_cast<ShipInput>(static_cast<u8>(a) | static_cast<u8>(b));
 }
-[[nodiscard]] constexpr ShipInput
-operator&(ShipInput a, ShipInput b) noexcept
+[[nodiscard]] constexpr ShipInput operator&(ShipInput a, ShipInput b) noexcept
 {
-	return static_cast<ShipInput>(
-			static_cast<u8>(a) & static_cast<u8>(b));
+	return static_cast<ShipInput>(static_cast<u8>(a) & static_cast<u8>(b));
 }
-constexpr ShipInput &
-operator|=(ShipInput &a, ShipInput b) noexcept
+constexpr ShipInput &operator|=(ShipInput &a, ShipInput b) noexcept
 {
 	return a = a | b;
 }
-[[nodiscard]] constexpr bool
-any(ShipInput f) noexcept
+[[nodiscard]] constexpr bool any(ShipInput f) noexcept
 {
 	return static_cast<u8>(f) != 0;
 }
@@ -163,8 +157,7 @@ struct ShipSpec
 	// Every field defaults to zero, which is not a slow ship but one that
 	// cannot accelerate at all, turns every frame and has no crew -- worth
 	// being able to tell from a control bug.
-	[[nodiscard]] constexpr bool
-	valid() const noexcept
+	[[nodiscard]] constexpr bool valid() const noexcept
 	{
 		return maxCrew > 0 && thrust.max > 0;
 	}
@@ -192,7 +185,8 @@ comp struct ShipState
 
 	// SHIP_IN_GRAVITY_WELL (races.h:71): orthogonal to the at-max/beyond-max
 	// pair. Lets a ship accelerate past its own max, up to kMaxAllowedSpeed
-	// (ship.c:82,106-112); gravity sets it, next thrust clears it (ship.c:263-267).
+	// (ship.c:82,106-112); gravity sets it, next thrust clears it
+	// (ship.c:263-267).
 	bool inGravityWell = false;
 
 	// Frames until the ship may turn or thrust again. A collision adds to
@@ -261,8 +255,7 @@ static_assert(std::is_empty_v<WarpingIn> && std::is_empty_v<Exploding>);
 // starts exploding (startShipExplosion). The death path (Battle.cpp)
 // checks this tag instead of a per-element function pointer.
 comp struct SweepsOwnedOnDeath
-{
-};
+{};
 
 }  // namespace uqm::sim
 

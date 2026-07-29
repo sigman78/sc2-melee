@@ -43,13 +43,14 @@ bool deltaCrew(ShipState &s, i32 delta) noexcept;
 
 // Hurts whatever this is. A gravity mass takes no damage (misc.c:214, asked
 // without gravity.c's `+1`). A crewed hull's damage stacks in DamageIncoming
-// instead, applied once at the sync point (Battle::step); `from` is who dealt it.
-void doDamage(Battle &b, EntityId id, i32 damage,
-		EntityId from = kNoEntity) noexcept;
+// instead, applied once at the sync point (Battle::step); `from` is who dealt
+// it.
+void doDamage(
+		Battle &b, EntityId id, i32 damage, EntityId from = kNoEntity) noexcept;
 
 // A weapon's collision response, dispatched on has<Warhead>. `id` is the
 // weapon, `otherId` what it hit.
-void weaponCollision(Battle &b, EntityId id, EntityId otherId) noexcept;
+void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept;
 
 // A ship's, an asteroid's, and a planet's collision response -- only does
 // anything when the other thing is a gravity mass; flying into a planet

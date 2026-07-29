@@ -45,13 +45,14 @@ EntityId spawnPlanet(Battle &b, const CollisionMask *mask);
 
 // Places one asteroid on an arena edge (misc.c:131-201). Consumes exactly
 // seven RNG draws in order -- edge, position, speed, heading, sprite
-// rotation, spin rate, spin direction (misc.c:192-193, order per misc.c:176-178).
+// rotation, spin rate, spin direction (misc.c:192-193, order per
+// misc.c:176-178).
 EntityId spawnAsteroid(Battle &b, const CollisionMask *mask);
 
 // Drop an already-spawned ship somewhere random and legal: rejection loop
 // vs. gravity wells/overlaps, random facing -- caller must set facing/mask
 // first (ship.c:473-481, ship.c:456). minSeparation floor: design-notes V7.
-void placeShipAtRandom(Battle &b, EntityId ship, i32 minSeparation);
+void placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation);
 
 // The rubble an asteroid leaves; its own death spawns a replacement,
 // keeping the field's population constant (misc.c:80-105). The field's

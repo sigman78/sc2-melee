@@ -8,8 +8,7 @@
 
 namespace uqm::sim {
 
-u32
-isqrt(u32 value) noexcept
+u32 isqrt(u32 value) noexcept
 {
 	if (value == 0)
 		return 0;
@@ -38,8 +37,8 @@ isqrt(u32 value) noexcept
 	return root;
 }
 
-SpeedState
-deriveSpeedState(const Velocity &v, const ThrustProfile &profile) noexcept
+SpeedState deriveSpeedState(
+		const Velocity &v, const ThrustProfile &profile) noexcept
 {
 	const Vec2i c = v.current();
 	const i64 speedSq = i64{c.x} * c.x + i64{c.y} * c.y;
@@ -53,8 +52,7 @@ deriveSpeedState(const Velocity &v, const ThrustProfile &profile) noexcept
 	return SpeedState::Normal;
 }
 
-void
-applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
+void applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
 		ShipState *aShip, CollisionScratch &aScratch, const Position &bPos,
 		Motion &bMotion, const Physique &bPhys, ShipState *bShip,
 		CollisionScratch &bScratch) noexcept
@@ -71,8 +69,8 @@ applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
 
 	const Vec2i vrel{va.x - vb.x, va.y - vb.y};
 	const int relTravel = arctan(vrel.x, vrel.y);
-	const auto speed = static_cast<i32>(isqrt(static_cast<u32>(
-			i64{vrel.x} * vrel.x + i64{vrel.y} * vrel.y)));
+	const auto speed = static_cast<i32>(isqrt(
+			static_cast<u32>(i64{vrel.x} * vrel.x + i64{vrel.y} * vrel.y)));
 
 	int directness = normalizeAngle(relTravel - impactA);
 	if (directness <= kQuadrant || directness >= kHalfCircle + kQuadrant)
@@ -105,7 +103,7 @@ applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
 
 	const i32 massA = aPhys.mass;
 	const i32 massB = bPhys.mass;
-	const i64 scalar = i64{sine(directness, speed << 1)} * (massA * massB);
+	const i64 scalar = i64{sine(directness, speed << 1)} * (i64{massA} * massB);
 
 	const auto push = [&](Motion &selfMotion, ShipState *self,
 							  CollisionScratch &selfScratch, int impactAngle,

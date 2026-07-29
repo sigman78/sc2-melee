@@ -10,8 +10,8 @@
 
 #include <filesystem>
 #include <map>
-#include <string>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -55,7 +55,7 @@ public:
 
 private:
 	std::filesystem::path root_;
-	std::string text_;                 // owns what map_ views
+	std::string text_;  // owns what map_ views
 	content::ResourceMap map_;
 	std::map<std::string, SpriteSet, std::less<>> sprites_;
 	std::map<std::string, std::vector<platform::Sound>, std::less<>> sounds_;

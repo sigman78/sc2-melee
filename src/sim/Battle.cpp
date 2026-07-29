@@ -32,10 +32,9 @@ struct PriorSilhouette
 // CollisionPossible (collide.h:34-39): skips a pair when both are stopped,
 // both carry IGNORE_SIMILAR with a shared owner, or neither has mass.
 // Takes raw ids -- owner is the only Allegiance field this needs.
-[[nodiscard]] bool
-collisionPossible(EntityId testOwner, const Physique &testPhys,
-		EntityId elemOwner, const Physique &elemPhys, bool testCollided,
-		bool elemCollided, bool testIgnoreSimilar,
+[[nodiscard]] bool collisionPossible(EntityId testOwner,
+		const Physique &testPhys, EntityId elemOwner, const Physique &elemPhys,
+		bool testCollided, bool elemCollided, bool testIgnoreSimilar,
 		bool elemIgnoreSimilar) noexcept
 {
 	if (testCollided && elemCollided)
@@ -51,14 +50,14 @@ collisionPossible(EntityId testOwner, const Physique &testPhys,
 // Masks are display pixels, positions are world units -- the conversion
 // isn't optional, or the intersect test sees everything 4x further apart.
 // The C converts at this exact boundary (collide.h:44-54).
-[[nodiscard]] Body
-bodyOf(const Position &pos, const CollisionMask *mask) noexcept
+[[nodiscard]] Body bodyOf(
+		const Position &pos, const CollisionMask *mask) noexcept
 {
 	return Body{mask, worldToDisplay(pos.current), worldToDisplay(pos.next)};
 }
 
-[[nodiscard]] const CollisionMask *
-maskOf(const entt::registry &reg, EntityId id) noexcept
+[[nodiscard]] const CollisionMask *maskOf(
+		const entt::registry &reg, EntityId id) noexcept
 {
 	const Collider *c = reg.try_get<Collider>(id);
 	return c != nullptr ? c->mask : nullptr;
@@ -66,19 +65,16 @@ maskOf(const entt::registry &reg, EntityId id) noexcept
 
 // Where a body stops, rewound to the impact time in world units, not
 // converted back from display space -- see design-notes D3.
-[[nodiscard]] Vec2i
-rewindTo(Vec2i from, Vec2i to, TimeValue time) noexcept
+[[nodiscard]] Vec2i rewindTo(Vec2i from, Vec2i to, TimeValue time) noexcept
 {
 	const i32 t = static_cast<i32>(time) - 1;  // 0..256
-	return Vec2i{from.x
-				+ static_cast<i32>((i64{to.x - from.x} * t) >> kTimeShift),
-		from.y
-				+ static_cast<i32>((i64{to.y - from.y} * t) >> kTimeShift)};
+	return Vec2i{
+			from.x + static_cast<i32>((i64{to.x - from.x} * t) >> kTimeShift),
+			from.y + static_cast<i32>((i64{to.y - from.y} * t) >> kTimeShift)};
 }
 
 // In world units per frame, so consumers never see the packed fixed point.
-[[nodiscard]] Vec2i
-worldVelocityOf(const Motion &m) noexcept
+[[nodiscard]] Vec2i worldVelocityOf(const Motion &m) noexcept
 {
 	const Vec2i v = m.velocity.current();
 	return Vec2i{velocityToWorld(v.x), velocityToWorld(v.y)};
@@ -86,15 +82,13 @@ worldVelocityOf(const Motion &m) noexcept
 
 }  // namespace
 
-i32
-lifeSpanOf(const Battle &b, EntityId id) noexcept
+i32 lifeSpanOf(const Battle &b, EntityId id) noexcept
 {
 	const Lifetime *l = b.find<Lifetime>(id);
 	return l != nullptr ? l->remaining : 1;
 }
 
-bool
-isFiniteLife(const Battle &b, EntityId id) noexcept
+bool isFiniteLife(const Battle &b, EntityId id) noexcept
 {
 	return b.find<Lifetime>(id) != nullptr;
 }
@@ -111,15 +105,13 @@ Battle::Battle(u32 seed) : rng_(seed)
 	collideOrder_.reserve(64);
 }
 
-bool
-Battle::collidable(EntityId id) const noexcept
+bool Battle::collidable(EntityId id) const noexcept
 {
 	return alive(id) && reg_.all_of<Collider>(id) && !reg_.all_of<Doomed>(id)
 			&& !reg_.all_of<WarpingIn>(id);
 }
 
-void
-Battle::removeElement(EntityId id) noexcept
+void Battle::removeElement(EntityId id) noexcept
 {
 	if (!alive(id))
 		return;
@@ -135,8 +127,7 @@ Battle::removeElement(EntityId id) noexcept
 	--count_;
 }
 
-void
-Battle::ensureOrdered()
+void Battle::ensureOrdered()
 {
 	if (!orderDirty_)
 		return;
@@ -149,8 +140,7 @@ Battle::ensureOrdered()
 // SpawnEvent::kind is derived from composition: Beam -> Laser, Warhead ->
 // Weapon, the only two flavors Sound.cpp's dispatch uses. Must run after
 // those components attach (spawn/spawnBeam call it last).
-void
-Battle::recordSpawn(EntityId id, const Allegiance &allegiance)
+void Battle::recordSpawn(EntityId id, const Allegiance &allegiance)
 {
 	SpawnFlavor flavor = SpawnFlavor::Unknown;
 	if (reg_.all_of<Beam>(id))
@@ -160,20 +150,17 @@ Battle::recordSpawn(EntityId id, const Allegiance &allegiance)
 	spawns_.push_back(SpawnEvent{id, flavor, allegiance.playerNr});
 }
 
-void
-Battle::queueSpawn(SpawnCommand cmd)
+void Battle::queueSpawn(SpawnCommand cmd)
 {
-	spawnCommands_.push_back(std::move(cmd));
+	spawnCommands_.push_back(cmd);
 }
 
-Order
-Battle::nextOrder(Layer layer) noexcept
+Order Battle::nextOrder(Layer layer) noexcept
 {
 	return Order{layer, nextSeq_++};
 }
 
-Spawned
-Battle::make(Layer layer)
+Spawned Battle::make(Layer layer)
 {
 	const EntityId id = reg_.create();
 	reg_.emplace<Order>(id, nextOrder(layer));
@@ -182,14 +169,12 @@ Battle::make(Layer layer)
 	return Spawned{*this, id};
 }
 
-EntityId
-Battle::create()
+EntityId Battle::create()
 {
 	return reg_.create();
 }
 
-void
-Battle::destroy(EntityId id) noexcept
+void Battle::destroy(EntityId id) noexcept
 {
 	if (!reg_.valid(id))
 		return;
@@ -201,20 +186,17 @@ Battle::destroy(EntityId id) noexcept
 	reg_.destroy(id);
 }
 
-ShipState *
-Battle::ship(EntityId id) noexcept
+ShipState *Battle::ship(EntityId id) noexcept
 {
 	return reg_.valid(id) ? reg_.try_get<ShipState>(id) : nullptr;
 }
 
-const ShipState *
-Battle::ship(EntityId id) const noexcept
+const ShipState *Battle::ship(EntityId id) const noexcept
 {
 	return reg_.valid(id) ? reg_.try_get<const ShipState>(id) : nullptr;
 }
 
-ShipState &
-Battle::attachShip(EntityId id, Borrowed<const ShipSpec> spec)
+ShipState &Battle::attachShip(EntityId id, Borrowed<const ShipSpec> spec)
 {
 	ShipState &s = reg_.emplace<ShipState>(id);
 	s.spec = spec;
@@ -222,16 +204,14 @@ Battle::attachShip(EntityId id, Borrowed<const ShipSpec> spec)
 	return s;
 }
 
-Borrowed<const WeaponSpec>
-Battle::weaponSpec(EntityId id) const noexcept
+Borrowed<const WeaponSpec> Battle::weaponSpec(EntityId id) const noexcept
 {
 	const auto *g =
 			reg_.valid(id) ? reg_.try_get<const FromWeapon>(id) : nullptr;
 	return g != nullptr ? g->spec : nullptr;
 }
 
-Spawned
-Battle::spawn(Layer layer, Position pos, Motion motion,
+Spawned Battle::spawn(Layer layer, Position pos, Motion motion,
 		Physique physique, Borrowed<const CollisionMask> collider,
 		Allegiance allegiance, std::optional<Warhead> warhead)
 {
@@ -259,8 +239,7 @@ Battle::spawn(Layer layer, Position pos, Motion motion,
 	return s;
 }
 
-Spawned
-Battle::spawnBeam(Layer layer, Beam beam, Allegiance allegiance)
+Spawned Battle::spawnBeam(Layer layer, Beam beam, Allegiance allegiance)
 {
 	// A beam is never solid and never moves, so Motion/Physique/
 	// PriorSilhouette/CollisionScratch/Appearing are all dead weight --
@@ -274,8 +253,7 @@ Battle::spawnBeam(Layer layer, Beam beam, Allegiance allegiance)
 	return s;
 }
 
-Spawned
-Battle::spawnEffect(Layer layer, Position pos, Allegiance allegiance)
+Spawned Battle::spawnEffect(Layer layer, Position pos, Allegiance allegiance)
 {
 	// A decorative particle: never solid, Position set once at spawn and
 	// never touched again, so Motion/Physique/PriorSilhouette/
@@ -289,8 +267,7 @@ Battle::spawnEffect(Layer layer, Position pos, Allegiance allegiance)
 	return s;
 }
 
-Spawned
-Battle::spawnEffect(
+Spawned Battle::spawnEffect(
 		Layer layer, Position pos, Motion motion, Allegiance allegiance)
 {
 	// The one decoration that actually drifts (the explosion's debris):
@@ -302,9 +279,9 @@ Battle::spawnEffect(
 
 // "BAD NEWS": an APPEARING element wedged inside something on spawn dies
 // on the spot (process.c:427-449) -- full damage, then DISAPPEARING with
-// its death response run now (hit_points is crew for a ship, element.h:126-133).
-void
-Battle::killOverlapSpawn(EntityId id)
+// its death response run now (hit_points is crew for a ship,
+// element.h:126-133).
+void Battle::killOverlapSpawn(EntityId id)
 {
 	// Reached only from resolveAgainst, which has already established that
 	// both its ids are live; doDamage marks and drains, it never retires an
@@ -313,7 +290,10 @@ Battle::killOverlapSpawn(EntityId id)
 
 	const ShipState *s = ship(id);
 	const Vitality *v = find<Vitality>(id);
-	doDamage(*this, id, s != nullptr ? s->crew : v != nullptr ? v->hitPoints : 0);
+	doDamage(*this, id,
+			s != nullptr           ? s->crew
+					: v != nullptr ? v->hitPoints
+								   : 0);
 	reg_.get<CollisionScratch>(id).collided = true;
 	reg_.emplace_or_replace<Doomed>(id);
 	runDeathResponses(id);
@@ -322,8 +302,7 @@ Battle::killOverlapSpawn(EntityId id)
 // Two death mechanisms, mutually exclusive per entity: a DeathSpawn payload
 // (asteroid/rubble) or a SweepsOwnedOnDeath sweep (a dying ship's own
 // ordnance) -- so which runs first is never observable.
-void
-Battle::runDeathResponses(EntityId id) noexcept
+void Battle::runDeathResponses(EntityId id) noexcept
 {
 	if (const DeathSpawn *ds = reg_.try_get<DeathSpawn>(id))
 		ds->emit(*this, id);
@@ -334,8 +313,7 @@ Battle::runDeathResponses(EntityId id) noexcept
 // One candidate pair, from first possibility to full resolution -- the body
 // of the C's ProcessCollisions loop (process.c:382-621). Returns whether the
 // scanner is done for this walk (the C's mid-loop `return COLLISION`).
-bool
-Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
+bool Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		usize testIdx, TimeValue maxTime)
 {
 	// Both ids stay live for this whole call, including the recursive descent
@@ -350,8 +328,9 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	if (!collidable(testId))
 		return false;
 
-	// Held for the rest of this call: nothing spawns or is destroyed mid-Collide
-	// (see processCollisions), so neither pool moves under these references.
+	// Held for the rest of this call: nothing spawns or is destroyed
+	// mid-Collide (see processCollisions), so neither pool moves under these
+	// references.
 	CollisionScratch &eScratch = reg_.get<CollisionScratch>(elemId);
 	CollisionScratch &tScratch = reg_.get<CollisionScratch>(testId);
 	auto [ePos, eMotion, ePhys] =
@@ -360,16 +339,18 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			reg_.try_get<Position, Motion, Physique>(testId);
 
 	if (!collisionPossible(reg_.get<Allegiance>(testId).owner, *tPhys,
-			reg_.get<Allegiance>(elemId).owner, *ePhys, tScratch.collided,
-			eScratch.collided, reg_.all_of<IgnoreSimilar>(testId),
-			reg_.all_of<IgnoreSimilar>(elemId)))
+				reg_.get<Allegiance>(elemId).owner, *ePhys, tScratch.collided,
+				eScratch.collided, reg_.all_of<IgnoreSimilar>(testId),
+				reg_.all_of<IgnoreSimilar>(elemId)))
 		return false;
 
-	// A transient element doesn't collide on its spawn frame (process.c:389-394)
+	// A transient element doesn't collide on its spawn frame
+	// (process.c:389-394)
 	// -- exempts FINITE_LIFE-with-Appearing on EITHER side, so a missile can't
 	// detonate on its own muzzle; lifeSpan > 1 still lets one-frame PD fire.
 	if ((isFiniteLife(*this, elemId) || isFiniteLife(*this, testId))
-			&& ((reg_.all_of<Appearing>(elemId) && lifeSpanOf(*this, elemId) > 1)
+			&& ((reg_.all_of<Appearing>(elemId)
+						&& lifeSpanOf(*this, elemId) > 1)
 					|| (reg_.all_of<Appearing>(testId)
 							&& lifeSpanOf(*this, testId) > 1)))
 		return false;
@@ -402,9 +383,10 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		const bool tTurned = maskOf(reg_, testId) != tPrior.mask;
 		if (!eTurned && !tTurned)
 		{
-			// Neither silhouette changed: either a spawn wedged inside something
-			// (dies on the spot), or the tail of an already-resolved contact, skipped
-			// so the original impulse can carry the pair apart (process.c:427-451, 509-515).
+			// Neither silhouette changed: either a spawn wedged inside
+			// something (dies on the spot), or the tail of an already-resolved
+			// contact, skipped so the original impulse can carry the pair apart
+			// (process.c:427-451, 509-515).
 			if (reg_.all_of<Appearing>(testId))
 				killOverlapSpawn(testId);
 			if (reg_.all_of<Appearing>(elemId))
@@ -417,8 +399,9 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		}
 
 		// A silhouette changed -- something rotated into a wall. Undo the turn
-		// (process.c:453-506) and ask again. A null prior reverts to no Collider,
-		// not a null mask -- collidable() reads Collider's presence, not its mask.
+		// (process.c:453-506) and ask again. A null prior reverts to no
+		// Collider, not a null mask -- collidable() reads Collider's presence,
+		// not its mask.
 		if (eTurned)
 		{
 			if (ePrior.mask != nullptr)
@@ -447,7 +430,8 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 
 	// Earliest-collision-wins (process.c:531-540): before resolving at
 	// `hit.time`, recursively resolve whether either side hits something
-	// earlier first; a yes on either side abandons this pair. Scanner's side first.
+	// earlier first; a yes on either side abandons this pair. Scanner's side
+	// first.
 	if (hit.time != 1)
 	{
 		const auto earlier = static_cast<TimeValue>(hit.time - 1);
@@ -465,8 +449,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 			// The C scans the test element's earlier candidates from the
 			// scanner's successor -- or from the head when the test element
 			// is newly spawned (process.c:535-540).
-			const usize from =
-					reg_.all_of<Appearing>(testId) ? 0 : elemIdx + 1;
+			const usize from = reg_.all_of<Appearing>(testId) ? 0 : elemIdx + 1;
 			if (processCollisions(testId, testIdx, from, earlier))
 				return false;
 		}
@@ -535,8 +518,8 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 		{
 			// Pure physics is told who is a ship by a ShipState pointer, null
 			// for anything else.
-			applyImpulse(*ePos, *eMotion, *ePhys, ship(elemId), eScratch,
-					*tPos, *tMotion, *tPhys, ship(testId), tScratch);
+			applyImpulse(*ePos, *eMotion, *ePhys, ship(elemId), eScratch, *tPos,
+					*tMotion, *tPhys, ship(testId), tScratch);
 			impulsed = true;
 
 			// collide.c:104-110: an impulse invalidates the at-max bookkeeping.
@@ -578,8 +561,7 @@ Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 // ProcessCollisions (process.c:361-627): walks candidates from `fromIdx` in
 // collideOrder_. Returns whether `elem` ended the walk stopped. Nothing is
 // destroyed mid-Collide, so an index into collideOrder_ stays valid.
-bool
-Battle::processCollisions(
+bool Battle::processCollisions(
 		EntityId elemId, usize elemIdx, usize fromIdx, TimeValue maxTime)
 {
 	// Every id in the snapshot is still live: it was taken this pass and
@@ -607,8 +589,7 @@ Battle::processCollisions(
 // the frame with, batched at frame start -- nothing before Collide (slot 9)
 // can change a mask or a facing anyway. Collided is cleared here too: it
 // must read false before Collide sets it fresh this frame.
-void
-Battle::capturePriorPass() noexcept
+void Battle::capturePriorPass() noexcept
 {
 	for (auto [id, pos, prior, scratch] :
 			reg_.view<Position, PriorSilhouette, CollisionScratch>().each())
@@ -624,8 +605,7 @@ Battle::capturePriorPass() noexcept
 // decrement is separate (ageDecrementPass). eachOrdered, not a bare
 // view<Lifetime> -- death responses draw RNG, so discovery order is
 // gameplay, not incidental.
-void
-Battle::ageAndReapMarkPass()
+void Battle::ageAndReapMarkPass()
 {
 	eachOrdered([this](EntityId id) {
 		const Lifetime *life = reg_.try_get<Lifetime>(id);
@@ -640,14 +620,13 @@ Battle::ageAndReapMarkPass()
 // frame-advance (AnimFrame), each its own typed sub-pass since neither
 // reads or writes outside its own entity. Appearing suppresses both for
 // one frame (a weapon's animation starts on its second frame alive).
-void
-Battle::animatePass()
+void Battle::animatePass()
 {
 	// asteroid_preprocess (misc.c:107-128): tumbles by Spin; the C's rotation
 	// lives in the sprite frame, here in `facing`. eachOrdered, not a bare
 	// view -- order is load-bearing (sim_test.cpp's testStepVisitsInListOrder).
-	eachOrdered<Position, Spin>(entt::exclude<Appearing>,
-			[](EntityId, Position &pos, Spin &spin) {
+	eachOrdered<Position, Spin>(
+			entt::exclude<Appearing>, [](EntityId, Position &pos, Spin &spin) {
 				if (spin.countdown > 0)
 				{
 					--spin.countdown;
@@ -657,11 +636,12 @@ Battle::animatePass()
 				spin.countdown = spin.period;
 			});
 
-	// flame_preprocess (ilwrath.c:126-139): frame advances every frame it lives,
-	// and the collision silhouette follows -- why the flame GROWS as it flies
-	// (process.c:159-160). Collider via find<>: the linger frame may have none.
-	view<AnimFrame, FrameDriven>(entt::exclude<Appearing>).each(
-			[this](EntityId id, AnimFrame &frame) {
+	// flame_preprocess (ilwrath.c:126-139): frame advances every frame it
+	// lives, and the collision silhouette follows -- why the flame GROWS as it
+	// flies (process.c:159-160). Collider via find<>: the linger frame may have
+	// none.
+	view<AnimFrame, FrameDriven>(entt::exclude<Appearing>)
+			.each([this](EntityId id, AnimFrame &frame) {
 				++frame.n;
 				Borrowed<const WeaponSpec> ws = weaponSpec(id);
 				if (ws != nullptr && !ws->masks.empty())
@@ -677,8 +657,7 @@ Battle::animatePass()
 // plus the motion add (process.c:163,172-173), batched over the whole spine
 // instead of interleaved per entity. The wrap still happens at Commit
 // (slot 12), not here -- design-notes D4.
-void
-Battle::integratePass() noexcept
+void Battle::integratePass() noexcept
 {
 	// A beam has no Position, so this view never sees one.
 	for (auto [id, pos, mot] : reg_.view<Position, Motion>().each())
@@ -695,12 +674,11 @@ Battle::integratePass() noexcept
 // (Order.layer, Order.seq), not a view: the walk re-enters at arbitrary
 // indices (testIdx+1, elemIdx+1, or 0 for Appearing) that a forward-only
 // iterator can't serve.
-void
-Battle::collidePass()
+void Battle::collidePass()
 {
 	ensureOrdered();
 	collideOrder_.clear();
-	for (EntityId id : reg_.view<Order>())
+	for (EntityId const id : reg_.view<Order>())
 		collideOrder_.push_back(id);
 
 	for (usize i = 0; i < collideOrder_.size(); ++i)
@@ -716,8 +694,7 @@ Battle::collidePass()
 
 // Sync point, 11a: one summed deltaCrew and one death check per victim --
 // applied once here instead of on whichever hit landed first.
-void
-Battle::applyDamageIncoming() noexcept
+void Battle::applyDamageIncoming() noexcept
 {
 	reg_.view<DamageIncoming, ShipState>().each(
 			[this](EntityId id, DamageIncoming &di, ShipState &s) {
@@ -732,11 +709,11 @@ Battle::applyDamageIncoming() noexcept
 // ShipMachines on the appearing frame). Too late lets a same-frame kill
 // (Lifetime{0} without Doomed) decrement past zero -- and remaining must
 // land on exactly 0, or the death is never detected next frame.
-void
-Battle::ageDecrementPass() noexcept
+void Battle::ageDecrementPass() noexcept
 {
-	reg_.view<Lifetime>(entt::exclude<Doomed>)
-			.each([](Lifetime &life) { --life.remaining; });
+	reg_.view<Lifetime>(entt::exclude<Doomed>).each([](Lifetime &life) {
+		--life.remaining;
+	});
 }
 
 // Sync point, 11c: destroy every element already Doomed -- marked in slot 2
@@ -744,12 +721,11 @@ Battle::ageDecrementPass() noexcept
 // Its death response already ran when Doomed was set; nothing runs again.
 // view<Doomed> walks pool order, not (layer, seq) -- fine, since nothing
 // here reads order and destruction never touches a survivor's Order stamp.
-void
-Battle::reapPass() noexcept
+void Battle::reapPass() noexcept
 {
 	// Erasing the entity currently returned by a view's iterator is safe by
 	// entt's own contract, so removing it mid-walk needs no extra care.
-	for (EntityId id : reg_.view<Doomed>())
+	for (EntityId const id : reg_.view<Doomed>())
 		removeElement(id);
 }
 
@@ -758,8 +734,7 @@ Battle::reapPass() noexcept
 // so clearing it before spawns exist is what keeps that frame from being
 // stripped one frame early. Plain view: CollisionScratch's presence is the
 // filter (a beam has none).
-void
-Battle::flagsEndOfFramePass() noexcept
+void Battle::flagsEndOfFramePass() noexcept
 {
 	// A frame without a collision ends DefyPhysics (process.c:824-827): it
 	// has to expire, or the first stationary contact disables the collision
@@ -775,8 +750,7 @@ Battle::flagsEndOfFramePass() noexcept
 // emission order (deterministic, since the pipeline that fills the buffer
 // is). Runs after flagsEndOfFramePass so a fresh spawn's Appearing survives
 // to its first real frame.
-void
-Battle::drainSpawnCommands()
+void Battle::drainSpawnCommands()
 {
 	for (SpawnCommand &cmd : spawnCommands_)
 	{
@@ -825,7 +799,8 @@ Battle::drainSpawnCommands()
 			s.with(StashedMask{cmd.rubbleMask});
 		if (cmd.deathSpawn != nullptr)
 			s.with(DeathSpawn{cmd.deathSpawn});
-		// The render tags: at most one is ever set, by the effect's own spawn site.
+		// The render tags: at most one is ever set, by the effect's own spawn
+		// site.
 		if (cmd.trail)
 			s.with(Trail{});
 		if (cmd.shadow)
@@ -841,8 +816,7 @@ Battle::drainSpawnCommands()
 // Commit (pipeline slot 12): the wrap and the publish, unchanged from
 // today's postProcess commit (process.c:899-916). A beam has no Position,
 // so this view never sees one.
-void
-Battle::commitPass() noexcept
+void Battle::commitPass() noexcept
 {
 	for (auto [id, pos] : reg_.view<Position>().each())
 	{
@@ -851,8 +825,7 @@ Battle::commitPass() noexcept
 	}
 }
 
-void
-Battle::step()
+void Battle::step()
 {
 	collisions_.clear();
 	spawns_.clear();

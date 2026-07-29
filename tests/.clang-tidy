@@ -1,0 +1,6 @@
+# Inherits ../.clang-tidy. The CHECK macro expands to `if (!(cond))`, so
+# simplify-boolean-expr fires on every CHECK with an && in it.
+InheritParentConfig: true
+Checks: >
+  -readability-simplify-boolean-expr,
+  -readability-use-anyofallof
