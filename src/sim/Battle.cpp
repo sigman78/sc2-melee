@@ -139,6 +139,10 @@ void Battle::removeElement(EntityId id) noexcept
 	reg.destroy(id);
 }
 
+// Reached from inside an eachOrdered walk as well as before one, so the sort
+// must never fire mid-frame -- it would permute the array the outer walk
+// holds an iterator into. Order is emplaced only in landPendingSpawns and
+// erased only in reapPass, both sync points.
 void Battle::ensureOrdered()
 {
 	if (!orderDirty_)
@@ -791,6 +795,10 @@ void Battle::flagsEndOfFramePass() noexcept
 // was withheld, which is what kept them out of every pass this frame.
 // Runs after flagsEndOfFramePass so a fresh spawn's Appearing survives to
 // its first real frame.
+//
+// Nothing may touch the Order pool between the top of step() and here: see
+// ensureOrdered, and docs/worknotes.md for why a tag on the entity is not
+// an alternative.
 void Battle::landPendingSpawns()
 {
 	// Cleared first: a deferred construction runs with spawns landing, not

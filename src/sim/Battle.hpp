@@ -161,10 +161,11 @@ public:
 	// named by a `.with()`. See Spawned below.
 	//
 	// Inside step() the Order is withheld until the sync point, so nothing
-	// this frame can see, collide with or steer toward it -- and the entity
-	// exists meanwhile, so the caller attaches components directly instead
-	// of describing them. Outside step() it lands at once, which is what
-	// setup wants: placement has to see what it must not overlap.
+	// this frame can see, collide with or steer toward it, and the Order
+	// pool stays still (ensureOrdered) -- the entity exists meanwhile, so
+	// the caller attaches components directly instead of describing them.
+	// Outside step() it lands at once, which is what setup wants: placement
+	// has to see what it must not overlap.
 	[[nodiscard]] Spawned make(Layer layer);
 
 	// A bare entity: no Order, no components, outside size()'s element
@@ -306,7 +307,9 @@ private:
 
 	// Re-sorts the Order pool by (layer, seq) iff a spawn or destroy has
 	// touched it since the last sort -- the observers below raise the flag,
-	// so a steady-state frame sorts nothing.
+	// so a steady-state frame sorts nothing. Also reached from inside an
+	// eachOrdered walk, so nothing may touch the pool between the top of
+	// step() and the sync point.
 	void ensureOrdered();
 
 	// Connected to on_construct/on_destroy<Order> in the constructor: the
