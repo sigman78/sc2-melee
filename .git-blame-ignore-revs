@@ -1,2 +1,8 @@
 # Tree-wide clang-format application; not interesting to blame.
 a3d66875af78791d0335a71b78b53208ebc936e3
+
+# Tree-wide qualification of every component with comp::; a rename.
+9727a0685f5af3a7e957efcb68e7ff8c37f58f16
+
+# Tree-wide replacement of Battle's entt pass-throughs with reg.<call>.
+e06186ad4b9b4399ad3f3fb8df52313c6577420a
