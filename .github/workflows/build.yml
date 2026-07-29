@@ -68,50 +68,30 @@ jobs:
       - name: Build
         run: cmake --build --preset dev
 
-      # coroutine_test pins the resume semantics of libs/coroutine.h, which
-      # every Phase 2 conversion is written in. Building it is not enough --
-      # Duff's device can compile everywhere and still resume wrongly.
+      # replay_test is the one that matters: it runs 32 battles to completion
+      # and compares against the recorded baseline, so a behaviour change
+      # anywhere in sim/ fails here.
       - name: Test
         run: ctest --preset dev --output-on-failure
 
-      # Exercises option parsing and startup without needing content.
-      # SC2M_NO_MSGBOX matters: on Windows and macOS the end-of-run log box is
-      # a modal dialog and would hang the job forever.
-
-  lint:
-    name: format and lint
+  # Format only. clang-tidy used to run here too and cost ~8 minutes of
+  # hosted runner per push, for an answer that never depends on the
+  # platform; it is a pre-push hook now (CLAUDE.md). Formatting is seconds
+  # and worth having a second opinion on.
+  format:
+    name: format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends             cmake ninja-build             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev             libxfixes-dev libxss-dev libxtst-dev libxkbcommon-dev             libwayland-dev wayland-protocols libdecor-0-dev             libegl1-mesa-dev libgl1-mesa-dev libasound2-dev libpulse-dev
-
-      # Pinned, not the runner image's: its clang 18 fails on this tree for
-      # version reasons alone -- clang-format's output moves between majors,
-      # so it flags lines nobody touched, and clang-tidy 18 rejects
-      # .clang-tidy's ExcludeHeaderFilterRegex (19+) and cannot parse
-      # std::expected out of libstdc++ 13.
-      #
-      # Wheels rather than apt.llvm.org: the same binaries, installed in
-      # seconds instead of minutes, and available on every platform, so a
-      # developer can hold the exact version CI holds. tools/clang-env.sh
-      # names them and warns when a local tool drifts.
-      - name: Install pinned clang tooling
-        run: pipx install clang-format==21.1.5 && pipx install clang-tidy==21.1.6
+      # Pinned, not the runner image's: clang-format's output moves between
+      # majors, so an unpinned tool reports violations on lines nobody
+      # touched. tools/clang-env.sh names the same version locally.
+      - name: Install clang-format
+        run: pipx install clang-format==21.1.5
 
       # The same check .githooks/pre-commit runs, over everything.
       - name: Format
         run: |
           files=$(git ls-files 'src/*.cpp' 'src/*.hpp' 'tests/*.cpp' 'tests/*.hpp')
           clang-format --dry-run -Werror $files
-
-      # Too slow for a pre-commit hook, which is why it lives here.
-      - name: Lint
-        run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          for f in $(git ls-files 'src/*.cpp' 'tests/*.cpp'); do
-            clang-tidy -p build "$f" --quiet --warnings-as-errors='*'
-          done

@@ -11,6 +11,12 @@ them and the pre-commit hook silently never runs until it does:
 	git config core.hooksPath .githooks
 	git config blame.ignoreRevsFile .git-blame-ignore-revs
 
+The clang tools are pinned in `tools/clang-env.sh`; the format and lint
+scripts warn when the local one has drifted. Match them with:
+
+	pipx install clang-format==21.1.5
+	pipx install clang-tidy==21.1.6
+
 	cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
 		-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
@@ -37,6 +43,18 @@ that makes large refactors safe here, so:
   the cause, or stop and report it.
 
 Builds are Debug, so `assert` is live: the suite exercises every assertion.
+
+**Lint is local; format is CI's.** clang-tidy over this tree is ~18 seconds
+per translation unit — minutes of hosted runner for an answer that never
+depends on the platform — so it runs on `pre-push`, scoped to the
+translation units the push changes and run in parallel. A 15-file branch is
+about 30 seconds. Formatting is seconds, so it stays on both `pre-commit`
+and CI.
+
+`tools/format.sh` fixes formatting; `tools/lint.sh` lints everything, or
+`SC2M_LINT_FILES="a.cpp b.cpp" tools/lint.sh` a subset. `SC2M_SKIP_HOOKS=1`
+is for a mechanical sweep, where you lint once by hand afterwards — not for
+habit.
 
 - `Lifetime` and `Doomed` are **not** redundant. `Doomed` means "the death
   response already ran"; `Lifetime{0}` without it is a live state the
