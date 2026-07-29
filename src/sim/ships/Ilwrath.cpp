@@ -133,12 +133,12 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 		if (weaponDischarge
 				|| (s.specialCounter == 0
 						&& (any(in.buttons & ShipInput::Special)
-								|| c->level < kCloakFullLevel)))
+								|| c->level < Cloak::kFullLevel)))
 		{
 			// One step toward visible (ilwrath.c:250-348). Firing is the only trigger
 			// that works mid-debounce; a key press needs the counter spent, so an
 			// interrupted ramp keeps unwinding out on its own.
-			if (c->level == kCloakFullLevel && weaponDischarge)
+			if (c->level == Cloak::kFullLevel && weaponDischarge)
 			{
 				// Stepping off BLACK under fire is the ambush.
 				cloakedAutoAim(b, id);
@@ -153,7 +153,7 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 			s.specialCounter = 0;
 			specialMasked = true;
 		}
-		else if (c->level < kCloakFullLevel)
+		else if (c->level < Cloak::kFullLevel)
 		{
 			// One step toward black (ilwrath.c:349-374). At black, nothing:
 			// the ship stays hidden until something above fires.
@@ -176,7 +176,7 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 	// W6): it is the sole writer of `level`, so it is the sole place that
 	// needs to re-check "is this full black now" -- every other reader just
 	// asks has<Cloaked> instead of re-deriving OBJECT_CLOAKED itself.
-	if (c->level == kCloakFullLevel)
+	if (c->level == Cloak::kFullLevel)
 		b.attachOrReplace<Cloaked>(id);
 	else
 		b.detach<Cloaked>(id);

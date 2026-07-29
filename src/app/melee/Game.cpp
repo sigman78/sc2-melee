@@ -207,7 +207,7 @@ iterate(Game &g)
 	// since destroying mid-view is not safe.
 	std::vector<sim::EntityId> agedOut;
 	g.battle.view<Mark>().each([&](sim::EntityId id, Mark &m) {
-		if (g.battle.frame() - m.bornFrame > kMarkLife)
+		if (g.battle.frame() - m.bornFrame > Mark::kLife)
 			agedOut.push_back(id);
 	});
 	for (sim::EntityId id : agedOut)

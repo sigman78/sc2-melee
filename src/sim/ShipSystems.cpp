@@ -484,7 +484,7 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 			.position = pos,
 			.effect = true,  // stationary: no Motion needed (review-007 W5)
 			.trail = true,
-			.lifetime = Lifetime{kIonTrailLife},
+			.lifetime = Lifetime{Trail::kLife},
 	});
 }
 
@@ -512,7 +512,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 		auto [in, allegiance] = b.get<Input, Allegiance>(id);
 		in.buttons = ShipInput::None;
 		allegiance.owner = id;
-		b.attach<Lifetime>(id, Lifetime{kWarpInFrames});
+		b.attach<Lifetime>(id, Lifetime{WarpingIn::kFrames});
 		b.find<Motion>(id)->velocity.zero();
 		return;
 	}
@@ -525,7 +525,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 	{
 		const Position &shipPos = *b.find<Position>(id);
 		const Angle angle = shipPos.facing.angle();
-		const i32 back = kTransitionSpeed * (lifeSpanOf(b, id) - 1);
+		const i32 back = WarpingIn::kImageSpacing * (lifeSpanOf(b, id) - 1);
 
 		Position shadowPos;
 		shadowPos.facing = shipPos.facing;
@@ -540,7 +540,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 				.allegiance = Allegiance{b.find<Allegiance>(id)->playerNr, kNoEntity},
 				.effect = true,  // stationary: no Motion needed (review-007 W5)
 				.shadow = true,
-				.lifetime = Lifetime{kIonTrailLife},
+				.lifetime = Lifetime{Trail::kLife},
 		});
 	}
 
@@ -602,7 +602,7 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	// A dying ship draws ByFacing (Draw.cpp), not ByFrame, so it never had
 	// an AnimFrame to reset -- the old colorCycle = 0 here was dead too.
 	b.detach<Doomed>(id);
-	b.attach<Lifetime>(id, Lifetime{kExplosionLife});
+	b.attach<Lifetime>(id, Lifetime{Exploding::kLife});
 	b.detach<Collider>(id);
 	if (!b.has<SweepsOwnedOnDeath>(id))
 		b.attach<SweepsOwnedOnDeath>(id);
@@ -621,7 +621,7 @@ explosionStep(Battle &b, EntityId id) noexcept
 	// How many sparks this frame: the C's schedule (tactrans.c:545-575) ramps
 	// 1/3/1 over the 26 frames it spawns for, then nothing for the last ten
 	// while thrown sparks finish burning.
-	const i32 age = kExplosionLife - lifeSpanOf(b, id);
+	const i32 age = Exploding::kLife - lifeSpanOf(b, id);
 	int count = 3;
 	if (age <= 2 || (age >= 20 && age <= 25))
 		count = 1;
@@ -675,7 +675,7 @@ explosionStep(Battle &b, EntityId id) noexcept
 				.effect = true,
 				.effectMoves = true,
 				.debris = true,
-				.lifetime = Lifetime{kDebrisLife},
+				.lifetime = Lifetime{Debris::kLife},
 		});
 	}
 }

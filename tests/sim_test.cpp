@@ -2316,8 +2316,8 @@ testDeadShipBurnsAsAPhaseThenGoes()
 	CHECK(b.alive(id), "the wreck persists while it burns");
 	CHECK(b.size() > 1, "and throws debris sparks");
 
-	// kExplosionLife of burning, then the reap; sparks outlive by kDebrisLife.
-	for (int i = 0; i < kExplosionLife + kDebrisLife + 2; ++i)
+	// Exploding::kLife of burning, then the reap; sparks outlive by Debris::kLife.
+	for (int i = 0; i < Exploding::kLife + Debris::kLife + 2; ++i)
 		b.step();
 	CHECK(!b.alive(id), "then the wreck is reaped");
 	CHECK(b.size() == 0, "and the sparks have burned out");
@@ -2396,7 +2396,7 @@ testShipWarpsInBeforeItIsSolid()
 	int closing = 0;
 	int receding = 0;
 	i64 previous = -1;
-	for (int i = 0; i < sim::kWarpInFrames - 2; ++i)
+	for (int i = 0; i < sim::WarpingIn::kFrames - 2; ++i)
 	{
 		b.step();
 		peak = std::max(peak, shadows());
@@ -2503,7 +2503,7 @@ testCloakHidesFromTracking()
 	CHECK(b.has<Cloaked>(avenger),
 			"fully faded should be cloaked");
 	CHECK(b.has<Cloaked>(avenger)
-					== (b.find<Cloak>(avenger)->level == kCloakFullLevel),
+					== (b.find<Cloak>(avenger)->level == Cloak::kFullLevel),
 			"review-007 W6's invariant: Cloaked present iff the cloak is at "
 			"its full level, got level %d", b.find<Cloak>(avenger)->level);
 
@@ -2533,7 +2533,7 @@ testCloakHidesFromTracking()
 	CHECK(!b.has<Cloaked>(avenger),
 			"a second press should uncloak it (ilwrath.c:251-253)");
 	CHECK(b.has<Cloaked>(avenger)
-					== (b.find<Cloak>(avenger)->level == kCloakFullLevel),
+					== (b.find<Cloak>(avenger)->level == Cloak::kFullLevel),
 			"review-007 W6's invariant still holds once uncloaked, got "
 			"level %d", b.find<Cloak>(avenger)->level);
 

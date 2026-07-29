@@ -11,6 +11,7 @@
 #include "sim/Thrust.hpp"
 
 #include <optional>
+#include <type_traits>
 
 #define comp
 
@@ -230,10 +231,6 @@ comp struct FromWeapon
 	Borrowed<const WeaponSpec> spec = nullptr;
 };
 
-// The cloak walk: five visible fill colours (levels 1..5), then black.
-inline constexpr i32 kCloakVisibleColours = 5;
-inline constexpr i32 kCloakFullLevel = kCloakVisibleColours + 1;
-
 // The cloak as its own component (review-004 X5): only a ship that has one
 // carries it -- every ShipState used to hold an Ilwrath field, which is
 // exactly the state pollution the census's component library exists to end.
@@ -241,11 +238,15 @@ inline constexpr i32 kCloakFullLevel = kCloakVisibleColours + 1;
 //     0            STAMP -- solid, visible, machine idle
 //     1..5         STAMPFILL fills: white, cyan-white, dark cyan, blue,
 //                  dark blue (ilwrath.c:349-374 in, 255-273 out)
-//     kCloakFullLevel (6)   BLACK -- fully cloaked
+//     kFullLevel (6)   BLACK -- fully cloaked
 // Not a fade: walked one step per frame, reversed to uncloak
 // (ships/Ilwrath.cpp).
 comp struct Cloak
 {
+	// Five visible fill colours (levels 1..5), then black.
+	static constexpr i32 kVisibleColours = 5;
+	static constexpr i32 kFullLevel = kVisibleColours + 1;
+
 	i32 level = 0;
 };
 
@@ -253,11 +254,29 @@ comp struct Cloak
 // (tactrans.c:868-886, 703-728). shipPreProcess dispatches on these.
 comp struct WarpingIn
 {
+	// HYPERJUMP_LIFE (element.h:69): how long a ship spends warping in,
+	// invisible and untouchable, before it becomes real.
+	static constexpr i32 kFrames = 15;
+
+	// TRANSITION_SPEED (tactrans.c:909): how far apart the images of an
+	// arriving ship are spaced along its path.
+	static constexpr i32 kImageSpacing = displayToWorld(40);
 };
 
 comp struct Exploding
 {
+	// NUM_EXPLOSION_FRAMES (element.h:71).
+	static constexpr i32 kFrames = 12;
+
+	// NUM_EXPLOSION_FRAMES * 3 (element.h:71, tactrans.c:714).
+	static constexpr i32 kLife = kFrames * 3;
+
+	// When the hull itself stops being drawn: 15 frames into the 36-frame
+	// death (tactrans.c:569-571).
+	static constexpr i32 kHullVanishAge = 15;
 };
+
+static_assert(std::is_empty_v<WarpingIn> && std::is_empty_v<Exploding>);
 
 // cleanup_dead_ship (tactrans.c:307-337): attached the instant a ship starts
 // exploding (startShipExplosion), replacing the old onDeath =
@@ -267,27 +286,6 @@ comp struct Exploding
 comp struct SweepsOwnedOnDeath
 {
 };
-
-// How long the exhaust fade runs, in frames -- the length of the C's colour
-// table (tactrans.c:757-770).
-inline constexpr i32 kIonTrailLife = 12;
-
-// HYPERJUMP_LIFE (element.h:69): how long a ship spends warping in, invisible
-// and untouchable, before it becomes real.
-inline constexpr i32 kWarpInFrames = 15;
-
-// TRANSITION_SPEED (tactrans.c:909): how far apart the images of an arriving
-// ship are spaced along its path.
-inline constexpr i32 kTransitionSpeed = displayToWorld(40);
-
-// How long one spark of the explosion lasts, and when the hull itself stops
-// being drawn -- 15 frames into a 36-frame death (tactrans.c:569-571).
-inline constexpr i32 kDebrisLife = 9;
-inline constexpr i32 kHullVanishAge = 15;
-
-// NUM_EXPLOSION_FRAMES * 3 (element.h:71, tactrans.c:714).
-inline constexpr i32 kExplosionFrames = 12;
-inline constexpr i32 kExplosionLife = kExplosionFrames * 3;
 
 }  // namespace uqm::sim
 

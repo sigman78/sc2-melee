@@ -17,10 +17,6 @@ struct ShipState;
 // (status.c:333-370), weapon_collision (weapon.c:135-190) and collision
 // (ship.c:352-377).
 
-// Blast life is a constant, not derived from sprite frames -- see
-// design-notes V9.
-inline constexpr i32 kBlastLife = 5;
-
 // Ship crew damage accumulated this frame, from every source, before one
 // summed application and one death check at the sync point -- review-006
 // §2's second Z4 refinement: splitting a crewed hull's damage from the

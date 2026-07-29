@@ -825,11 +825,11 @@ Battle::applyDamageIncoming() noexcept
 // both found by running the suite:
 //
 // - Too early (right after the slot 2 death check) double-counts a ship's
-//   own warp-in: ShipMachines is what attaches Lifetime{kWarpInFrames} on
-//   the appearing frame, and that has to happen before a decrement can
-//   apply to it, or the first traced frame is off by one (kWarpInFrames
-//   instead of kWarpInFrames - 1, caught by replay_test's --trace diff
-//   against the pre-Z4 baseline).
+//   own warp-in: ShipMachines is what attaches Lifetime{WarpingIn::kFrames}
+//   on the appearing frame, and that has to happen before a decrement can
+//   apply to it, or the first traced frame is off by one
+//   (WarpingIn::kFrames instead of WarpingIn::kFrames - 1, caught by
+//   replay_test's --trace diff against the pre-Z4 baseline).
 // - Too late (at the sync point, after Collide/Fire) lets a same-frame kill
 //   that sets Lifetime{0} without Doomed -- doDamage's non-ship branch,
 //   used by a piercing pair where only one side's own weaponCollision

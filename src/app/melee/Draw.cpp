@@ -376,8 +376,8 @@ renderShips(Game &g)
 				// explosion itself is the swarm of sparks renderEffects
 				// draws as Debris.
 				if (s.crew == 0
-						&& sim::kExplosionLife - sim::lifeSpanOf(g.battle, id)
-								>= sim::kHullVanishAge)
+						&& sim::Exploding::kLife - sim::lifeSpanOf(g.battle, id)
+								>= sim::Exploding::kHullVanishAge)
 					return;
 
 				const game::Camera &camera = g.battle.context<game::Camera>();
@@ -489,7 +489,7 @@ renderEffects(Game &g)
 	g.battle.eachOrdered<sim::Trail, sim::Position>(
 			[&g, &camera](sim::EntityId id, sim::Position &pos) {
 				const usize step = static_cast<usize>(
-						sim::kIonTrailLife - sim::lifeSpanOf(g.battle, id));
+						sim::Trail::kLife - sim::lifeSpanOf(g.battle, id));
 				if (step >= kIonRamp.size())
 					return;
 				const Colour c = kIonRamp[step];
@@ -506,7 +506,7 @@ renderEffects(Game &g)
 				if (set == nullptr)
 					return;
 				const usize step = static_cast<usize>(
-						sim::kIonTrailLife - sim::lifeSpanOf(g.battle, id));
+						sim::Trail::kLife - sim::lifeSpanOf(g.battle, id));
 				const usize cel =
 						static_cast<usize>(pos.facing.raw()) % set->frames.size();
 				if (step >= kIonRamp.size() || cel >= set->silhouettes.size())
@@ -536,10 +536,10 @@ renderEffects(Game &g)
 					return;
 				}
 				const usize frames = set->frames.size();
-				const i32 age = sim::kDebrisLife - sim::lifeSpanOf(g.battle, id);
+				const i32 age = sim::Debris::kLife - sim::lifeSpanOf(g.battle, id);
 				const usize i = std::min(frames - 1,
 						static_cast<usize>(std::max(0, age)) * frames
-								/ static_cast<usize>(sim::kDebrisLife));
+								/ static_cast<usize>(sim::Debris::kLife));
 				const Extent2u maskSize = set->masks[i].size();
 				const Extent2u dest = scaledSize(camera, maskSize);
 				const Vec2i off =

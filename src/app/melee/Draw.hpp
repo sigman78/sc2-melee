@@ -110,19 +110,19 @@ comp struct Starfield
 	std::array<Vec2i, kStarCount> stars{};
 };
 
-// A collision event, held on screen for kMarkLife frames -- one frame at
+// A collision event, held on screen for kLife frames -- one frame at
 // 24 Hz is not long enough to see (review-007 §3). An app-owned bare
 // entity (Battle::create()), drawn by the marks pass and reaped by age in
 // iterate() via Battle::destroy(); never a sim element, so it carries no
 // Order and is invisible to eachOrdered.
 comp struct Mark
 {
+	// How long a contact point stays on screen, in simulation frames.
+	static constexpr u64 kLife = 24;
+
 	sim::CollisionEvent event;
 	u64 bornFrame = 0;
 };
-
-// How long a contact point stays on screen, in simulation frames.
-inline constexpr u64 kMarkLife = 24;
 
 // Renders one frame: the ordered pipeline of semantic passes -- stars,
 // planet, asteroids, ships, projectiles, effects, marks, the HUD and,

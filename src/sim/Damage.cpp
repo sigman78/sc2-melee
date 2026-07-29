@@ -190,7 +190,7 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 			.allegiance = Allegiance{shooterPlayerNr, kNoEntity},
 			.effect = true,  // stationary: no Motion needed (review-007 W5)
 			.blast = true,
-			.lifetime = Lifetime{kBlastLife},
+			.lifetime = Lifetime{Blast::kLife},
 	});
 }
 

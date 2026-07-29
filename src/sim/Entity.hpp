@@ -9,6 +9,8 @@
 
 #include <entt/entity/entity.hpp>
 
+#include <type_traits>
+
 // annotation: marks ECS components -- an entt::registry-attached type, and
 // nothing else (not Element's own rump, not a spec, not CollisionMask).
 // Empty on purpose: entt uses `comp` as a variable name internally in its
@@ -134,6 +136,9 @@ comp struct Planet
 // A single point of a ship's exhaust (tactrans.c:756-790's cycle_ion_trail).
 comp struct Trail
 {
+	// How long the exhaust fade runs, in frames -- the length of the C's
+	// colour table (tactrans.c:757-770).
+	static constexpr i32 kLife = 12;
 };
 
 // A fading ship-shaped silhouette shed while warping in (tactrans.c:893-930's
@@ -146,12 +151,19 @@ comp struct Shadow
 // frames while the hull is still there (tactrans.c:542-615).
 comp struct Debris
 {
+	// How long one spark of the explosion lasts (tactrans.c:569-571).
+	static constexpr i32 kLife = 9;
 };
 
 // A weapon's impact flash.
 comp struct Blast
 {
+	// A constant, not derived from sprite frames -- see design-notes V9.
+	static constexpr i32 kLife = 5;
 };
+
+static_assert(std::is_empty_v<Trail> && std::is_empty_v<Debris>
+		&& std::is_empty_v<Blast>);
 
 // Invisible to the eye and to targeting: maintained by the cloak machine
 // (ships/Ilwrath.cpp) so no reader has to know what "full cloak level" means.
