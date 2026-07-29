@@ -23,6 +23,10 @@ components it carries.
   *another* entity.
 - Four values belong to the world rather than to any entity and live in the
   registry's context, reached through `Battle::setContext/context/findContext`.
+- A constant that governs one component's behaviour is a `static constexpr`
+  member of it — `Trail::kLife`, `WarpingIn::kFrames`, `Exploding::kLife`.
+  Tags stay tags: a static member does not make a class non-empty, which
+  entt's empty-type elision depends on, and a `static_assert` pins it.
 
 ## Placement and traversal
 

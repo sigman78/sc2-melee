@@ -29,11 +29,26 @@ the executed code:
    the adoption was done for speed. Pools were adopted for the composition
    ergonomics (a component is a type and an `emplace`, not a hand-rolled
    sidecar), not for cache behaviour.
-2. **Traversal order is gameplay** — held completely, and ended as data:
-   the order never entered the library's storage, first as an owned spine,
-   finally as a sort key. What this reason actually rejects —
-   archetype/SoA storage that reorders entities by composition — remains
-   rejected, exactly as before.
+2. **Traversal order is gameplay** — held as data, and since measured, so
+   it can now be stated more precisely than it was assumed. The order never
+   entered the library's storage: first an owned spine, finally a sort key.
+   But reversing `seq` within a layer across all 32 replay battles changed
+   **no** observable outcome — same winner every battle, same crew lost,
+   same shots, same collisions, same end frames. Roughly twelve contacts per
+   two-thousand-frame battle leaves within-frame ordering almost nothing to
+   sequence, and the collision response normalises the ship case anyway.
+
+   So the claim splits. **Layer order is gameplay** — the strata are
+   declared, and a mechanic that must act before another (the Pkunk phoenix
+   preprocessing ahead of a dying ship) says so by naming a layer.
+   **Within-layer order is determinism, not gameplay** — `seq` earns its
+   place as the tiebreak that keeps the sort total and reproducible, since
+   entt's pool order is unstable under deletion and the replay digest folds
+   state in walk order. Changing the walk order would cost one baseline
+   re-record and nothing else.
+
+   What this reason rejects is unchanged: archetype/SoA storage that
+   reorders entities by composition stays rejected.
 
 The costs paid for the pools are recorded in review-004's friction ledger
 (3-4× per-TU compile time in sim/, the EntityRef diagnostic lost, the
@@ -45,36 +60,27 @@ argument gets reopened — not a refactor that quietly assumes it.
 
 | Term | What it is here | What it is in the C |
 | --- | --- | --- |
-| **Entity** | `EntityId` = `entt::entity` — a versioned id; order lives in the `OrderLink` spine, not the storage | `HELEMENT` in `disp_q` |
-| **Component** | A type in the registry, `emplace`d per entity (`ShipState`, `WeaponGuidance`, `Cloak`, tags, the app's `Visual`); `Element` keeps the universal motion/protocol/collision core | fields smuggled into `ELEMENT` or `STARSHIP` |
-| **Behavior slot** | The four phase hooks — pre, post, collision, death — filled from the component library, per entity | per-instance function pointers |
+| **Entity** | `EntityId` = `entt::entity` — a versioned id and nothing else; what it *is* is which components it carries | `HELEMENT` in `disp_q` |
+| **Component** | A type in the registry, `emplace`d per entity (`Position`, `ShipState`, `Cloak`, tags, the app's `Visual`). There is no universal core struct | fields smuggled into `ELEMENT` or `STARSHIP` |
+| **Behavior slot** | A ship's `preProcess` and a special's activation `hook`, both spec-level | per-instance function pointers |
 | **System** | A cross-entity pass with its own state: gravity, camera, sound | special-cased calls inside the queue walk |
 | **Event** | Observational output of `step()` — `CollisionEvent`, `SpawnEvent`. Never an input; nothing reads events back into the sim | draw/sound calls made mid-step |
 | **Spec** | Immutable declarative description — `ShipSpec{thrust, weapon, special, ai}` built from `WeaponSpec`/`SpecialSpec` values. In code today, the TOML of the plan tomorrow; same shape either way | `RACE_DESC` plus per-ship `#define`s |
 
-Hooks are deliberately NOT an event bus. Every ship in `ships/` was tuned
-against direct per-entity dispatch, and M2's strategy (port `cyborg.c`
-against a stable reference frame) needs that dispatch unchanged. New
-cross-cutting behavior enters as systems; existing per-ship behavior stays in
-slots — but after review-005 a slot value must be a thin system function
-over the entity's components: behavior state lives in components (Guided,
-Spin, Cloak), optional phases are component presence (WarpingIn,
-Exploding — the C's per-instance hook mutation has no successor), and the
-ship phases themselves are named systems called in pinned order.
-
-The per-instance phase hooks that paragraph describes are gone (review-007
-W5), not merely thinned. `onCollision` is a dispatch on `has<Warhead>` —
+**There are no per-entity hooks.** Behaviour is data plus dispatch on
+composition: `onCollision` became a branch on `has<Warhead>` —
 `weaponCollision` for a shot, `solidCollision` for anything else — taking
-the other id as an argument, so there is no stored `collidedWith` either.
-`onDeath` is a `DeathSpawn{emit}` payload plus the `SweepsOwnedOnDeath`
-tag, run from both death sites in `Battle.cpp`. `ElementHook` is deleted,
-and so, by review-007's close, is Element itself.
+the other id as an argument, so nothing stores who it collided with.
+`onDeath` became a `DeathSpawn{emit}` payload and the `SweepsOwnedOnDeath`
+tag. Behaviour state lives in components (`Guided`, `Spin`, `Cloak`), and
+optional phases are component presence (`WarpingIn`, `Exploding`). Nothing
+swaps a function pointer on a live entity the way `chmmr.c:773` does.
 
-What survives is spec-level and always was: a ship's `preProcess` (the
-Ilwrath cloak machine) and a special's activation `hook`. Neither is a
-per-instance mutation — nothing here swaps a hook on a live entity the way
-`chmmr.c:773` does — so read "Behavior slot" above as naming that pair,
-not a general per-entity phase mechanism.
+What stays per-ship is spec-level: a ship's `preProcess` (the Ilwrath cloak
+machine) and a special's activation `hook`. These are deliberately NOT an
+event bus — every ship in `ships/` was tuned against direct dispatch, and
+M2's strategy (porting `cyborg.c` against a stable reference frame) needs
+that dispatch unchanged. New cross-cutting behaviour enters as a system.
 
 Traversal order is *data*, all the way down (review-006): every spawn
 names its stratum, and `Order{layer, seq}` on the entity is the whole
@@ -88,29 +94,35 @@ encoded by head/tail insertion tricks (pkunk.c:498-512's head-inserted
 phoenix) is a layer declaration here; what it encoded by hook
 self-mutation is component presence.
 
-## Migration plan
+## Where this stands
 
-- **Now**: specs. `ShipData`'s prefixed field blocks become nested
-  `WeaponSpec`/`SpecialSpec` values; ship definitions become spec literals —
-  declarative in code before any file format exists.
-- **At M2, per mechanic**: registry components. `ShipState` is one
-  already (review-004 X3); each subsequent mechanic (limpets, tethers,
-  charge state) is a new component type, never a new `Element` field —
-  and review-004's split rule applies: a component needs an owner
-  narrower than "everything", never taxonomy. The plan's rule holds: no
-  component is generalised until its second user exists.
+- **Done**: specs are nested values and ship definitions are declarative
+  literals; every mechanic is a registry component; there is no `Element`
+  left to add a field to. The full sequence is in `src/docs/review-002`
+  through `review-009`.
+- **Per mechanic, from here**: a new mechanic (limpets, tethers, charge
+  state) is a new component type. The split rule applies — a component
+  needs an owner narrower than "everything", never a taxonomy — and nothing
+  is generalised until its second user exists.
 - **Never, absent a profile**: archetype storage, SoA, parallel systems.
 
 ## The promotion rule
 
 **If a behavior needs an in-place patch — a kind-check, a special case inside
 a shared function — that is a signal the concern belongs one scope up.**
-Worked example: the `Laser` checks that were sprinkled through the step loop
-(skip the Appearing seed, skip the commit) were one concern — "this
-element's two points are geometry, not motion" — wearing disguises; they are
-now the `BeamGeometry` trait flag, set at spawn, and the step loop knows no
-element kinds at all. When a patch like this appears, promote it or file
-it; do not add another copy.
+Worked example, carried to its end: the `Laser` checks sprinkled through the
+step loop (skip the Appearing seed, skip the commit) were one concern — "this
+element's two points are geometry, not motion" — wearing disguises. Promoting
+them to a trait flag removed the checks; promoting them again removed the
+flag. A beam now carries `Beam{from, to}` and no `Position` at all, so the
+passes that move things never match it and there is nothing to exempt. The
+same shape twice: `gravityPass` stopped scanning every mass for the one
+gravity well when the well started carrying a `Planet` tag.
+
+When a patch like this appears, promote it or file it; do not add another
+copy. The strongest version of the promotion is usually the one where the
+special case becomes structurally unrepresentable rather than merely
+flagged.
 
 ## Faithfulness policy
 
