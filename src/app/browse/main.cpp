@@ -1,6 +1,6 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 //
-// uqm2-browse -- a content browser (docs/content-formats.md,
+// sc2m-browse -- a content browser (docs/content-formats.md,
 // docs/game-rewrite-plan.md M0), writing PNG contact sheets rather than a
 // window. Also where the prose lives: ContentError is a code and three
 // numbers (docs/cpp-conventions.md rules 2, 3), formatted into English
@@ -565,22 +565,22 @@ int
 usage()
 {
 	std::printf(
-			"uqm2-browse -- content browser (docs/content-formats.md)\n"
+			"sc2m-browse -- content browser (docs/content-formats.md)\n"
 			"\n"
-			"  uqm2-browse inventory <content>\n"
+			"  sc2m-browse inventory <content>\n"
 			"        resource counts, dangling keys, rmp problems\n"
 			"\n"
-			"  uqm2-browse ani <file.ani> <out.png> [colortable.ct]\n"
+			"  sc2m-browse ani <file.ani> <out.png> [colortable.ct]\n"
 			"        contact sheet of every cel, hotspots marked. Give the\n"
 			"        .ct and the cels are coloured through the colormap slot\n"
 			"        their .ani names -- which is how the game draws them,\n"
 			"        and the binding nothing else checks.\n"
 			"\n"
-			"  uqm2-browse ct <file.ct> <out.png>\n"
+			"  sc2m-browse ct <file.ct> <out.png>\n"
 			"        palette swatches, one row per table, saying which of the\n"
 			"        two shapes each entry turned out to be\n"
 			"\n"
-			"  uqm2-browse fon <dir.fon> <out.png>\n"
+			"  sc2m-browse fon <dir.fon> <out.png>\n"
 			"        every glyph in a font directory\n");
 	return 2;
 }

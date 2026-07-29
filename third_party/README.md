@@ -8,11 +8,9 @@ no build-time dependency on `sc2/`.
 | spng | https://github.com/randy408/libspng | 0.7.4 (`spng.c` + `spng.h`, verbatim) |
 | miniz | https://github.com/richgel999/miniz | 11.0.2 (`miniz.c` + `miniz.h`, verbatim) |
 
-Both are byte-identical copies of what `sc2/src/libs/vendor/` carries, built
-with the same flags — so both trees decode PNG identically by construction,
-not by version coincidence. The duplication is deliberate and temporary: it
-exists so the rewrite can be extracted into its own repository, after which
-each tree keeps the copy it needs.
+Byte-identical to the copies the sc2-uqm tree vendors, and built with the
+same flags — so both decode PNG identically by construction rather than by
+version coincidence.
 
 Fetched rather than vendored: SDL3 and EnTT, via `cmake/Dependencies.cmake`.
 These two are vendored instead because they are single-file amalgamations

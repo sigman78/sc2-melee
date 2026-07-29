@@ -17,20 +17,9 @@ set(BUILD_SHARED_LIBS OFF)
 set(BUILD_TESTING OFF)
 
 # --- SDL ---------------------------------------------------------------------
-# The Phase 0 bootstrap (_UQM_SDL_BOOTSTRAP2, docs/c-making.md §6) is gone:
-# the tree is SDL3 now. Everything outside this block still talks to the
-# version-agnostic `uqm::SDL` target.
+# Everything outside this block talks to the `sc2m::SDL` target, so the pin
+# lives in exactly one place.
 set(SDL_TEST_LIBRARY OFF)
-if(EMSCRIPTEN AND UQM_LEGACY)
-	# SDL3 defaults SDL_PTHREADS off for Emscripten because SharedArrayBuffer
-	# is not universally available; without it SDL_CreateSemaphore() returns
-	# NULL and UQM aborts initialising the draw-command queue. We already
-	# require SAB while Starcon2Main exists, so turn it back on.
-	#
-	# docs/unthread.md §7.6 is what removes this, along with the COOP/COEP
-	# headers the host currently has to send.
-	set(SDL_PTHREADS ON)
-endif()
 set(SDL_INSTALL OFF)
 FetchContent_Declare(SDL3
 	GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
@@ -40,9 +29,9 @@ FetchContent_Declare(SDL3
 )
 FetchContent_MakeAvailable(SDL3)
 
-add_library(uqm_sdl INTERFACE)
-target_link_libraries(uqm_sdl INTERFACE SDL3::SDL3)
-add_library(uqm::SDL ALIAS uqm_sdl)
+add_library(sc2m_sdl INTERFACE)
+target_link_libraries(sc2m_sdl INTERFACE SDL3::SDL3)
+add_library(sc2m::SDL ALIAS sc2m_sdl)
 
 # --- EnTT --------------------------------------------------------------------
 # The rewrite's entity storage (src/docs/review-004-entt.md). Header-only;
@@ -57,33 +46,14 @@ FetchContent_Declare(EnTT
 )
 FetchContent_MakeAvailable(EnTT)
 
-add_library(uqm_entt INTERFACE)
-target_link_libraries(uqm_entt INTERFACE EnTT::EnTT)
-add_library(uqm::entt ALIAS uqm_entt)
+add_library(sc2m_entt INTERFACE)
+target_link_libraries(sc2m_entt INTERFACE EnTT::EnTT)
+add_library(sc2m::entt ALIAS sc2m_entt)
 
 # --- zlib / libpng -----------------------------------------------------------
-# Nothing to fetch. zlib went first: uio's zip backend inflates through the
-# vendored miniz in sc2/src/libs/vendor/miniz. libpng followed once png2sdl.c
-# moved to the vendored spng in sc2/src/libs/vendor/spng, which is built with
-# SPNG_USE_MINIZ and so needs no zlib either (docs/plan.md Phase 5).
+# Nothing to fetch: PNG decoding goes through the vendored spng, built with
+# SPNG_USE_MINIZ, so neither libpng nor zlib is needed (third_party/README.md).
 
 # --- Ogg / Vorbis ------------------------------------------------------------
 # Nothing to fetch: libogg + libvorbis + libvorbisfile were replaced by the
-# vendored single-file stb_vorbis in sc2/src/libs/stb (docs/plan.md Phase 5).
-
-# --- OpenAL (optional) -------------------------------------------------------
-if(UQM_OPENAL)
-	set(ALSOFT_UTILS OFF)
-	set(ALSOFT_EXAMPLES OFF)
-	set(ALSOFT_INSTALL OFF)
-	FetchContent_Declare(OpenAL
-		GIT_REPOSITORY https://github.com/kcat/openal-soft.git
-		GIT_TAG 1.24.3
-		GIT_SHALLOW TRUE
-		FIND_PACKAGE_ARGS NAMES OpenAL CONFIG
-	)
-	FetchContent_MakeAvailable(OpenAL)
-	if(NOT TARGET OpenAL::OpenAL AND TARGET OpenAL)
-		add_library(OpenAL::OpenAL ALIAS OpenAL)
-	endif()
-endif()
+# vendored single-file stb_vorbis (docs/plan.md Phase 5).

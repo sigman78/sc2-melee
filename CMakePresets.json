@@ -36,10 +36,9 @@
       "name": "wasm",
       "inherits": "base",
       "displayName": "wasm - Emscripten (Phase 3, not implemented)",
-      "toolchainFile": "${sourceDir}/cmake/uqm.toolchain.wasm.cmake",
+      "toolchainFile": "${sourceDir}/cmake/sc2m.toolchain.wasm.cmake",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "UQM_NETPLAY": "OFF"
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
@@ -53,24 +52,7 @@
         "rhs": "Darwin"
       },
       "cacheVariables": {
-        "CMAKE_SYSTEM_NAME": "iOS",
-        "UQM_NETPLAY": "OFF"
-      }
-    },
-    {
-      "name": "core",
-      "inherits": "dev",
-      "displayName": "core - the rewrite only, no C game",
-      "cacheVariables": {
-        "UQM_LEGACY": "OFF"
-      }
-    },
-    {
-      "name": "wasm-core",
-      "inherits": "wasm",
-      "displayName": "wasm-core - the rewrite only; no pthreads, no SharedArrayBuffer",
-      "cacheVariables": {
-        "UQM_LEGACY": "OFF"
+        "CMAKE_SYSTEM_NAME": "iOS"
       }
     }
   ],
@@ -78,13 +60,6 @@
     {
       "name": "dev",
       "configurePreset": "dev",
-      "output": {
-        "outputOnFailure": true
-      }
-    },
-    {
-      "name": "core",
-      "configurePreset": "core",
       "output": {
         "outputOnFailure": true
       }
@@ -106,14 +81,6 @@
     {
       "name": "ios",
       "configurePreset": "ios"
-    },
-    {
-      "name": "core",
-      "configurePreset": "core"
-    },
-    {
-      "name": "wasm-core",
-      "configurePreset": "wasm-core"
     }
   ]
 }

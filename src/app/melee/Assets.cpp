@@ -55,7 +55,7 @@ loadAssets(Game &g, const std::filesystem::path &content)
 				"content: not found.\n"
 				"  Looked for sc2/content/uqm.rmp beside the executable and in\n"
 				"  the working directory, and upward from both.\n"
-				"  Pass it explicitly:  uqm2-melee <path-to>/sc2/content\n"
+				"  Pass it explicitly:  sc2m-melee <path-to>/sc2/content\n"
 				"  Continuing without art -- everything will be a rectangle.\n");
 	}
 	else

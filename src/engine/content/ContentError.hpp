@@ -16,7 +16,7 @@ namespace uqm::content {
 // human fixes the file, so it earns a report; a broken invariant is an
 // assert instead.
 //
-// The engine branches on the code only, no prose -- `uqm2-browse` and the
+// The engine branches on the code only, no prose -- `sc2m-browse` and the
 // tests format one with std::format at the point it is shown, keeping ~40
 // string literals out of the shipping binary.
 enum class ContentErrorCode : u8
