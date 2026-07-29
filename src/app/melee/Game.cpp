@@ -105,11 +105,11 @@ setUpBattle(Game &g)
 			g.content.sprites(g.window, game::kMeleeArt.asteroid).maskFor(0);
 
 	// The starfield: one entity (review-007 §3), positions spread over the
-	// arena in display pixels (see kStarFieldWidth), populated once here.
+	// arena in display pixels (see kStarField), populated once here.
 	Starfield sf;
 	for (Vec2i &s : sf.stars)
-		s = Vec2i{static_cast<i32>(g.battle.rng().next() % kStarFieldWidth),
-				static_cast<i32>(g.battle.rng().next() % kStarFieldHeight)};
+		s = Vec2i{static_cast<i32>(g.battle.rng().next() % kStarField.w),
+				static_cast<i32>(g.battle.rng().next() % kStarField.h)};
 	g.battle.attach<Starfield>(g.battle.create(), std::move(sf));
 
 	// Asteroids first, then the planet -- init.c:228-233's order. The planet's

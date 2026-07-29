@@ -273,29 +273,28 @@ void
 testWorldWrapping()
 {
 	// The arena the C computes today, now fixed at compile time.
-	static_assert(kLogSpaceWidth == 8192 && kLogSpaceHeight == 7680);
+	static_assert(kArena.w == 8192 && kArena.h == 7680);
 
 	static_assert(wrapX(0) == 0);
-	static_assert(wrapX(kLogSpaceWidth) == 0, "the far edge is the near edge");
-	static_assert(wrapX(-1) == kLogSpaceWidth - 1, "stepping off the left");
-	static_assert(wrapY(-1) == kLogSpaceHeight - 1);
-	static_assert(wrap(Vec2i{-1, -1})
-			== Vec2i{kLogSpaceWidth - 1, kLogSpaceHeight - 1});
+	static_assert(wrapX(kArena.w) == 0, "the far edge is the near edge");
+	static_assert(wrapX(-1) == kArena.w - 1, "stepping off the left");
+	static_assert(wrapY(-1) == kArena.h - 1);
+	static_assert(wrap(Vec2i{-1, -1}) == Vec2i{kArena.w - 1, kArena.h - 1});
 
 	// The shorter way round. Two entities either side of the seam are close,
 	// and an AI that measures the long way flies away from its target.
 	static_assert(wrapDeltaX(1) == 1);
-	static_assert(wrapDeltaX(kLogSpaceWidth - 1) == -1,
+	static_assert(wrapDeltaX(kArena.w - 1) == -1,
 			"just short of a full lap is one unit backwards");
-	static_assert(wrapDeltaX(-(kLogSpaceWidth - 1)) == 1);
-	static_assert(wrapDeltaX(kLogSpaceWidth / 2) == kLogSpaceWidth / 2,
+	static_assert(wrapDeltaX(-(kArena.w - 1)) == 1);
+	static_assert(wrapDeltaX(kArena.w / 2) == kArena.w / 2,
 			"exactly half stays positive, as WRAP_DELTA_X does");
-	static_assert(wrapDeltaY(kLogSpaceHeight - 1) == -1);
+	static_assert(wrapDeltaY(kArena.h - 1) == -1);
 
 	// Display/world conversion: a pixel is four world units.
 	static_assert(displayToWorld(1) == 4);
 	static_assert(worldToDisplay(4) == 1);
-	static_assert(worldToDisplay(displayToWorld(kSpaceWidth)) == kSpaceWidth);
+	static_assert(worldToDisplay(displayToWorld(kSpace.w)) == kSpace.w);
 }
 
 // --------------------------------------------------------------------------
@@ -980,7 +979,7 @@ testMotionIntegratesAndWraps()
 	// The wrap itself happens at the commit too (process.c:899-916), so
 	// mid-frame coordinates may run off the edge -- what matters is what the
 	// element's position is when the frame is done.
-	b.find<Position>(id)->current = Vec2i{kLogSpaceWidth - 5, 0};
+	b.find<Position>(id)->current = Vec2i{kArena.w - 5, 0};
 	b.find<Position>(id)->next = b.find<Position>(id)->current;
 	b.step();
 	CHECK(b.find<Position>(id)->current.x < 100,
@@ -1602,8 +1601,8 @@ testAsteroidsSpawnOnAnEdgeAndRepeatably()
 
 		const Position *pos = b.find<Position>(a);
 		const bool onEdge = pos->current.x == 0
-				|| pos->current.x == kLogSpaceWidth || pos->current.y == 0
-				|| pos->current.y == kLogSpaceHeight;
+				|| pos->current.x == kArena.w || pos->current.y == 0
+				|| pos->current.y == kArena.h;
 		CHECK(onEdge, "asteroid %d should enter from an edge, got (%ld,%ld)", i,
 				static_cast<long>(pos->current.x),
 				static_cast<long>(pos->current.y));

@@ -36,8 +36,8 @@ namespace uqm::melee {
 struct Game
 {
 	platform::Platform window{"The Ur-Quan Masters -- melee",
-			Extent2u{static_cast<u32>(sim::kSpaceWidth),
-				static_cast<u32>(sim::kSpaceHeight)},
+			Extent2u{static_cast<u32>(sim::kSpace.w),
+				static_cast<u32>(sim::kSpace.h)},
 			3};
 
 	sim::Battle battle{battleSeed()};

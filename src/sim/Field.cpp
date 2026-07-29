@@ -21,14 +21,14 @@ namespace {
 displayAlignX(u32 r) noexcept
 {
 	return static_cast<i32>(
-			(static_cast<u16>(r) % kLogSpaceWidth) & ~(kScaledOne - 1));
+			(static_cast<u16>(r) % kArena.w) & ~(kScaledOne - 1));
 }
 
 [[nodiscard]] i32
 displayAlignY(u32 r) noexcept
 {
 	return static_cast<i32>(
-			(static_cast<u16>(r) % kLogSpaceHeight) & ~(kScaledOne - 1));
+			(static_cast<u16>(r) % kArena.h) & ~(kScaledOne - 1));
 }
 
 // The rubble's own death hook: put a fresh asteroid back into the field.
@@ -184,13 +184,13 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	const u32 edge = b.rng().next();
 	if ((edge & (1u << 0)) != 0)
 	{
-		pos.current.x = (edge & (1u << 1)) != 0 ? kLogSpaceWidth : 0;
+		pos.current.x = (edge & (1u << 1)) != 0 ? kArena.w : 0;
 		pos.current.y = wrapY(displayAlignY(b.rng().next()));
 	}
 	else
 	{
 		pos.current.x = wrapX(displayAlignX(b.rng().next()));
-		pos.current.y = (edge & (1u << 1)) != 0 ? kLogSpaceHeight : 0;
+		pos.current.y = (edge & (1u << 1)) != 0 ? kArena.h : 0;
 	}
 
 	const i32 magnitude =

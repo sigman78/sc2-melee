@@ -247,21 +247,21 @@ testCameraCentresBetweenTheShips()
 
 	Camera cam;
 	const std::array<Vec2i, 2> ships{
-			Vec2i{sim::kLogSpaceWidth / 2 - 512, sim::kLogSpaceHeight / 2},
-			Vec2i{sim::kLogSpaceWidth / 2 + 512, sim::kLogSpaceHeight / 2}};
+			Vec2i{sim::kArena.w / 2 - 512, sim::kArena.h / 2},
+			Vec2i{sim::kArena.w / 2 + 512, sim::kArena.h / 2}};
 	cam.follow(ships);
 
-	CHECK(cam.centre().x == sim::kLogSpaceWidth / 2,
+	CHECK(cam.centre().x == sim::kArena.w / 2,
 			"the view should sit midway between them, got %ld",
 			static_cast<long>(cam.centre().x));
 
 	// Symmetric about the centre of the viewport.
 	const Vec2i a = cam.toScreen(ships[0]);
 	const Vec2i b = cam.toScreen(ships[1]);
-	CHECK(sim::kSpaceWidth / 2 - a.x == b.x - sim::kSpaceWidth / 2,
+	CHECK(sim::kSpace.w / 2 - a.x == b.x - sim::kSpace.w / 2,
 			"both ships should be equidistant from the middle, got %ld and %ld",
 			static_cast<long>(a.x), static_cast<long>(b.x));
-	CHECK(a.y == sim::kSpaceHeight / 2 && b.y == sim::kSpaceHeight / 2,
+	CHECK(a.y == sim::kSpace.h / 2 && b.y == sim::kSpace.h / 2,
 			"and level with each other");
 }
 
@@ -275,10 +275,10 @@ testCameraZoomsOutAsShipsSeparate()
 	{
 		Camera cam;
 		const std::array<Vec2i, 2> ships{
-				Vec2i{sim::kLogSpaceWidth / 2 - gap / 2,
-					sim::kLogSpaceHeight / 2},
-				Vec2i{sim::kLogSpaceWidth / 2 + gap / 2,
-					sim::kLogSpaceHeight / 2}};
+				Vec2i{sim::kArena.w / 2 - gap / 2,
+					sim::kArena.h / 2},
+				Vec2i{sim::kArena.w / 2 + gap / 2,
+					sim::kArena.h / 2}};
 		cam.follow(ships);
 
 		CHECK(cam.zoom() >= previous,
@@ -308,19 +308,19 @@ testCameraKeepsBothShipsOnScreen()
 	{
 		Camera cam;
 		const std::array<Vec2i, 2> ships{
-				Vec2i{sim::kLogSpaceWidth / 2 - gap / 2,
-					sim::kLogSpaceHeight / 2},
-				Vec2i{sim::kLogSpaceWidth / 2 + gap / 2,
-					sim::kLogSpaceHeight / 2}};
+				Vec2i{sim::kArena.w / 2 - gap / 2,
+					sim::kArena.h / 2},
+				Vec2i{sim::kArena.w / 2 + gap / 2,
+					sim::kArena.h / 2}};
 		cam.follow(ships);
 
 		for (const Vec2i &s : ships)
 		{
 			const Vec2i p = cam.toScreen(s);
-			CHECK(p.x >= 0 && p.x <= sim::kSpaceWidth,
+			CHECK(p.x >= 0 && p.x <= sim::kSpace.w,
 					"gap %ld put a ship at x=%ld, outside 0..%ld",
 					static_cast<long>(gap), static_cast<long>(p.x),
-					static_cast<long>(sim::kSpaceWidth));
+					static_cast<long>(sim::kSpace.w));
 		}
 	}
 }
@@ -349,7 +349,7 @@ testCameraDoesNotJitter()
 	// the centre is simply that ship and the origin path is never exercised.
 	Camera cam;
 	constexpr i32 kStep = 7;  // deliberately not a multiple of 4
-	const Vec2i anchor{sim::kLogSpaceWidth / 2, sim::kLogSpaceHeight / 2};
+	const Vec2i anchor{sim::kArena.w / 2, sim::kArena.h / 2};
 	const std::array<Vec2i, 2> placed{
 			Vec2i{anchor.x - 256, anchor.y}, Vec2i{anchor.x + 256, anchor.y}};
 	cam.follow(placed);
@@ -403,8 +403,8 @@ testContinuousZoomRescalesEveryFrame()
 		Camera cam;
 		const i32 gap = 600 + 7 * frame;
 		const std::array<Vec2i, 2> ships{
-				Vec2i{sim::kLogSpaceWidth / 2 - gap / 2, sim::kLogSpaceHeight / 2},
-				Vec2i{sim::kLogSpaceWidth / 2 + gap / 2, sim::kLogSpaceHeight / 2}};
+				Vec2i{sim::kArena.w / 2 - gap / 2, sim::kArena.h / 2},
+				Vec2i{sim::kArena.w / 2 + gap / 2, sim::kArena.h / 2}};
 		cam.follow(ships);
 		if (frame > 1 && cam.zoom() != last)
 			++changes;
@@ -431,8 +431,8 @@ testCameraMeasuresAcrossTheSeam()
 	// apart. Without wrapDelta the camera would zoom fully out and place them
 	// on opposite edges, which is the visible symptom of forgetting the torus.
 	Camera cam;
-	const std::array<Vec2i, 2> ships{Vec2i{16, sim::kLogSpaceHeight / 2},
-			Vec2i{sim::kLogSpaceWidth - 240, sim::kLogSpaceHeight / 2}};
+	const std::array<Vec2i, 2> ships{Vec2i{16, sim::kArena.h / 2},
+			Vec2i{sim::kArena.w - 240, sim::kArena.h / 2}};
 	cam.follow(ships);
 
 	CHECK(cam.zoom() == kZoomOne,

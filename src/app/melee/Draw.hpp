@@ -95,8 +95,7 @@ inline constexpr int kStarCount = std::accumulate(kStarsPerPlane.begin(),
 // How large a patch the field tiles over, in display pixels. The C varies
 // on-screen density with zoom (galaxy.c:248-259); this field is
 // zoom-independent, so it tiles over four screens for ~45 stars in view.
-inline constexpr i32 kStarFieldWidth = sim::kSpaceWidth * 2;
-inline constexpr i32 kStarFieldHeight = sim::kSpaceHeight * 2;
+inline constexpr Extent2i kStarField = sim::kSpace * 2;
 
 // The starfield, as one entity (review-007 §3): not 180 star entities --
 // component granularity follows behaviour granularity, and the field

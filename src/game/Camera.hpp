@@ -43,14 +43,12 @@ inline constexpr int kReductionShift = 1;               // units.h:73
 inline constexpr i32 kMaxZoomOut = 1 << (kZoomShift + sim::kMaxReduction - 1);
 
 // TRANSITION_WIDTH/HEIGHT (units.h:92-95): the arena at MAX_VIS_REDUCTION.
-inline constexpr i32 kTransitionWidth =
-		sim::displayToWorld(sim::kSpaceWidth) << kMaxVisReduction;
-inline constexpr i32 kTransitionHeight =
-		sim::displayToWorld(sim::kSpaceHeight) << kMaxVisReduction;
+inline constexpr Extent2i kTransition =
+		sim::displayToWorld(sim::kSpace) << kMaxVisReduction;
 
 // Hysteresis on zooming back in (process.c:235-236), in world units.
-inline constexpr i32 kHysteresisX = sim::displayToWorld(24);
-inline constexpr i32 kHysteresisY = sim::displayToWorld(20);
+inline constexpr Vec2i kHysteresis{
+		sim::displayToWorld(24), sim::displayToWorld(20)};
 
 class Camera
 {
@@ -100,8 +98,8 @@ public:
 	{
 		const Vec2i d = sim::wrapDelta(
 				Vec2i{world.x - centre_.x, world.y - centre_.y});
-		return Vec2i{sim::kSpaceWidth / 2 + scale(d.x),
-				sim::kSpaceHeight / 2 + scale(d.y)};
+		return Vec2i{sim::kSpace.w / 2 + scale(d.x),
+				sim::kSpace.h / 2 + scale(d.y)};
 	}
 
 	// A length in world units, in screen pixels. Sprites need this too, which
@@ -135,7 +133,7 @@ private:
 		{
 			dx <<= kReductionShift;
 			dy <<= kReductionShift;
-			if (dx > kTransitionWidth || dy > kTransitionHeight)
+			if (dx > kTransition.w || dy > kTransition.h)
 				break;
 			reduction -= kReductionShift;
 		}
@@ -147,8 +145,8 @@ private:
 		if (reduction < current && current <= kMaxVisReduction)
 		{
 			const int shift = kMaxVisReduction - reduction;
-			if (((sdx + kHysteresisX) << shift) > kTransitionWidth
-					|| ((sdy + kHysteresisY) << shift) > kTransitionHeight)
+			if (((sdx + kHysteresis.x) << shift) > kTransition.w
+					|| ((sdy + kHysteresis.y) << shift) > kTransition.h)
 				reduction += kReductionShift;
 		}
 
@@ -167,8 +165,8 @@ private:
 				z = kMaxZoomOut;
 			return z;
 		};
-		const i32 zx = axis(dx, sim::kLogSpaceWidth);
-		const i32 zy = axis(dy, sim::kLogSpaceHeight);
+		const i32 zx = axis(dx, sim::kArena.w);
+		const i32 zy = axis(dy, sim::kArena.h);
 		return zy > zx ? zy : zx;
 	}
 
@@ -181,7 +179,7 @@ private:
 		return r;
 	}
 
-	Vec2i centre_{sim::kLogSpaceWidth / 2, sim::kLogSpaceHeight / 2};
+	Vec2i centre_{sim::kArena.w / 2, sim::kArena.h / 2};
 	i32 zoom_ = kZoomOne;
 };
 

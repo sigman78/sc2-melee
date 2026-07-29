@@ -12,16 +12,14 @@ namespace uqm::sim {
 // are compile-time constants, not runtime globals -- the only assignment is
 // sdl2_pure.c:312-313, and --res moves only ScreenWidthActual (the window).
 
-inline constexpr i32 kScreenWidth = 320;
-inline constexpr i32 kScreenHeight = 240;
+inline constexpr Extent2i kScreen{320, 240};
 inline constexpr i32 kStatusWidth = 64;   // units.h:39
-inline constexpr i32 kSafeX = 0;
-inline constexpr i32 kSafeY = 0;
 
-// The visible play area, in display pixels (units.h:43-45).
-inline constexpr i32 kSpaceWidth =
-		kScreenWidth - kStatusWidth - kSafeX * 2;   // 256
-inline constexpr i32 kSpaceHeight = kScreenHeight - kSafeY * 2;  // 240
+// The visible play area, in display pixels (units.h:43-45). No safe margin
+// on this build -- kSafeX/kSafeY were both 0, subtracted twice per axis.
+inline constexpr Extent2i kSpace{
+		kScreen.w - kStatusWidth,   // 256
+		kScreen.h};                 // 240
 
 // World units per display pixel. units.h:79-82: ONE_SHIFT is 2, so a pixel is
 // 4 world units, and MAX_REDUCTION is 3, so the logical arena is 8x the
@@ -56,14 +54,17 @@ worldToDisplay(Vec2i p) noexcept
 	return Vec2i{worldToDisplay(p.x), worldToDisplay(p.y)};
 }
 
-// The torus. 256 * 4 * 8 == 8192 by 240 * 4 * 8 == 7680.
-inline constexpr i32 kLogSpaceWidth =
-		displayToWorld(kSpaceWidth) << kMaxReduction;
-inline constexpr i32 kLogSpaceHeight =
-		displayToWorld(kSpaceHeight) << kMaxReduction;
+constexpr Extent2i
+displayToWorld(Extent2i e) noexcept
+{
+	return Extent2i{displayToWorld(e.w), displayToWorld(e.h)};
+}
 
-static_assert(kLogSpaceWidth == 8192, "the arena width the C computes today");
-static_assert(kLogSpaceHeight == 7680, "the arena height the C computes today");
+// The torus. 256 * 4 * 8 == 8192 by 240 * 4 * 8 == 7680.
+inline constexpr Extent2i kArena = displayToWorld(kSpace) << kMaxReduction;
+
+static_assert(kArena.w == 8192, "the arena width the C computes today");
+static_assert(kArena.h == 7680, "the arena height the C computes today");
 
 // The battlefield wraps. WRAP_VAL (units.h:214-216) folds by one period
 // only -- enough since nothing moves a whole arena in a frame, and cheaper
@@ -72,9 +73,9 @@ constexpr i32
 wrapX(i32 x) noexcept
 {
 	if (x < 0)
-		return x + kLogSpaceWidth;
-	if (x >= kLogSpaceWidth)
-		return x - kLogSpaceWidth;
+		return x + kArena.w;
+	if (x >= kArena.w)
+		return x - kArena.w;
 	return x;
 }
 
@@ -82,9 +83,9 @@ constexpr i32
 wrapY(i32 y) noexcept
 {
 	if (y < 0)
-		return y + kLogSpaceHeight;
-	if (y >= kLogSpaceHeight)
-		return y - kLogSpaceHeight;
+		return y + kArena.h;
+	if (y >= kArena.h)
+		return y - kArena.h;
 	return y;
 }
 
@@ -101,16 +102,16 @@ constexpr i32
 wrapDeltaX(i32 dx) noexcept
 {
 	if (dx < 0)
-		return (-dx <= kLogSpaceWidth / 2) ? dx : kLogSpaceWidth + dx;
-	return (dx <= kLogSpaceWidth / 2) ? dx : dx - kLogSpaceWidth;
+		return (-dx <= kArena.w / 2) ? dx : kArena.w + dx;
+	return (dx <= kArena.w / 2) ? dx : dx - kArena.w;
 }
 
 constexpr i32
 wrapDeltaY(i32 dy) noexcept
 {
 	if (dy < 0)
-		return (-dy <= kLogSpaceHeight / 2) ? dy : kLogSpaceHeight + dy;
-	return (dy <= kLogSpaceHeight / 2) ? dy : dy - kLogSpaceHeight;
+		return (-dy <= kArena.h / 2) ? dy : kArena.h + dy;
+	return (dy <= kArena.h / 2) ? dy : dy - kArena.h;
 }
 
 constexpr Vec2i

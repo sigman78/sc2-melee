@@ -132,8 +132,8 @@ constexpr std::array<Colour, 6> kCloakRamp{{
 [[nodiscard]] bool
 offScreen(Vec2i at, i32 w, i32 h) noexcept
 {
-	return at.x + w < 0 || at.y + h < 0 || at.x - w > sim::kSpaceWidth
-			|| at.y - h > sim::kSpaceHeight;
+	return at.x + w < 0 || at.y + h < 0 || at.x - w > sim::kSpace.w
+			|| at.y - h > sim::kSpace.h;
 }
 
 // Scales a mask's display-pixel size to the camera's current zoom, floored
@@ -304,8 +304,8 @@ renderStars(Game &g)
 
 			for (usize i = first; i < first + count; ++i)
 			{
-				const i32 sx = wrapTo(sf.stars[i].x - ox, kStarFieldWidth);
-				const i32 sy = wrapTo(sf.stars[i].y - oy, kStarFieldHeight);
+				const i32 sx = wrapTo(sf.stars[i].x - ox, kStarField.w);
+				const i32 sy = wrapTo(sf.stars[i].y - oy, kStarField.h);
 
 				// Drawn up to four times so a star straddling the seam comes
 				// back in on the other side instead of popping out of
@@ -314,11 +314,11 @@ renderStars(Game &g)
 				{
 					for (int wy = 0; wy < 2; ++wy)
 					{
-						const i32 x = sx - wx * kStarFieldWidth - hs.x;
-						const i32 y = sy - wy * kStarFieldHeight - hs.y;
+						const i32 x = sx - wx * kStarField.w - hs.x;
+						const i32 y = sy - wy * kStarField.h - hs.y;
 						if (x + static_cast<i32>(size.w) <= 0
 								|| y + static_cast<i32>(size.h) <= 0
-								|| x >= sim::kSpaceWidth || y >= sim::kSpaceHeight)
+								|| x >= sim::kSpace.w || y >= sim::kSpace.h)
 							continue;
 
 						if (haveArt)
@@ -616,7 +616,7 @@ renderHud(Game &g)
 		// Player 0 hugs the left edge, player 1 the right. Both are drawn
 		// right-aligned; only the anchor differs.
 		const i32 right = p == 0 ? kMargin + 3 * 4 * kScale
-								 : sim::kSpaceWidth - kMargin;
+								 : sim::kSpace.w - kMargin;
 
 		drawNumber(g.window, s->crew, Vec2i{right, kMargin}, kScale,
 				kCrewColours[p]);

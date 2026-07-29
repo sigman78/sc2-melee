@@ -77,6 +77,15 @@ struct Extent2
 
 	friend constexpr bool operator==(const Extent2 &, const Extent2 &) = default;
 
+	constexpr Extent2 operator*(T s) const noexcept
+	{
+		return {static_cast<T>(w * s), static_cast<T>(h * s)};
+	}
+	constexpr Extent2 operator<<(int shift) const noexcept
+	{
+		return {static_cast<T>(w << shift), static_cast<T>(h << shift)};
+	}
+
 	[[nodiscard]] constexpr bool empty() const noexcept
 	{
 		return w == T{} || h == T{};
