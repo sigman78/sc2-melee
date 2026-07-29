@@ -138,7 +138,28 @@ result. It runs last, and alone.
 
 | Stage | What | Proof |
 | --- | --- | --- |
-| K1 | `kStarCount` derives from `kStarsPerPlane`; the three parallel per-plane arrays become one array of `StarPlane{count, colour, cel}` | bit-green; the fix |
-| K2 | Constants move onto their components (§3), with the emptiness `static_assert` | bit-green |
-| K3 | `CollisionEvent::Side` and `ShipSpec::battery` (§4) | bit-green |
-| K4 | `Extent2` gains operators; the size pairs fold (§5) | bit-green; the only stage that touches arithmetic |
+| K1 | `kStarCount` derives from `kStarsPerPlane`; the three parallel per-plane arrays become one array of `StarPlane{count, colour, cel}` | **done, bit-green**; the fix |
+| K2 | Constants move onto their components (§3), with the emptiness `static_assert` | **done, bit-green** |
+| K3 | `CollisionEvent::Side` and `ShipSpec::battery` (§4) | **done, bit-green** |
+| K4 | `Extent2` gains operators; the size pairs fold (§5) | **done, bit-green**; the only stage that touched arithmetic |
+
+### What the stages turned up
+
+- **`delta()` was not written.** §4 argued for it and the code disagreed;
+  see the note there. The grouping stands on the operation being
+  participant-local, not on anything spelling it today.
+- **`Extent2` gained two operators, not a suite**: component-wise `*` and
+  `<<` by a scalar, each with a caller. Every subtraction and division in
+  the folded expressions works on one axis at a time, so a whole-`Extent2`
+  version would have had none. `World.hpp` also gained
+  `displayToWorld(Extent2i)` beside its existing `Vec2i` overload.
+- **`kSafeX`/`kSafeY` were deleted rather than folded.** Both were literal
+  zero feeding only `kSpace`'s derivation, so the subtraction was a
+  compile-time no-op; what they carried was an explanation, and an
+  explanation is a comment.
+- **`wrapX` and `wrapY` did not collapse into `wrap(Vec2i)`**, which the
+  plan expected them to. `Field.cpp`'s `spawnAsteroid` wraps one axis while
+  setting the other to an *unwrapped* boundary literal — folding the two
+  calls together would wrap that literal too and fold it to zero, moving
+  the spawn. What did collapse is the source of truth: both now read two
+  fields of one `kArena` instead of two independently declared globals.
