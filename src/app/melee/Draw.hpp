@@ -36,27 +36,18 @@ rgb(u32 c) noexcept
 			static_cast<u8>(c & 0xFF)};
 }
 
-// What one element draws as: a sprite set (null for a line/point effect with
-// no art) and a fallback colour for when the set failed to load or none
-// applies. The pass owns how it is drawn -- cel indexing, hotspot placement,
-// tinting -- so this carries nothing about technique any more (review-007
-// W7: CelPolicy retires, the pass IS the policy). A component in the
-// battle's registry, emplaced by the app: the sim never names this type,
-// ownership is by component type, not by store (review-004 X3).
+// What one element draws as: a sprite set (null for a line/point effect
+// with no art) and a fallback colour for when the set failed to load or
+// none applies. The pass owns technique -- cel indexing, hotspot, tinting.
 comp struct Visual
 {
 	const game::SpriteSet *sprites = nullptr;
 	Colour fallback{0xC0, 0xC0, 0xC0};
 };
 
-// The attach-time art selection (review-007 W7): what an element draws as,
-// chosen from what it is composed of -- a ShipState or Shadow tag means the
-// owner's ship art, a Warhead means the owner's weapon art, and so on down
-// to the plain Rect fallback. Ownership of "what kind of thing this is"
-// belongs entirely to composition. Built once per spawned element, in
-// setUp() and iterate() -- Art comes from the owner's roster entry or
-// kMeleeArt, resolved through Resources' cache, which is why the Game is
-// not const here.
+// What an element draws as, chosen from what it is composed of (ShipState/
+// Shadow -> ship art, Warhead -> weapon art, ...). Built once per spawned
+// element in setUp()/iterate(); resolved through Resources' cache.
 [[nodiscard]] Visual visualFor(Game &g, sim::EntityId id, i32 playerNr);
 
 // The starfield: three planes (30/60/90 stars), each scrolling at
@@ -97,23 +88,17 @@ inline constexpr int kStarCount = std::accumulate(kStarsPerPlane.begin(),
 // zoom-independent, so it tiles over four screens for ~45 stars in view.
 inline constexpr Extent2i kStarField = sim::kSpace * 2;
 
-// The starfield, as one entity (review-007 §3): not 180 star entities --
-// component granularity follows behaviour granularity, and the field
-// scrolls as one thing. Positions are in display pixels on a screen-sized
-// torus per plane (galaxy.c:37-44); see renderStars. No Position, no
-// Order: created once via Battle::create() (a bare entity, outside the
-// sim's element count and its ordered walk), populated at battle setup,
-// read every frame by renderStars alone.
+// One entity with no Position or Order (Battle::create(), outside the sim's
+// element count), populated at setup, read only by renderStars. Positions
+// are display pixels on a per-plane torus (galaxy.c:37-44).
 comp struct Starfield
 {
 	std::array<Vec2i, kStarCount> stars{};
 };
 
-// A collision event, held on screen for kLife frames -- one frame at
-// 24 Hz is not long enough to see (review-007 §3). An app-owned bare
-// entity (Battle::create()), drawn by the marks pass and reaped by age in
-// iterate() via Battle::destroy(); never a sim element, so it carries no
-// Order and is invisible to eachOrdered.
+// A collision event held on screen for kLife frames. App-owned (Battle::
+// create()), reaped by age in iterate() via Battle::destroy() -- never a
+// sim element, so it carries no Order and is invisible to eachOrdered.
 comp struct Mark
 {
 	// How long a contact point stays on screen, in simulation frames.

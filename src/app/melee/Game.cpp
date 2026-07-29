@@ -79,9 +79,8 @@ setUpBattle(Game &g)
 	constexpr i32 kMinSeparation = 1024;
 
 	// The real silhouette when the art loaded, Resources' placeholder block
-	// when it did not -- either way maskFor cannot miss. Per-pixel collision
-	// against a square is not per-pixel collision, so a missing mask changes
-	// how the ships actually touch.
+	// when it did not -- either way maskFor cannot miss. A missing mask would
+	// change how the ships actually touch (no longer per-pixel).
 	const sim::Facing facing0 = randomFacing();
 	match.shipIds[0] = sim::spawnPlayerShip(g.battle, cfg.shipData[0],
 			g.content.sprites(g.window, cfg.roster[0]->art.ship)
@@ -104,8 +103,8 @@ setUpBattle(Game &g)
 	const sim::CollisionMask *rockMask =
 			g.content.sprites(g.window, game::kMeleeArt.asteroid).maskFor(0);
 
-	// The starfield: one entity (review-007 §3), positions spread over the
-	// arena in display pixels (see kStarField), populated once here.
+	// The starfield: one entity, positions spread over the arena in display
+	// pixels (see kStarField), populated once here.
 	Starfield sf;
 	for (Vec2i &s : sf.stars)
 		s = Vec2i{static_cast<i32>(g.battle.rng().next() % kStarField.w),
@@ -133,11 +132,8 @@ setUp(Game &g, const std::filesystem::path &content)
 	setUpBattle(g);
 
 	// The initial furniture -- both ships, the asteroids, the planet -- gets
-	// its Visual now; everything spawned later is caught in iterate(). A
-	// pure join now (review-007 W4b): Allegiance is enough to find every
-	// spawned element (attached uniformly, same call as Order), so the
-	// join replaces the get-then-null-check without needing Element::kind
-	// (review-007 W7 -- visualFor selects art from composition instead).
+	// its Visual now; everything spawned later is caught in iterate(). Keyed
+	// on Allegiance, which every spawned element carries.
 	g.battle.eachOrdered<sim::Allegiance>(
 			[&g](sim::EntityId id, sim::Allegiance &a) {
 				g.battle.attach<Visual>(id, visualFor(g, id, a.playerNr));
@@ -179,19 +175,16 @@ iterate(Game &g)
 		g.battle.step();
 
 		// Collision events are step()'s output regardless of the overlay
-		// (design-notes.md D5); only drawing them is optional. Each becomes
-		// a bare Mark entity (review-007 §3): outside the sim's element
-		// count, reaped by age below rather than through the Doomed/reap
-		// protocol a sim element would use.
+		// (design-notes.md D5); only drawing them is optional. Each becomes a
+		// bare Mark entity, reaped by age below, not the sim's Doomed/reap.
 		for (const sim::CollisionEvent &c : g.battle.collisions())
 			g.battle.attach<Mark>(g.battle.create(), Mark{c, g.battle.frame()});
 
 		playStepSounds(g);
 
 		// Everything the sim spawned this step gets a Visual before it is
-		// ever drawn. Guarded: an element executed for spawning inside
-		// something (killOverlapSpawn) is already destroyed by the time its
-		// SpawnEvent is read, and a dead entity cannot carry a component.
+		// drawn. Guarded: an entity destroyed inside killOverlapSpawn is
+		// already dead by the time its SpawnEvent is read.
 		for (const sim::SpawnEvent &sp : g.battle.spawns())
 		{
 			if (g.battle.alive(sp.id))
@@ -200,11 +193,9 @@ iterate(Game &g)
 		}
 	}
 
-	// Drop what has aged out. Done here rather than while drawing so the
-	// registry does not grow without bound when the overlay is off. Marks
-	// are app-owned bare entities (Battle::create()), so ageing them out is
-	// this loop's job, not the sim's Doomed/reap protocol; collected first
-	// since destroying mid-view is not safe.
+	// Drop what has aged out, so the registry doesn't grow unbounded with the
+	// overlay off -- Marks are app-owned, aged out here rather than via the
+	// sim's Doomed/reap protocol. Collected first: destroying mid-view isn't safe.
 	std::vector<sim::EntityId> agedOut;
 	g.battle.view<Mark>().each([&](sim::EntityId id, Mark &m) {
 		if (g.battle.frame() - m.bornFrame > Mark::kLife)

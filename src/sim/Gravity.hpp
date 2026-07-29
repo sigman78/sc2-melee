@@ -28,11 +28,8 @@ inline constexpr i32 kGravityRadius = 255;
 // returns whether `id` is in someone else's well (misc.c:63-70, ship.c:480).
 bool calculateGravity(Battle &b, EntityId id);
 
-// The pipeline's gravity pass (review-006 Z4, slot 6's companion: runs
-// right after GuidedSteer, before Integrate): every collidable gravity
-// source pulls whatever sits in its well. What planetPostProcess used to do
-// once per planet through the retired per-element postProcess dispatch,
-// now a dedicated whole-spine pass.
+// The pipeline's gravity pass: runs right after GuidedSteer, before
+// Integrate. Every collidable gravity source pulls whatever sits in its well.
 void gravityPass(Battle &b);
 
 }  // namespace uqm::sim

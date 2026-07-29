@@ -2,8 +2,8 @@
 //
 // A replay-similarity harness: 32 seeded battles run on the current sim.
 // --record writes a baseline; --compare demands an exact re-match; --similar
-// tolerates drift within a threshold; --trace dumps one battle's full
-// per-frame state for diffing across builds.
+// tolerates drift within a threshold; --trace overwrites its file argument
+// with one battle's full per-frame state, for diffing across builds.
 
 #include "engine/core/Types.hpp"
 #include "sim/Battle.hpp"
@@ -49,12 +49,9 @@ const CollisionMask kShipMask = solid(12, 12);
 const CollisionMask kAsteroidMask = solid(8, 8);
 const CollisionMask kPlanetMask = solid(28, 28);
 
-// A weapon's mask is normally content-derived (game/Materialize.cpp fills
-// ShipSpec::weapon.masks from the loaded sprite before battle); headless,
-// there is no sprite, and an empty span leaves every shot's mask null --
-// collidable() then excludes it and nothing a ship fires can ever hit
-// anything. One synthetic mask, indexed modulo 1, stands in for both ships'
-// weapons.
+// A weapon's mask is normally content-derived (game/Materialize.cpp); headless,
+// there is no sprite, so an empty span would leave every shot's mask null and
+// collidable() would exclude it. One synthetic mask stands in for both ships.
 const CollisionMask kWeaponMaskArray[1]{solid(4, 4)};
 
 const ShipSpec &
@@ -253,18 +250,15 @@ simulateBattle(u32 seed, std::ostream *trace)
 		u64 frameDigest = kFnvOffset;
 		usize walkIndex = 0;
 		b.eachOrdered([&](EntityId id) {
-			// A beam has no Position at all (review-007 W4a) -- its Beam.from
-			// is what this digest folds as `current` instead, to keep the
-			// hash equal across that split.
+			// A beam has no Position -- its Beam.from is what this digest
+			// folds as `current` instead, to keep the hash stable.
 			const Position *pos = b.find<Position>(id);
 			const Vec2i at = pos != nullptr ? pos->current : b.find<Beam>(id)->from;
 			foldI32(frameDigest, at.x);
 			foldI32(frameDigest, at.y);
-			// find<Lifetime> ? remaining : 1 -- the literal persistent value
-			// Lifetime replaces, so every digest matches bit-for-bit against
-			// the pre-Lifetime baseline (review-007 W3). The planet's fold
-			// changes from 2 to 1 here (Indestructible replaces its
-			// Lifetime{2}) -- the one legal re-record review-007 justifies.
+			// find<Lifetime> ? remaining : 1 -- the persistent-element value
+			// Lifetime replaces, so the digest matches bit-for-bit against the
+			// baseline; the planet's fold is 1 here, not 2 (one legal re-record).
 			foldI32(frameDigest, lifeSpanOf(b, id));
 			const ShipState *ss = b.ship(id);
 			if (ss != nullptr)

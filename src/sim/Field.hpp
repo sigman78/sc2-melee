@@ -22,12 +22,7 @@ class CollisionMask;
 // init.c:228.
 inline constexpr int kNumAsteroids = 5;
 
-// Places the planet (misc.c:40-76): rejected/redrawn while in a gravity well
-// or overlapping (two RNG draws/attempt). init.c:228-233 spawns asteroids
-// first, planet second -- order matters or the RNG stream diverges.
-// The asteroid's tumble (misc.c:107-128): direction and period used to be
-// bit-packed into Element::thrustWait -- the C's field-repurposing habit,
-// reproduced here until review-005 Y1 gave the spin its own component.
+// The asteroid's tumble (misc.c:107-128).
 comp struct Spin
 {
 	bool backwards = false;
@@ -35,16 +30,17 @@ comp struct Spin
 	i32 countdown = 0;
 };
 
-// Element::onDeath, split out (review-007 W5): a thin payload carrying
-// asteroidDeath/rubbleDeath, attached only where one exists -- the asteroid
-// field and its rubble, nothing else. The death path (Battle.cpp) calls
-// `emit` directly for any DeathSpawn entity instead of a per-element
-// function-pointer hook; Field still owns what death spawns.
+// A thin payload carrying asteroidDeath/rubbleDeath, attached only where
+// one exists -- the asteroid field and its rubble, nothing else. The
+// death path (Battle.cpp) calls `emit` for any DeathSpawn entity.
 comp struct DeathSpawn
 {
 	void (*emit)(Battle &, EntityId) noexcept;
 };
 
+// Places the planet (misc.c:40-76): rejected/redrawn while in a gravity
+// well or overlapping (two RNG draws/attempt). init.c:228-233 spawns
+// asteroids first, planet second -- order matters or the RNG stream diverges.
 EntityId spawnPlanet(Battle &b, const CollisionMask *mask);
 
 // Places one asteroid on an arena edge (misc.c:131-201). Consumes exactly

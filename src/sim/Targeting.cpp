@@ -17,11 +17,8 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 	if (self == nullptr)
 		return -1;
 
-	// Doc §2 refinement 1: GuidedSteer runs before Integrate now, so
-	// `current` is the frame's one consistent snapshot for every tracker and
-	// every target alike -- the old read-`next`-if-already-preprocessed
-	// dance existed only because the interleaved walk moved half the list
-	// before the other half looked.
+	// GuidedSteer runs before Integrate, so `current` is the frame's one
+	// consistent snapshot for every tracker and every target alike.
 	const Vec2i from = b.get<Position>(tracker).current;
 
 	int bestDelta = 0;
@@ -29,11 +26,9 @@ trackShip(Battle &b, EntityId tracker, Facing &facing,
 	EntityId bestTarget;
 	bool found = false;
 
-	// Allegiance, ShipState and Position as a required join, not a get-then-
-	// null-check per iteration (review-007 W4b's join rule): every ship
-	// has all three, and only a ship ever carries a ShipState
-	// (attachShip/spawnPlayerShip attach it). Dead-ship and cloak are value
-	// tests, so they stay in the body.
+	// Allegiance, ShipState and Position as a required join: every ship has
+	// all three, and only a ship ever carries a ShipState. Dead-ship and
+	// cloak are value tests, so they stay in the body.
 	b.eachOrdered<Allegiance, ShipState, Position>([&](EntityId id,
 															Allegiance &t,
 															ShipState &ts,

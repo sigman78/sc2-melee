@@ -83,12 +83,9 @@ loadAssets(Game &g, const std::filesystem::path &content)
 			game::findShip("ilwrath.avenger")};
 	assert(cfg.roster[0] != nullptr && cfg.roster[1] != nullptr);
 
-	// Warm the cache and say what failed, now rather than mid-battle:
-	// consumers resolve lazily through Resources, so a missing id would
-	// otherwise first be reported the frame something tries to draw it.
-	// Addressed by resource id, not by path -- uqm.rmp is the only link
-	// between a name and a file, and it is what an addon overrides (see
-	// game/Resources.hpp).
+	// Warm the cache and say what failed, now rather than mid-battle: a
+	// missing id would otherwise first be reported the frame something tries
+	// to draw it. Addressed by resource id, not path -- uqm.rmp is the link.
 	const auto warm = [&](std::string_view id) {
 		const game::SpriteSet &set = g.content.sprites(g.window, id);
 		if (!set.valid() && g.content.valid())

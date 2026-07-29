@@ -10,9 +10,8 @@ namespace uqm::melee {
 struct Game;
 
 // Whether a ship's death has already had its stinger played, so it plays
-// once (review-007 §3): Game::deathAnnounced[2]'s tag replacement -- dies
-// with the ship, survives a roster of more than two where a fixed-size
-// array of booleans breaks.
+// once. Tag component: dies with the ship, survives a roster of more than
+// two where a fixed-size array of booleans would break.
 comp struct AnnouncedDead
 {
 };

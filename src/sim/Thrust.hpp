@@ -13,9 +13,9 @@ namespace uqm::sim {
 // args, not read from STARSHIP-global state -- no save/restore dance for
 // ships that thrust off their own facing (Supox, supox.c:242-271).
 
-// SpeedState is in Velocity.hpp -- the plan's primitive #2, flags derived
-// from |v| against max_thrust rather than hand-patched by each ship
-// (chmmr.c:398-409, druuge.c:266, mmrnmhrm.c:436-450 all patch them today).
+// SpeedState is in Velocity.hpp: flags derived from |v| against max_thrust,
+// rather than hand-patched by each ship (chmmr.c:398-409, druuge.c:266,
+// mmrnmhrm.c:436-450 all patch them today).
 
 struct ThrustProfile
 {

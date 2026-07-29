@@ -30,12 +30,9 @@ deltaEnergy(ShipState &s, i32 delta) noexcept
 	return true;
 }
 
-// The silhouette follows the facing: implicit in the C (process.c:159-160,
-// InitIntersectFrame reads whatever frame is displayed); explicit here,
-// since the mask lives in the simulation and there's no sprite. Updates the
+// The silhouette follows the facing (process.c:159-160). Updates the
 // Collider if one is already attached, else attaches one fresh -- a ship
-// spawned with no initial mask (nullptr, e.g. a headless test) gets its
-// first Collider exactly this way, on its own Appearing frame.
+// spawned with no initial mask gets its first Collider this way.
 void
 applyFacingMask(Battle &b, EntityId id, Facing facing, const ShipSpec &spec) noexcept
 {
@@ -174,16 +171,13 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 			wPos.next = wPos.current;
 			wPos.facing = sp.facing;
 			Motion wMotion;
-			// A weapon's mass is its damage (weapon.c:101; laser's is 1, weapon.c:58).
-			// Not bookkeeping: CollisionPossible skips pairs where both masses are
-			// zero, so a massless shot can't hit another shot. Warhead.damage is
-			// a separate copy of the same value -- Sound.cpp's boom selection
-			// reads it, not this mass.
+			// A weapon's mass is its damage (weapon.c:101) -- CollisionPossible
+			// skips pairs where both masses are zero, so a massless shot can't
+			// hit another. Warhead.damage is a separate copy Sound.cpp reads.
 			const Physique wPhys{sp.damage};
-			// The mask follows the sprite FRAME, not the facing: same thing for the
-			// nuke (16 facing cels, frameIndex = facing), different for the flame (8
-			// ANIMATION cels, frameIndex 0). AnimFrame carries the frame (cmd.animFrame
-			// below).
+			// The mask follows the sprite FRAME, not the facing: same value for
+			// the nuke (16 facing cels, frameIndex = facing), different for the
+			// flame (8 animation cels, frameIndex 0).
 			const CollisionMask *shotMask = spec.weapon.masks.empty()
 					? nullptr
 					: &spec.weapon.masks[static_cast<usize>(sp.frameIndex)
@@ -216,8 +210,7 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 
 			// Queued, not spawned: it enters the world at the sync point and
 			// takes its first live frame the step after this one, one frame
-			// later than the C's same-step catch-up gave it (review-006
-			// §4's accepted latency).
+			// later than the C's same-step catch-up gave it.
 			b.queueSpawn(SpawnCommand{
 					.layer = Layer::Ordnance,
 					.position = wPos,
@@ -226,11 +219,8 @@ fireWeapon(Battle &b, EntityId id, ShipState &s, const ShipSpec &spec) noexcept
 					.allegiance = wAllegiance,
 					.weaponSpec = &spec.weapon,
 
-					// Attached verbatim (review-007 W9): the spec's own literal
-					// already carries the wound clock (initialize_nuke seeds
-					// TRACK_WAIT, human.c:297-299), so there is nothing left to
-					// reassemble at fire time -- presence is std::optional's own
-					// question now, not an "any of three scalars nonzero" test.
+					// Attached verbatim: the spec's own literal already carries the
+					// wound clock (initialize_nuke seeds TRACK_WAIT, human.c:297-299).
 					.guided = spec.weapon.guided,
 
 					.ignoreSimilar = sp.ignoreSimilar,
@@ -273,9 +263,8 @@ void explosionStep(Battle &b, EntityId id) noexcept;
 void
 energyRegenPass(Battle &b) noexcept
 {
-	// WarpingIn/Appearing are presence filters on the iterated ship, so they
-	// belong in the query (SiGMan's review), not an in-body has<>/!has<>
-	// guard; crew == 0 is a value test and stays in the body.
+	// WarpingIn/Appearing are presence filters, so they belong in the query
+	// exclusion; crew == 0 is a value test and stays in the body.
 	b.view<ShipState>(entt::exclude<WarpingIn, Appearing>).each(
 			[](ShipState &s) {
 				if (s.crew == 0)
@@ -336,14 +325,10 @@ shipMachinesPass(Battle &b) noexcept
 void
 turnPass(Battle &b) noexcept
 {
-	// ShipState alone in the join already selects exactly the ships --
-	// only a ship ever carries one. WarpingIn/Appearing are presence
-	// filters -> the query's exclude; crew == 0 is a value test -> stays in
-	// the body (review-007 W4b's join rule, and SiGMan's
-	// presence-in-the-query review). Order-free: turning has no
-	// cross-entity or spawn-ordering dependency. Element itself dropped from
-	// the join now that turnWait moved to ShipState -- turnShip reads
-	// nothing else off it.
+	// ShipState alone selects the ships -- only a ship ever carries one.
+	// WarpingIn/Appearing are presence filters in the query's exclude;
+	// crew == 0 is a value test and stays in the body. Order-free: turning
+	// has no cross-entity or spawn-ordering dependency.
 	b.view<ShipState>(entt::exclude<WarpingIn, Appearing>).each(
 			[&b](EntityId id, ShipState &s) {
 				if (s.crew == 0)
@@ -352,11 +337,9 @@ turnPass(Battle &b) noexcept
 			});
 }
 
-// A thrusting ship queues an ion-trail spawn command (spawnIonTrail), and
-// that command's position in spawnCommands_ fixes the trail's Order (layer,
-// seq) slot at the sync point -- eachOrdered's emission order matches, so
-// this is clean again (the ShipState view's storage order was what broke
-// --compare when this pass first went idiomatic).
+// A thrusting ship queues an ion-trail spawn command; that command's
+// position in spawnCommands_ fixes the trail's Order (layer, seq) slot at
+// the sync point, matching eachOrdered's emission order.
 void
 thrustPass(Battle &b) noexcept
 {
@@ -373,9 +356,7 @@ fireAndSpecialGatePass(Battle &b) noexcept
 {
 	// No Appearing exclusion here, unlike Turn/Thrust: ShipMachines already
 	// forces Input::None on the appearing frame, so fireWeapon/gateSpecial
-	// see nothing pressed regardless. Neither reads Element any more (the
-	// ship's own playerNr moved to Allegiance, fetched inside fireWeapon),
-	// so the join shrinks to just ShipState.
+	// see nothing pressed regardless.
 	b.eachOrdered<ShipState>(entt::exclude<WarpingIn>,
 			[&b](EntityId id, ShipState &s) {
 				if (s.crew == 0)
@@ -403,8 +384,7 @@ guidedShotPreProcess(Battle &b, EntityId id) noexcept
 	if (ws == nullptr || g == nullptr)
 		return;
 
-	// Steer, but only every TRACK_WAIT frames (human.c:133-146). The clock
-	// is the component's own, not a repurposed Element::turnWait.
+	// Steer, but only every TRACK_WAIT frames (human.c:133-146).
 	Facing facing = pos->facing;
 	if (g->clock > 0)
 	{
@@ -457,21 +437,20 @@ spawnIonTrail(Battle &b, EntityId ship) noexcept
 			? displayToWorld(static_cast<i32>(hull->mask->size().h) / 2)
 			: 0;
 
-	// NEUTRAL: exhaust belongs to nobody -- cmd.allegiance below defaults
-	// to exactly that (playerNr -1, no owner), so nothing sets it here. No
-	// AnimFrame either: an ion trail animates by Lifetime::remaining
-	// (Draw.cpp's RampPoint), and nothing ever read its old colorCycle.
+	// NEUTRAL: exhaust belongs to nobody, so nothing sets allegiance here.
+	// No AnimFrame either: an ion trail animates by Lifetime::remaining
+	// (Draw.cpp's RampPoint).
 	Position pos;
 	pos.current = wrap(Vec2i{shipPos.current.x + cosine(angle, back),
 			shipPos.current.y + sine(angle, back)});
 	pos.next = pos.current;
 
 	// Queued, not spawned: Background layer so it draws behind everything
-	// that matters, once it exists next frame (review-006 §4).
+	// that matters, once it exists next frame.
 	b.queueSpawn(SpawnCommand{
 			.layer = Layer::Background,
 			.position = pos,
-			.effect = true,  // stationary: no Motion needed (review-007 W5)
+			.effect = true,  // stationary: no Motion needed
 			.trail = true,
 			.lifetime = Lifetime{Trail::kLife},
 	});
@@ -490,12 +469,9 @@ warpInStep(Battle &b, EntityId id) noexcept
 
 	if (b.has<Appearing>(id))
 	{
-		// Arriving: invisible, untouchable, on a clock (tactrans.c:858-866). The
-		// ship is in the simulation the whole time -- just not hittable or drawn --
-		// which stops two ships materialising inside each other. The Collider
-		// stays attached throughout; collidable() excludes it by WarpingIn
-		// instead, so there is no mask to lose track of and nothing to restore
-		// on arrival.
+		// Arriving: invisible, untouchable, on a clock (tactrans.c:858-866).
+		// The Collider stays attached throughout -- collidable() excludes it
+		// by WarpingIn instead, so there's nothing to restore on arrival.
 		sp->crew = sp->spec->maxCrew;
 		sp->energy = sp->spec->battery.max;
 		auto [in, allegiance] = b.get<Input, Allegiance>(id);
@@ -508,9 +484,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 
 	// The trail *is* the ship teleporting in: each frame drops a stationary
 	// hull copy behind the arrival point, shrinking by TRANSITION_SPEED per
-	// frame left (tactrans.c:938-950), so images march inward to the ship.
-	// It never carries a Collider -- it was never collidable, and app/melee's
-	// Draw.cpp draws it hull-sized straight from content, not from here.
+	// frame left (tactrans.c:938-950); it never carries a Collider.
 	{
 		const Position &shipPos = b.get<Position>(id);
 		const Angle angle = shipPos.facing.angle();
@@ -527,7 +501,7 @@ warpInStep(Battle &b, EntityId id) noexcept
 				.position = shadowPos,
 				// Picks which ship's sprites to draw; no owner of its own.
 				.allegiance = Allegiance{b.get<Allegiance>(id).playerNr, kNoEntity},
-				.effect = true,  // stationary: no Motion needed (review-007 W5)
+				.effect = true,  // stationary: no Motion needed
 				.shadow = true,
 				.lifetime = Lifetime{Trail::kLife},
 		});
@@ -539,11 +513,8 @@ warpInStep(Battle &b, EntityId id) noexcept
 	if (lifeSpanOf(b, id) <= 1)
 	{
 		// Arrived: solid, visible, under its own control (tactrans.c:868-886).
-		// The Collider was never removed, so applyFacingMask's rebuild from
-		// the spec's facingMasks is a refresh, not a reattach; a spec with
-		// none to rebuild from (a headless test or replay ship, given its
-		// mask directly at spawn) simply leaves the Collider's mask as it
-		// already was.
+		// The Collider was never removed, so applyFacingMask's rebuild is a
+		// refresh, not a reattach; a spec with no facingMasks leaves it as is.
 		b.detach<Lifetime>(id);  // NORMAL_LIFE: persistent again
 		auto [motion, pos] = b.get<Motion, Position>(id);
 		motion.velocity.zero();
@@ -557,16 +528,11 @@ warpInStep(Battle &b, EntityId id) noexcept
 // cleanup_dead_ship (tactrans.c:307-337): when the wreck finishes burning,
 // everything the dead ship still owns -- in-flight nukes, the flame stream --
 // goes with it. The C excepts drifting crew, which does not exist yet.
-// External linkage (review-007 W5): the death path (Battle.cpp) calls this
-// directly for any SweepsOwnedOnDeath entity, replacing the old onDeath
-// function-pointer hook.
 void
 sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept
 {
-	// Allegiance is a required join now, not a get-then-null-check: every
-	// live entity has one (the uniform attach), so requiring it in
-	// eachOrdered<Allegiance> is the same filter, just declared instead of
-	// checked.
+	// Every live entity has an Allegiance (uniform attach), so requiring it
+	// in eachOrdered<Allegiance> is exact -- no null check needed.
 	b.eachOrdered<Allegiance>([&b, id](EntityId other, Allegiance &a) {
 		if (other == id || !(a.owner == id))
 			return;
@@ -588,8 +554,8 @@ startShipExplosion(Battle &b, EntityId id) noexcept
 	b.get<Motion>(id).velocity.zero();
 	if (ShipState *sp = b.ship(id))
 		sp->energy = 0;
-	// A dying ship draws ByFacing (Draw.cpp), not ByFrame, so it never had
-	// an AnimFrame to reset -- the old colorCycle = 0 here was dead too.
+	// A dying ship draws ByFacing (Draw.cpp), not ByFrame, so there is no
+	// AnimFrame to reset.
 	b.detach<Doomed>(id);
 	b.attach<Lifetime>(id, Lifetime{Exploding::kLife});
 	b.detach<Collider>(id);
@@ -660,7 +626,7 @@ explosionStep(Battle &b, EntityId id) noexcept
 				.position = dPos,
 				.motion = dMotion,
 				// Never collidable, but the one decoration that drifts, so it needs
-				// Motion where the others don't (review-007 W5's diet).
+				// Motion where the others don't.
 				.effect = true,
 				.effectMoves = true,
 				.debris = true,

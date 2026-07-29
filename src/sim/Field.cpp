@@ -32,13 +32,10 @@ displayAlignY(u32 r) noexcept
 }
 
 // The rubble's own death hook: put a fresh asteroid back into the field.
-//
-// Queued as a deferred command rather than an ordinary one: spawnAsteroid
-// draws its own RNG sequence building the Element and attaching Spin, and
-// that draw has to happen at the sync point, in queue order, not here at
-// emission (mid-pipeline, slot 2) -- drawing early would put the field's
-// stream out of step with whatever else the sync point still draws or
-// builds this frame.
+// Queued as a deferred command, not an ordinary one: spawnAsteroid draws
+// its own RNG sequence, and that draw must happen at the sync point in
+// queue order -- drawing early would desynchronise the field's RNG stream
+// from whatever else the sync point still draws this frame.
 void
 rubbleDeath(Battle &b, EntityId id) noexcept
 {
@@ -67,9 +64,7 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 
 	// Order-independent: a plain OR over every other element, so the walk
 	// need not be the spine -- an unordered view is enough, and keeps
-	// entt::registry out of this file. Collider is a required join now, not
-	// a find-then-null-check: the presence filter moved into the query
-	// (review-007 W4b's join rule).
+	// entt::registry out of this file.
 	bool conflict = false;
 	b.view<Collider, Position>().each(
 			[&](EntityId other, Collider &tCollider, Position &pos) {
@@ -77,9 +72,8 @@ timeSpaceMatterConflict(Battle &b, EntityId id)
 					return;
 
 				// A player ship counts even when it is not collidable --
-				// gravity.c:175 calls that case "ship in transition", and it
-				// is what stops a planet materialising on top of a ship
-				// that is still warping in.
+				// gravity.c:175 calls that "ship in transition", to stop a
+				// planet materialising on top of a ship still warping in.
 				if (!b.collidable(other) && !b.has<ShipState>(other))
 					return;
 
@@ -105,11 +99,8 @@ placeShipAtRandom(Battle &b, EntityId id, i32 minSeparation)
 			return true;
 		const Vec2i selfAt = b.get<Position>(id).current;
 		bool tooClose = false;
-		// ShipState is a required join too, but left as a manual has<>:
-		// joining it would force the callback to bind a ShipState& this
-		// loop has no use for, whereas the plain check here reads at least
-		// as clearly and keeps this the same shape as the Collider join
-		// above.
+		// ShipState is a required join too, but left as a manual has<>: a
+		// full join would force binding a ShipState& this loop never uses.
 		b.view<Position>().each([&](EntityId other, Position &pos) {
 			if (tooClose || other == id || !b.has<ShipState>(other))
 				return;
@@ -153,10 +144,8 @@ spawnPlanet(Battle &b, const CollisionMask *mask)
 	const EntityId id = s.id();
 
 	// misc.c:55's lifeSpan = NORMAL_LIFE+1 encoded indestructibility as a
-	// magic countdown value; the tag says it directly (Entity.hpp). The one
-	// gravity well, tagged rather than left for gravityPass to find by
-	// scanning every element's mass (review-007 W6) -- there is only ever
-	// one of these, so its identity is worth stating once, at spawn.
+	// magic countdown value; the tag says it directly (Entity.hpp). Only
+	// ever one Planet, so its identity is worth stating once, at spawn.
 	s.with(Indestructible{}).with(Planet{}).with(Vitality{200});
 
 	do
@@ -202,9 +191,8 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	pos.facing = Facing(static_cast<int>(b.rng().next()));
 
 	// Draws six and seven, in the C's order and truncations (misc.c:156-193):
-	// the period, then the direction bit. They used to be bit-packed into
-	// Element::thrustWait; the values and their draw order are pinned, the
-	// packing is not.
+	// the period, then the direction bit. The values and their draw order
+	// are pinned; how they're packed in memory is not.
 	Spin spin;
 	spin.period = static_cast<i32>(b.rng().next() & 3);
 	spin.countdown = spin.period;
@@ -215,9 +203,8 @@ spawnAsteroid(Battle &b, const CollisionMask *mask)
 	s.with(spin).with(Vitality{1}).with(DeathSpawn{asteroidDeath});
 
 	// A standing copy of the birth mask, independent of the Collider: a kill
-	// (doDamage) detaches the Collider on the spot so the asteroid stops
-	// colliding immediately, one frame or more before asteroidDeath runs --
-	// this is what asteroidDeath still has to hand the rubble.
+	// detaches the Collider immediately, one frame or more before
+	// asteroidDeath runs, but asteroidDeath still needs the mask to hand on.
 	s.with(StashedMask{mask});
 	return s;
 }
@@ -236,16 +223,13 @@ asteroidDeath(Battle &b, EntityId id) noexcept
 	rPos.next = rPos.current;
 
 	// Queued, not spawned: it enters the world at the sync point and acts
-	// next frame (review-006 §4's accepted one-frame latency), where the C's
-	// tail insertion let the same frame's live walk still reach it. The
-	// rubble itself never collides -- rubbleMask just carries the asteroid's
-	// mask through its non-solid life, for rubbleDeath to hand to the
-	// replacement asteroid.
+	// next frame. The rubble itself never collides -- rubbleMask just
+	// carries the asteroid's mask through to the replacement asteroid.
 	b.queueSpawn(SpawnCommand{
 			.layer = Layer::Ordnance,
 			.position = rPos,
 			.allegiance = Allegiance{deadAllegiance.playerNr, kNoEntity},
-			.effect = true,  // stationary: no Motion needed (review-007 W5)
+			.effect = true,  // stationary: no Motion needed
 			.blast = true,
 			.lifetime = Lifetime{5},
 			.rubbleMask = deadMask != nullptr ? deadMask->mask : nullptr,

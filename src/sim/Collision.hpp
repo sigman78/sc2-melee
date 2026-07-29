@@ -97,30 +97,24 @@ struct Impact
 		const Body &b0, const Body &b1, TimeValue maxTime = kMaxTimeValue);
 
 // Per-entity collision bookkeeping for one frame: already collided (skip
-// re-testing this frame) and defying physics (met with no relative motion to
-// exchange). Collision-domain, not Battle-private -- Impulse.cpp and
-// Damage.cpp write these directly.
+// re-testing) and defying physics (met with no relative motion to exchange).
+// Impulse.cpp and Damage.cpp write these directly.
 comp struct CollisionScratch
 {
 	bool collided = false;
 	bool defyPhysics = false;
 };
 
-// Solidity IS having one (review-007 W2): CollidingElement (collide.h:31-33)
-// used to be NONSOLID-and-mask on Element; now it is Collider's presence,
-// checked alongside Doomed (Battle::collidable). Attach/detach is the
-// runtime toggle where a flag used to flip.
+// Solidity is having one: checked alongside Doomed (Battle::collidable).
+// Attach/detach is the runtime toggle.
 comp struct Collider
 {
 	Borrowed<const CollisionMask> mask = nullptr;
 };
 
 // A durable copy of a birth mask, carried independently of Collider and
-// outliving it -- the asteroid field's recycle (Field.cpp). A kill
-// (doDamage) detaches the live asteroid's Collider on the spot, well before
-// asteroidDeath runs and needs the mask for the rubble it spawns; the
-// rubble then carries the same value the same way through its own
-// non-solid life, for rubbleDeath to hand to the replacement asteroid.
+// outliving it -- the asteroid field's recycle (Field.cpp). A kill detaches
+// Collider immediately; the mask survives here for the rubble/replacement.
 comp struct StashedMask
 {
 	Borrowed<const CollisionMask> mask = nullptr;

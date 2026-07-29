@@ -42,10 +42,8 @@ public:
 	[[nodiscard]] std::filesystem::path pathOf(std::string_view id) const;
 
 	// Loads and caches the sprites a GFXRES id names. On failure the set is
-	// the placeholder: no frames -- the caller draws its Rect fallback --
-	// but one block mask, so nothing spawns maskless and no caller carries
-	// a stand-in of its own. Cached by id: every asteroid in the field
-	// shares one upload.
+	// the placeholder: no frames, but one block mask so nothing spawns
+	// maskless. Cached by id: every asteroid in the field shares one upload.
 	[[nodiscard]] const SpriteSet &sprites(
 			platform::Platform &window, std::string_view id);
 

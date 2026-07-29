@@ -57,10 +57,8 @@ public:
 	[[nodiscard]] i32 zoom() const noexcept { return zoom_; }
 
 	// Recentres on the ships and picks a zoom that keeps them all on screen.
-	//
 	// process.c:670-697 folds each ship in by walking halfway toward it (the
-	// origin lands on the midpoint for two ships); zoom uses the full
-	// separation, not the half.
+	// origin lands on the midpoint for two ships); zoom uses full separation.
 	void
 	follow(std::span<const Vec2i> ships) noexcept
 	{

@@ -58,11 +58,7 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 	// Every shot in range, not just the nearest: the C walks the whole list
 	// and fires at each, paying once for the volley (human.c:225-236) -- a
-	// Cruiser surrounded by fire clears all of it, or none if it can't afford
-	// it. Physique and Position as a required join, not a get-then-null-
-	// check (review-007 W4b's join rule): existence was only ever read for
-	// its own sake, which Physique/Position presence already implies (both
-	// attach at every Battle::spawn call).
+	// Cruiser surrounded by fire clears all of it, or none if it can't afford it.
 	b.eachOrdered<Physique, Position>([&](EntityId other, Physique &otherPhys,
 											  Position &otherPos) {
 		if (cannotAfford || shipAllegiance == nullptr || other == id)
@@ -73,12 +69,12 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 		if (b.has<Cloaked>(other))
 			return;  // human.c:203-204
 
-		// No ownership test -- the C has none (human.c:203-204): the Cruiser pays
-		// for and shoots down its OWN in-flight nukes in range, a real tactical
-		// constraint (review-001 A15).
+		// No ownership test -- the C has none (human.c:203-204): the Cruiser
+		// pays for and shoots down its OWN in-flight nukes in range, a real
+		// tactical constraint.
 
 		// A deliberate divergence from the C, which will fire on a planet that
-		// just absorbs it (do_damage exempts gravity masses) -- see design-notes V4.
+		// just absorbs it (do_damage exempts gravity masses).
 		if (isGravityMass(otherPhys.mass))
 			return;
 
@@ -102,17 +98,14 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 
 		doDamage(b, other, 1, id);
 
-		// The beam is decorative -- only the damage above is real -- deterministic
-		// geometry, not the renderer's (design-notes V3). LASER_LIFE is 1
-		// (weapon.c:52); Beam{from,to} carries the ends-not-motion contract,
-		// and it is the only component holding this entity's geometry at all
-		// (review-007 W4a: a beam has no Position).
+		// The beam is decorative -- only the damage above is real, deterministic
+		// geometry. LASER_LIFE is 1 (weapon.c:52); Beam{from,to} carries the
+		// ends, not motion -- this entity has no Position.
 		const Vec2i beamTo = tNext;
 
 		// Queued, not spawned: it enters the world at the sync point and
-		// draws its one frame of life the step after this one -- the PD
-		// beam is one frame later than the C's same-step catch-up gave it
-		// (review-006 §4's accepted latency).
+		// draws its one frame of life the step after this one -- one frame
+		// later than the C's same-step catch-up gave it.
 		b.queueSpawn(SpawnCommand{
 				.layer = Layer::Ordnance,
 				.allegiance = Allegiance{shipAllegiance->playerNr, id},
@@ -127,8 +120,8 @@ cruiserSpecial(Battle &b, EntityId id) noexcept
 const ShipSpec &
 earthlingCruiser() noexcept
 {
-	// human.c:26-55. Speeds store post-DISPLAY_TO_WORLD values; offsets store
-	// raw display pixels (review-002 §5's spec-authoring rule).
+	// human.c:26-55. Speeds store post-DISPLAY_TO_WORLD values; offsets
+	// store raw display pixels.
 	static const ShipSpec data{
 		.maxCrew = 18,
 		.thrust{.max = 24, .increment = 3},

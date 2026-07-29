@@ -37,9 +37,9 @@ deltaCrew(ShipState &s, i32 delta) noexcept
 
 namespace {
 
-// emplace_or_accumulate (review-006 §2): the first hit this frame attaches
-// the component, every later one just adds to it, so several sources
-// stack into one summed application at the sync point.
+// emplace_or_accumulate: the first hit this frame attaches the component,
+// every later one just adds to it, so several sources stack into one
+// summed application at the sync point.
 void
 accumulateDamage(Battle &b, EntityId id, i32 amount, EntityId from) noexcept
 {
@@ -66,9 +66,9 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 	{
 		if (b.ship(id) == nullptr)
 			return;
-		// Z4: a crewed hull no longer loses crew here -- it stacks in
-		// DamageIncoming and Battle::step's sync point sums every source
-		// this frame into one deltaCrew call and one death check.
+		// A crewed hull's damage stacks in DamageIncoming; Battle::step's
+		// sync point sums every source this frame into one deltaCrew call
+		// and one death check.
 		accumulateDamage(b, id, damage, from);
 		return;
 	}
@@ -79,9 +79,8 @@ doDamage(Battle &b, EntityId id, i32 damage, EntityId from) noexcept
 		return;
 
 	// Every non-ship collidable thing that can reach here carries a
-	// Vitality (weapons, the asteroid field, the planet -- review-007
-	// W4b's attach set); a bare id with neither ShipState nor Vitality
-	// simply has nothing left to hurt.
+	// Vitality (weapons, the asteroid field, the planet); a bare id with
+	// neither ShipState nor Vitality simply has nothing left to hurt.
 	Vitality *v = b.find<Vitality>(id);
 	if (v == nullptr)
 		return;
@@ -119,11 +118,9 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// Damage IS the weapon's mass (weapon.c:144) -- one number, two uses.
 	const i32 damage = b.get<Physique>(id).mass;
 
-	// weapon.c:145-158: hurts anything transient or at NORMAL_LIFE (excludes
-	// something already dying), except an Indestructible target -- the
-	// planet, which weapon.c's magic lifeSpan=2 used to fail this test on
-	// its own (review-007). A target that SURVIVES marks the weapon
-	// Collided ("did effect"), which also stops it at the impact point.
+	// weapon.c:145-158: hurts anything transient or at NORMAL_LIFE, except
+	// an Indestructible target -- the planet. A target that SURVIVES marks
+	// the weapon Collided ("did effect"), stopping it at the impact point.
 	if (damage > 0 && !b.has<Indestructible>(targetId)
 			&& (isFiniteLife(b, targetId) || lifeSpanOf(b, targetId) == 1))
 	{
@@ -144,8 +141,6 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	// Dies here against a solid target, always; against a finite one, only if
 	// it hasn't already stopped and isn't tough enough to pierce -- hit points
 	// vs. victim's mass (weapon.c:161-164; Chmmr zapsats pierce, nuke/flame don't).
-	// The weapon's own hit points are its Vitality now, same as any other
-	// non-ship collidable.
 	Vitality &wVital = b.get<Vitality>(id);
 	if (b.alive(targetId)
 			&& isFiniteLife(b, targetId)
@@ -173,8 +168,7 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 
 	// The blast, offset along the direction of travel so it sits on the
 	// surface it hit rather than inside it (weapon.c:198-208). Inherits the
-	// weapon's playerNr, no owner of its own (never set on the old Element
-	// either).
+	// weapon's playerNr, no owner of its own.
 	const i32 shooterPlayerNr = b.get<Allegiance>(id).playerNr;
 	Position blastPos;
 	blastPos.current = wrap(Vec2i{at.x + cosine(angle, displayToWorld(warhead.blastOffset)),
@@ -182,13 +176,12 @@ weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 	blastPos.next = blastPos.current;
 
 	// Queued, not spawned: it enters the world at the sync point and acts
-	// next frame, one frame later than the C's same-step catch-up gave it
-	// (review-006 §4's accepted latency).
+	// next frame, one frame later than the C's same-step catch-up gave it.
 	b.queueSpawn(SpawnCommand{
 			.layer = Layer::Ordnance,
 			.position = blastPos,
 			.allegiance = Allegiance{shooterPlayerNr, kNoEntity},
-			.effect = true,  // stationary: no Motion needed (review-007 W5)
+			.effect = true,  // stationary: no Motion needed
 			.blast = true,
 			.lifetime = Lifetime{Blast::kLife},
 	});
@@ -217,10 +210,8 @@ solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept
 		return;
 
 	// ship.c:364-367: damage = hit_points >> 2, floored at one. For a
-	// PLAYER_SHIP, hit_points IS crew_level (one union field, element.h:126-133)
-	// -- every C hit_points read on a player ship is a crew read; anything
-	// else that solidCollision ever runs for (asteroid, planet) has a
-	// Vitality instead.
+	// PLAYER_SHIP, hit_points IS crew_level (one union field, element.h:126-133);
+	// anything else here (asteroid, planet) has a Vitality instead.
 	const ShipState *ss = b.ship(id);
 	const Vitality *v = b.find<Vitality>(id);
 	const i32 own = ss != nullptr ? ss->crew : v != nullptr ? v->hitPoints : 0;

@@ -11,12 +11,9 @@ namespace uqm::sim {
 
 class Battle;
 
-// Builds and spawns a player ship element: the sequence app/melee/Game.cpp,
-// tests/sim_test.cpp and tests/replay_test.cpp each hand-rolled. Component
-// attach order is pool insertion order, and bit-exactness depends on it, so
-// this is exactly that order, not a reshuffling of it. `warpIn` selects
-// whether WarpingIn is attached (the app always warps in; a plain test spawn
-// usually does not).
+// Builds and spawns a player ship element. Component attach order is pool
+// insertion order, and bit-exactness depends on it. `warpIn` selects
+// whether WarpingIn is attached.
 EntityId spawnPlayerShip(Battle &b, const ShipSpec &spec,
 		Borrowed<const CollisionMask> mask, Vec2i at, Facing facing,
 		i32 playerNr, bool warpIn);
@@ -53,8 +50,7 @@ void startShipExplosion(Battle &b, EntityId id) noexcept;
 
 // cleanup_dead_ship (tactrans.c:307-337): everything the dying ship still
 // owns -- in-flight nukes, the flame stream -- goes with it. The death
-// path (Battle.cpp) calls this directly for any SweepsOwnedOnDeath entity,
-// replacing the old onDeath = sweepDeadShipOrdnance hook (review-007 W5).
+// path (Battle.cpp) calls this for any SweepsOwnedOnDeath entity.
 void sweepDeadShipOrdnance(Battle &b, EntityId id) noexcept;
 
 // The generic guided-shot step: track, then accelerate (human.c:128-158).

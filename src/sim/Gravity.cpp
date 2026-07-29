@@ -18,22 +18,16 @@ calculateGravity(Battle &b, EntityId id)
 	const bool selfHasGravity =
 			b.collidable(id) && isGravitySource(b.get<Physique>(id).mass);
 
-	// Doc §2 refinement 1: gravity now runs as its own pipeline pass right
-	// after GuidedSteer, before Integrate has touched anyone's `next` this
-	// frame -- `current` is the one consistent snapshot every entity shares
-	// at that point, so there is no more "which half of the walk already
-	// moved" flag to consult.
+	// Gravity runs before Integrate touches anyone's `next` this frame --
+	// `current` is the one consistent snapshot every entity shares.
 	const Vec2i from = b.get<Position>(id).current;
 
 	const i32 pull = worldToVelocity(1);
 
 	bool insideAWell = false;
 	// collidable(other) unpacked into the join: Collider is the presence
-	// filter, Doomed/WarpingIn the exclusions -- a view only ever yields live
-	// entities, so alive(other) drops with it. Physique, Position and Motion
-	// are the fields the body reads off `other` unconditionally -- Motion
-	// joins rather than finds because every Collider carries one (both attach
-	// together in Battle::spawn, and nothing ever detaches Motion alone).
+	// filter, Doomed/WarpingIn the exclusions. Motion joins rather than
+	// finds because every Collider carries one; nothing detaches it alone.
 	b.eachOrdered<Physique, Position, Collider, Motion>(
 			entt::exclude<Doomed, WarpingIn>,
 			[&](EntityId other, Physique &otherPhys, Position &otherPos,
@@ -78,9 +72,8 @@ calculateGravity(Battle &b, EntityId id)
 				if (b.has<ShipState>(other))
 				{
 					// gravity.c:136-137 clears SHIP_AT_MAX_SPEED but
-					// deliberately leaves SHIP_BEYOND_MAX_SPEED alone: a
-					// ship already whipped past its maximum stays flagged
-					// as such.
+					// deliberately leaves SHIP_BEYOND_MAX_SPEED alone: a ship
+					// already whipped past its maximum stays flagged as such.
 					if (ShipState *ss = b.ship(other))
 					{
 						if (ss->speed == SpeedState::AtMax)
@@ -97,8 +90,7 @@ void
 gravityPass(Battle &b)
 {
 	// The well is whichever entity carries Planet, not whichever entity's
-	// mass happens to clear kGravityMass (review-007 W6): there is only
-	// ever one, so the tag replaces a scan of every element's Physique.
+	// mass happens to clear kGravityMass -- there is only ever one.
 	b.view<Planet>().each([&b](EntityId id) {
 		if (b.collidable(id))
 			(void)calculateGravity(b, id);

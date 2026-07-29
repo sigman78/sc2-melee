@@ -51,11 +51,9 @@ int failures = 0;
 void
 testStreamsAreIndependent()
 {
-	// The plan makes presentation draw from its own stream so it cannot
-	// perturb the simulation (commanim.c currently draws from the sim's, on a
-	// wall-clock schedule). That only works if streams are objects, not one
-	// global -- so: two Rngs with the same seed agree, and drawing from one
-	// does not move the other.
+	// Presentation must draw from its own stream so it cannot perturb the sim
+	// (commanim.c draws from the sim's, on a wall-clock schedule): same seed
+	// agrees, but drawing from one stream must not move the other.
 	Rng sim(999);
 	Rng presentation(999);
 	CHECK(sim.next() == presentation.next(), "same seed, same first draw");
@@ -99,15 +97,12 @@ testTruncationWidthMatters()
 // --------------------------------------------------------------------------
 // Battle storage
 //
-// EntityList<int> is gone -- Battle+Element is the only ordered store now,
-// with entt::registry underneath and Order (Entity.hpp) as the declared sort
-// key eachOrdered reads. These tests pin the same invariants the old ones
-// did, against the new shape.
+// Order (Entity.hpp) is the declared sort key eachOrdered reads: layers walk
+// in enum order, FIFO within a layer, stable across entt's slot reuse.
 
 // A minimal, marked spawn for the tests below: no Collider, so it takes no
-// part in collision math (spawn() attaches one only when given a mask, and
-// these never are), no hooks so nothing runs even if a test steps the
-// battle, and playerNr -- Allegiance (review-007 W4b) -- as a bare label.
+// part in collision math (spawn() attaches one only when given a mask), no
+// hooks, and playerNr stored on Allegiance as a bare label.
 EntityId
 spawnMarked(Battle &b, Layer layer, int playerNr)
 {
@@ -115,8 +110,7 @@ spawnMarked(Battle &b, Layer layer, int playerNr)
 			nullptr, Allegiance{playerNr, kNoEntity});
 }
 
-// Walks in declared order collecting each element's label, the way order()
-// used to read EntityList<int> straight through.
+// Walks in declared order, collecting each element's label.
 std::vector<int>
 playerNrs(Battle &b)
 {
@@ -130,8 +124,8 @@ playerNrs(Battle &b)
 void
 testTraversalOrderIsDeclared()
 {
-	// Review-005 Y2: order is a declared stratum, not an insertion
-	// position. Layers traverse in enum order; FIFO within a layer.
+	// Order is a declared stratum, not insertion position: layers traverse
+	// in enum order, FIFO within a layer.
 	Battle b(1);
 	spawnMarked(b, Layer::Field, 1);
 	spawnMarked(b, Layer::Field, 2);
@@ -160,11 +154,9 @@ testTraversalOrderIsDeclared()
 void
 testSlotReuseDoesNotReorder()
 {
-	// The reason an arena alone will not do: once entt hands a slot back,
-	// storage order and traversal order can disagree if traversal depended
-	// on storage. Order (layer, seq), assigned at spawn, is what keeps a new
-	// entity landing where it was asked to go, not where its recycled slot
-	// happens to sit.
+	// Storage order and traversal order can disagree once entt hands a
+	// slot back. Order (layer, seq), assigned at spawn, keeps a new entity
+	// where it was asked to go, not where its recycled slot sits.
 	Battle b(1);
 	spawnMarked(b, Layer::Field, 1);
 	const EntityId second = spawnMarked(b, Layer::Field, 2);
@@ -184,9 +176,8 @@ testSlotReuseDoesNotReorder()
 void
 testStaleHandlesAreDetectable()
 {
-	// The slot comes straight back; the generation is what stops a stale
-	// handle from reading its new tenant. entt's versioned entity id carries
-	// that promise now, in place of EntityList's own {index, generation}.
+	// The slot comes straight back; the generation in the versioned entity
+	// id is what stops a stale handle from reading its new tenant.
 	Battle b(1);
 	const EntityId id = spawnMarked(b, Layer::Field, 7);
 	CHECK(b.alive(id), "a live handle resolves");
@@ -210,9 +201,8 @@ void
 testTheReapKeepsTheWalkIntact()
 {
 	// The reap -- Battle's only removal, driven by Lifetime/Doomed and run
-	// inside step() -- has to leave the survivors exactly where they were, the same
-	// promise EntityList::remove made while a caller was mid-walk (a
-	// projectile expiring mid-frame is the ordinary case).
+	// inside step() -- must leave survivors exactly where they were: a
+	// projectile expiring mid-frame is the ordinary case that needs this.
 	Battle b(1);
 	std::vector<EntityId> ids;
 	for (int i = 0; i < 5; ++i)
@@ -230,14 +220,9 @@ testTheReapKeepsTheWalkIntact()
 void
 testEntityAddressesAreStable()
 {
-	// Ship code holds a pointer to itself across a spawn -- fire a weapon,
-	// then write the cooldown back -- and ShipState::in_place_delete
-	// (Ship.hpp) is what keeps that address good under entt: a deletion
-	// tombstones the slot rather than swap-and-popping a neighbour into it,
-	// and growth extends the pool rather than relocating it. This pins that
-	// policy directly, across both a reap and a forced growth, since a
-	// regression here would silently corrupt whichever unrelated ship got
-	// moved into the freed or reallocated slot.
+	// ShipState::in_place_delete (Ship.hpp) keeps a ship's address stable
+	// under entt: reap tombstones the slot instead of swap-and-popping a
+	// neighbour into it, and growth extends the pool instead of relocating it.
 	Battle b(1);
 	const EntityId A = spawnMarked(b, Layer::Field, 1);
 	// B sits between the two under test, so its reap has somewhere to
@@ -404,9 +389,7 @@ ring(u32 w, u32 h)
 }
 
 // Whether this frame's collisions() recorded a pair between x and y, order
-// either way -- the replacement for Element::collidedWith (review-007 W5),
-// which recorded the same fact per-side. One CollisionEvent covers both
-// directions now.
+// either way.
 bool
 pairCollided(const Battle &b, EntityId x, EntityId y) noexcept
 {
@@ -419,10 +402,9 @@ pairCollided(const Battle &b, EntityId x, EntityId y) noexcept
 void
 testCollisionNeedsNoGraphicsContext()
 {
-	// intersec.c:245 returns "no collision" whenever there is no active
-	// graphics context, which is why a naive headless build hangs in
-	// weapon.c's rejection loop instead of producing wrong numbers. Nothing
-	// here has ever seen a renderer.
+	// intersec.c:245 returns "no collision" with no active graphics context,
+	// which is why a naive headless build hangs in weapon.c's rejection loop
+	// instead of producing wrong numbers. Nothing here has ever seen a renderer.
 	const CollisionMask a = solid(4, 4);
 	const CollisionMask b = solid(4, 4);
 	const Body b0{&a, Vec2i{0, 0}, Vec2i{0, 0}};
@@ -524,10 +506,9 @@ testCollisionEdgeCases()
 void
 testVelocityCarriesSubUnitDrift()
 {
-	// The reason velocity is fixed point with a carried error rather than a
-	// rounded integer: a drift slower than one world unit per frame still has
-	// to move. A truncating implementation would round it to zero and the
-	// object would hang in space forever.
+	// Velocity is fixed point with a carried error, not a rounded integer:
+	// a drift slower than one world unit per frame still has to move, or a
+	// truncating implementation rounds it to zero and it hangs in space forever.
 	Velocity v;
 	v.setComponents(1, 0);  // 1/32 of a world unit per frame
 	CHECK(v.current().x == 1, "a sub-unit component survives being set");
@@ -608,9 +589,8 @@ void
 testThrustTakesItsFacingAsAnArgument()
 {
 	// The whole point of the primitive: thrusting somewhere other than where
-	// the ship points needs no save/overwrite/restore of a global. Supox's
-	// omni-thrust is "pick a facing delta, call thrust", and this is that
-	// call being possible at all.
+	// the ship points needs no save/overwrite/restore of a global -- Supox's
+	// omni-thrust is "pick a facing delta, call thrust", made possible here.
 	constexpr ThrustProfile cruiser{24, 3};
 
 	Velocity forward;
@@ -714,10 +694,9 @@ cruiserView()
 	v.position = Vec2i{1000, 1000};
 	v.facing = Facing(3);
 	v.playerNr = 0;
-	// NOT the real MISSILE_SPEED, which is 40: human.c:41-44 takes
-	// max(MAX_THRUST, DISPLAY_TO_WORLD(10)) and the floor wins. The value
-	// here is arbitrary -- spawn functions pass it through untouched, which
-	// is exactly what this section tests.
+	// NOT the real MISSILE_SPEED (40): human.c:41-44 takes
+	// max(MAX_THRUST, DISPLAY_TO_WORLD(10)) and the floor wins. This value is
+	// arbitrary -- spawn functions pass it through untouched, which this tests.
 	v.weaponSpeed = 24;
 	v.weaponLife = 60;        // MISSILE_LIFE
 	v.weaponDamage = 4;       // MISSILE_DAMAGE
@@ -730,13 +709,9 @@ cruiserView()
 void
 testSpawningIsRepeatable()
 {
-	// The property the AI's lookahead needs and the C does not have. In the
-	// C, asking "what would I spawn?" runs init_weapon_func for real, and
-	// umgah.c:330-341 writes through the shared RaceDescPtr while it does --
-	// an HFree plus an HMalloc, every lookahead frame, plus a mutated sprite.
-	//
-	// Here the question is free to ask. Asking it a hundred times must give
-	// the same answer and change nothing.
+	// The property the AI's lookahead needs and the C does not: asking "what
+	// would I spawn?" mutates shared state for real in the C (umgah.c:330-341).
+	// Here it must be free -- asking a hundred times must change nothing.
 	const ShipView ship = cruiserView();
 
 	SpawnBuffer first{};
@@ -826,8 +801,8 @@ struct Trace
 };
 Trace g_trace;
 
-// Tags an element so the trace can name it. Physique::mass is unused by
-// these tests, so it doubles as a label (moved off Element, review-007 W4a).
+// Tags an element so the trace can name it: Physique::mass is unused by
+// these tests, so it doubles as a label.
 void
 recordPre(Battle &b, EntityId id) noexcept
 {
@@ -841,9 +816,8 @@ recordDeath(Battle &b, EntityId id) noexcept
 }
 
 // Spawns and gives it a ShipState so it satisfies the ship gate in
-// ShipSystems.cpp; only testFiniteLifeExpiresAndCallsDeath still calls
-// this. The spec is empty (no facingMasks, no crew), so ShipMachines'
-// Appearing branch has nothing to act on and this stays otherwise inert.
+// ShipSystems.cpp. The spec is empty (no facingMasks, no crew), so
+// ShipMachines' Appearing branch has nothing to act on here.
 EntityId
 spawnShip(Battle &b, Layer layer = Layer::Field)
 {
@@ -856,11 +830,8 @@ spawnShip(Battle &b, Layer layer = Layer::Field)
 void
 testStepVisitsInListOrder()
 {
-	// Animate no longer dispatches a generic per-element hook (review-007
-	// W5 -- Spin and FrameDriven are its own typed sub-iterations, each
-	// independent of the others, so there is no shared trace left to prove
-	// spine order through). eachOrdered is the surviving primitive that
-	// declares the order (review-006 Z6); this tests it directly.
+	// eachOrdered is what declares traversal order; this tests it directly
+	// against list order and against an earlier layer preempting it.
 	g_trace = Trace{};
 	Battle b(1);
 	b.spawn(Layer::Field, Position{}, Motion{}, Physique{1});
@@ -882,18 +853,16 @@ testStepVisitsInListOrder()
 void
 testSpawnLandsAtSyncAndActsNextFrame()
 {
-	// A queued spawn (review-006 §2's command buffer) does not exist for
-	// anything to see the frame it is emitted -- it lands at the sync
-	// point, is reported as a SpawnEvent, and takes its first real motion
-	// the following frame.
+	// A queued spawn does not exist for anything to see the frame it is
+	// emitted: it lands at the sync point, is reported as a SpawnEvent, and
+	// takes its first real motion the following frame.
 	Battle b(1);
 
 	const EntityId triggerId = b.spawn(Layer::Field);
 	b.attach<Lifetime>(triggerId, Lifetime{1});
-	// DeathSpawn is the general death-response payload now (review-007 W5);
-	// production attaches it only to the asteroid field, but the mechanism
-	// itself is generic, and this test wants exactly what onDeath used to
-	// give it -- a function run once, at death, with the battle and this id.
+	// DeathSpawn is a generic death-response payload; production attaches it
+	// only to the asteroid field. This test wants exactly what it promises:
+	// a function run once, at death, with the battle and this id.
 	b.attach<DeathSpawn>(triggerId,
 			DeathSpawn{[](Battle &bb, EntityId) noexcept {
 				Motion motion;
@@ -960,10 +929,9 @@ testMotionIntegratesAndWraps()
 	pos.current = Vec2i{100, 100};
 	const EntityId id = b.spawn(Layer::Field, pos, motion);
 
-	// A newly spawned element *does* move on its first step. Appearing
+	// A newly spawned element *does* move on its first step: Appearing
 	// suppresses the preprocess hook, not the motion -- process.c:163 gates
-	// movement on IGNORE_VELOCITY alone. Getting this wrong costs every
-	// projectile its first frame of flight.
+	// movement on IGNORE_VELOCITY alone.
 	b.step();
 	CHECK(b.find<Position>(id)->current.x == 110,
 			"it should move 10 on its very first step, got %ld",
@@ -973,12 +941,9 @@ testMotionIntegratesAndWraps()
 	CHECK(b.find<Position>(id)->current.x == 120, "and 10 a frame after, got %ld",
 			static_cast<long>(b.find<Position>(id)->current.x));
 
-	// And the arena is a torus. Teleporting means moving BOTH points, the way
-	// placeShipAtRandom does: integration adds to `next` (process.c:172-173),
-	// so a `current` moved on its own is simply overwritten at the commit.
-	// The wrap itself happens at the commit too (process.c:899-916), so
-	// mid-frame coordinates may run off the edge -- what matters is what the
-	// element's position is when the frame is done.
+	// The arena is a torus, and teleporting means moving BOTH `current` and
+	// `next` (process.c:172-173): integration overwrites a lone `current` at
+	// commit, where the wrap itself also happens (process.c:899-916).
 	b.find<Position>(id)->current = Vec2i{kArena.w - 5, 0};
 	b.find<Position>(id)->next = b.find<Position>(id)->current;
 	b.step();
@@ -997,10 +962,9 @@ testCollisionPairsAreVisitedOnce()
 
 	Position aPos;
 	aPos.current = Vec2i{500, 500};
-	// Transient, like a real weapon -- and load-bearing here: an at-rest
-	// overlap between two *solid* bodies is the "BAD NEWS" case the step
-	// skips, so only a transient can register this stationary hit at all.
-	// Two frames of life, because the first is spent before the test runs.
+	// Transient, like a real weapon: an at-rest overlap between two *solid*
+	// bodies is the "BAD NEWS" case the step skips, so only a transient can
+	// register this hit. Two frames of life since the first is spent already.
 	const EntityId ia = b.spawn(Layer::Field, aPos, Motion{},
 			Physique{}, &mask, Allegiance{0, kNoEntity});
 	b.attach<Lifetime>(ia, Lifetime{2});
@@ -1027,9 +991,9 @@ testCollisionPairsAreVisitedOnce()
 	const EntityId if1 = b2.spawn(Layer::Field, f1Pos, Motion{},
 			f1Phys, &mask, Allegiance{0, kNoEntity});
 	b2.attach<IgnoreSimilar>(if1);
-	// A synthesized EntityId{index, generation} literal no longer compiles
-	// -- entt's handle has no such constructor -- so f1 stands in as its own
-	// owner, a real spawned id the second projectile below can share.
+	// EntityId{index, generation} isn't a literal you can synthesize -- entt's
+	// handle has no such constructor -- so f1 stands in as its own owner, a
+	// real spawned id the second projectile below can share.
 	b2.find<Allegiance>(if1)->owner = if1;
 
 	const Physique f2Phys{7};
@@ -1050,9 +1014,8 @@ testCollisionPairsAreVisitedOnce()
 	const Position g1Pos = *b2.find<Position>(if1);
 	const Physique g1Phys = *b2.find<Physique>(if1);
 	// Transient for the same reason as above: the target is solid, so the
-	// flame must be finite-life for a stationary overlap to be a hit. The
-	// owner is overwritten below regardless (each element owns itself in
-	// b3), so only playerNr fidelity matters from the copy.
+	// flame needs finite life for a stationary overlap to register. The
+	// owner is overwritten below, so only playerNr fidelity matters here.
 	const EntityId ig1 = b3.spawn(Layer::Field, g1Pos, Motion{},
 			g1Phys, &mask, *b2.find<Allegiance>(if1));
 	b3.attach<Lifetime>(ig1, Lifetime{2});
@@ -1064,8 +1027,7 @@ testCollisionPairsAreVisitedOnce()
 			g2Phys, &mask, *b2.find<Allegiance>(if2));
 	b3.attach<IgnoreSimilar>(ig2);
 
-	// Two distinct real owners, in place of the old EntityId{7,1} /
-	// EntityId{9,1} literals: each element owning itself is enough, since
+	// Two distinct real owners: each element owning itself is enough, since
 	// what IgnoreSimilar keys on is only that the owners differ.
 	b3.find<Allegiance>(ig1)->owner = ig1;
 	b3.find<Allegiance>(ig2)->owner = ig2;
@@ -1096,9 +1058,8 @@ testIsqrtIsFloorSqrt()
 void
 testHeadOnCollisionExchangesMomentum()
 {
-	// ShipState now, not Element -- the turn/thrust stagger this test pins
-	// is ShipState's own field (review-007 W4b), and a non-null ShipState*
-	// is what tells pure physics "this side is a ship".
+	// The turn/thrust stagger this test pins is ShipState's own field, and
+	// a non-null ShipState* is what tells pure physics "this side is a ship".
 	ShipState a;
 	const Physique aPhys{5};
 	Motion aMotion;
@@ -1164,9 +1125,8 @@ void
 testStuckPairIsWorkedApart()
 {
 	// Two elements that did not move cannot exchange momentum, so the C marks
-	// them DefyPhysics instead. If they were *already* defying, it zeroes
-	// them and skews the impact axis by an octant, which is what eventually
-	// separates two stuck objects rather than leaving them welded.
+	// them DefyPhysics instead. Already defying, it zeroes them and skews the
+	// impact axis by an octant -- how two stuck objects come unwelded.
 	ShipState a;
 	const Physique aPhys{5};
 	Motion aMotion;
@@ -1337,12 +1297,9 @@ testMissileFliesAndExpires()
 void
 testFiringPostponesEnergyRegen()
 {
-	// Every successful energy spend re-arms the regeneration countdown
-	// (status.c:317-323), so a ship that fires continuously does not
-	// regenerate while it can still afford the shots. The Avenger is the
-	// sharpest case: cost 1, weapon.wait 0, regen 4 every 4 -- without the
-	// re-arm its flame is close to self-sustaining instead of a 16-frame
-	// burst.
+	// Every successful energy spend re-arms the regen countdown
+	// (status.c:317-323), so firing continuously blocks regeneration. The
+	// Avenger (cost 1, wait 0, regen 4/4) would nearly self-sustain without it.
 	Battle b(1);
 	const EntityId id = spawnPlayerShip(b, ilwrathAvenger(), nullptr,
 			Vec2i{2000, 2000}, Facing(0), 0, /*warpIn=*/false);
@@ -1405,11 +1362,9 @@ testSpecialFiresTheFrameItsCounterExpires()
 void
 testOpposingMissilesDestroyEachOther()
 {
-	// A weapon's mass is its damage (weapon.c:101), and CollisionPossible
-	// skips a pair only when BOTH masses are zero (collide.h:38) -- so shots
-	// from different ships collide and kill each other in flight. This is
-	// the mechanism behind flame-intercepts-nuke; a weapon spawned massless
-	// silently turns it off.
+	// A weapon's mass is its damage (weapon.c:101); CollisionPossible skips a
+	// pair only when BOTH masses are zero (collide.h:38) -- so shots from
+	// different ships collide, the mechanism behind flame-intercepts-nuke.
 	static CollisionMask shotMask = solid(3, 3);
 	static ShipSpec d = [] {
 		ShipSpec d_ = earthlingCruiser();
@@ -1504,11 +1459,9 @@ testGravityMassThreshold()
 	CHECK(!isGravitySource(3), "nor is an asteroid");
 	CHECK(!isGravitySource(99), "nor is anything below the threshold");
 
-	// The `+ 1` gravity.c applies before every test. A ship running away is
-	// set to exactly MAX_SHIP_MASS * 10 (battle.c:92), which fails the plain
-	// GRAVITY_MASS macro but passes this -- and since gravity skips any pair
-	// that agrees, that is precisely what stops a planet dragging in a ship
-	// that is trying to escape.
+	// The `+ 1` gravity.c applies before every test: a fleeing ship is set to
+	// exactly MAX_SHIP_MASS * 10 (battle.c:92), which fails plain GRAVITY_MASS
+	// but passes this -- exactly what stops a planet dragging in the escapee.
 	CHECK(isGravitySource(kGravityMass),
 			"a fleeing ship counts as a source, so nothing pulls on it");
 }
@@ -1549,10 +1502,9 @@ testGravityHasAHardEdge()
 {
 	const CollisionMask m = solid(4, 4);
 
-	// GRAVITY_THRESHOLD is 255 *display* pixels, and ONE_SHIFT is 2, so the
-	// disc is 1020 world units. There is no falloff inside it and nothing at
-	// all outside -- the DIFUSE_GRAVITY block that would have smoothed this is
-	// commented out in the C (gravity.c:96-111).
+	// GRAVITY_THRESHOLD is 255 *display* pixels (ONE_SHIFT 2): a 1020-unit
+	// disc with no falloff inside and nothing outside -- the DIFUSE_GRAVITY
+	// smoothing block is commented out in the C (gravity.c:96-111).
 	for (const auto &[dx, pulled] :
 			{std::pair{1020, true}, std::pair{1024, false}})
 	{
@@ -1609,8 +1561,8 @@ testAsteroidsSpawnOnAnEdgeAndRepeatably()
 		CHECK(!b.find<Motion>(a)->velocity.isZero(), "and should be moving");
 
 		// Same seed, same asteroid: the seven draws happen in a fixed order.
-		// The spin rides its own component now (review-005 Y1), so the pin
-		// compares it there -- not a vacuous 0 == 0 on the retired field.
+		// The spin lives on its own component, so the pin compares it there --
+		// not a vacuous 0 == 0.
 		const Position *pos2 = c.find<Position>(a2);
 		const Spin &s1 = *b.find<Spin>(a);
 		const Spin &s2 = *c.find<Spin>(a2);
@@ -1651,8 +1603,7 @@ testDestroyedAsteroidIsReplaced()
 {
 	// The field's population is constant because the loop is closed: an
 	// asteroid's death leaves rubble, and the rubble's death spawns a fresh
-	// asteroid (misc.c:80-105, 130-201). Break either link and the field
-	// empties out over a long match.
+	// asteroid (misc.c:80-105, 130-201) -- break either link and it empties out.
 	const CollisionMask m = solid(4, 4);
 	Battle b(11);
 	(void)spawnAsteroid(b, &m);
@@ -1737,9 +1688,8 @@ testDeltaCrewReportsDeathOnTheExactHit()
 void
 testPlanetsTakeNoDamage()
 {
-	// doDamage now needs a Battle to fetch crew through, so each subject is
-	// spawned rather than built standalone -- the assertions below are
-	// otherwise unchanged.
+	// doDamage needs a Battle to fetch crew through, so each subject here is
+	// spawned rather than built standalone.
 	Battle b(1);
 
 	const EntityId planetId = b.spawn(Layer::Field,
@@ -1753,10 +1703,9 @@ testPlanetsTakeNoDamage()
 			static_cast<long>(pv->hitPoints));
 	CHECK(lifeSpanOf(b, planetId) == 1, "and holds no Lifetime to kill");
 
-	// weaponCollision's own target-survives test (Damage.cpp) is the site
-	// review-007 rewired onto Indestructible -- doDamage's mass guard above
-	// is a separate, older immunity and would not by itself catch a
-	// regression there.
+	// weaponCollision has its own target-survives check (Damage.cpp), separate
+	// from doDamage's mass guard above -- a regression in one would not be
+	// caught by testing only the other.
 	const EntityId shotId = b.spawn(Layer::Field,
 			Position{}, Motion{}, Physique{4});  // damage == mass, weapon.c:144
 	b.attach<Vitality>(shotId, Vitality{});
@@ -1802,10 +1751,9 @@ testMissileDamagesAndSpendsItself()
 			Vec2i{4000, 4000}, Facing(0), 0, /*warpIn=*/false);
 	b.attach<Collider>(gunner, &m);
 
-	// 400 world units away, not 100. HUMAN_OFFSET is 42 *display* pixels,
-	// which is 168 world units, so the Cruiser's missile is born further from
-	// the hull than a closer target would be -- it would spawn already past
-	// it and sail off having never touched anything.
+	// 400 world units away, not 100: HUMAN_OFFSET is 42 *display* pixels
+	// (168 world units), so the missile is born that far out already -- a
+	// closer target would spawn past, and the missile would sail off untouched.
 	const EntityId target =
 			spawnPlayerShip(b, ilwrathAvenger(), nullptr,
 					Vec2i{4000, 3600}, Facing(8), 1, /*warpIn=*/false);
@@ -1860,12 +1808,9 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	b.attach<Indestructible>(planetId);
 	b.attach<Vitality>(planetId, Vitality{200});
 
-	// Spawned clear of the planet, then moved into it. Starting them on top of
-	// each other is not a shortcut: the planet's collision is resolved before
-	// the ship's own first preprocess has loaded its crew from the descriptor,
-	// so the ship takes damage while still at zero and is destroyed on frame
-	// one. The C has the same ordering, and avoids it the same way -- by never
-	// placing a ship inside anything (misc.c:63-70, ship.c:480).
+	// Spawned clear of the planet, then moved into it -- not a shortcut:
+	// starting overlapped resolves the collision before the ship's first
+	// preprocess loads crew, killing it at zero (misc.c:63-70, ship.c:480).
 	const EntityId ship = spawnPlayerShip(b, earthlingCruiser(), nullptr,
 			Vec2i{5000, 5000}, Facing(0), 0, /*warpIn=*/false);
 	b.attach<Collider>(ship, &m);
@@ -1877,10 +1822,9 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 
 	const i32 before = b.ship(ship)->crew;
 
-	// Fly into it rather than teleporting into overlap. A pair already
-	// overlapping at rest is the "BAD NEWS" case the step deliberately skips
-	// (process.c:397-416) -- an embedded ship takes no new damage -- so the
-	// contact has to happen mid-motion, the way it does in play.
+	// Fly into it rather than teleport into overlap: an at-rest overlap is
+	// the "BAD NEWS" case the step deliberately skips (process.c:397-416),
+	// so contact has to happen mid-motion, the way it does in play.
 	b.find<Position>(ship)->current = Vec2i{4000, 4064};
 	b.find<Position>(ship)->next = b.find<Position>(ship)->current;
 	b.find<Motion>(ship)->velocity.setComponents(0, -worldToVelocity(40));
@@ -1889,11 +1833,9 @@ testFlyingIntoAPlanetCostsCrewOverFour()
 	if (!b.alive(ship))
 		return;
 
-	// ship.c:364-367 computes hit_points >> 2 with a floor of 1 -- and for a
-	// PLAYER_SHIP, hit_points IS crew_level: one union field
-	// (element.h:126-133). An 18-crew Cruiser therefore pays 4 crew for a
-	// planet graze, not 1. The earlier version of this test asserted 1,
-	// reasoning from the rewrite's own split fields instead of the union.
+	// ship.c:364-367 computes hit_points >> 2, floored at 1 -- and for a
+	// PLAYER_SHIP, hit_points IS crew_level (element.h:126-133), one union
+	// field. An 18-crew Cruiser pays 4 crew for a planet graze, not 1.
 	CHECK(b.ship(ship)->crew == before - (before >> 2),
 			"hitting a planet should cost crew/4 (%ld), got %ld (was %ld)",
 			static_cast<long>(before >> 2),
@@ -1905,12 +1847,8 @@ void
 testOverlappingShipsSeparateInsteadOfSticking()
 {
 	// Two ships interpenetrating -- the tail of a collision just resolved --
-	// are not a new collision. The C skips such a pair outright ("BAD NEWS",
-	// process.c:397-416, 509-515) and lets the previous impulse carry them
-	// apart. Processing it instead is how ships weld together: the rewind to
-	// impact time 1 freezes both where they stand, the scrape-promotion in
-	// applyImpulse reflects their separating velocities back inward, and the
-	// frozen pair does it all again next frame, forever.
+	// are not a new collision; the C skips such a pair outright ("BAD NEWS",
+	// process.c:397-416, 509-515), or the frozen pair re-welds every frame.
 	static const CollisionMask m = solid(8, 8);
 	Battle b(1);
 
@@ -1924,10 +1862,9 @@ testOverlappingShipsSeparateInsteadOfSticking()
 	const EntityId ic = b.spawn(Layer::Field, cPos, Motion{},
 			Physique{6}, &m, Allegiance{1, kNoEntity});
 
-	// Spawned far apart and established first. The distinction is the C's:
-	// an APPEARING element found overlapping something is EXECUTED on the
-	// spot (process.c:427-449), so the skip under test here applies only to
-	// elements past their spawn frame -- which post-impact ships always are.
+	// Spawned far apart and established first: an APPEARING element found
+	// overlapping something is EXECUTED on the spot in the C (process.c:
+	// 427-449), so the skip under test applies only past the spawn frame.
 	b.step();
 
 	// Now manufacture the post-impact state: overlapping -- 16 world units
@@ -1984,11 +1921,9 @@ spawnTestShot(Battle &b, const CollisionMask &mask, Vec2i at, i32 playerNr,
 void
 testShipShotMidFlightKeepsItsMotion()
 {
-	// A ship hit by a weapon is not stopped by it. In the C only an element
-	// whose own collision_func raised COLLISION is moved to the impact point
-	// (process.c:586-596), and a ship's does so only when the other party is
-	// solid (ship.c:356-358). Halting the target at the impact point reads on
-	// screen as the ship hanging in a stream of fire.
+	// A ship hit by a weapon is not stopped by it: only an element whose own
+	// collision_func raised COLLISION moves to the impact point (process.c:
+	// 586-596), and a ship's does so only when solid (ship.c:356-358).
 	static const CollisionMask m = solid(8, 8);
 	Battle b(1);
 
@@ -2002,10 +1937,9 @@ testShipShotMidFlightKeepsItsMotion()
 	static const ShipSpec inertSpec{};
 	b.attachShip(is, &inertSpec);
 
-	// A stationary shot in the ship's path. Zero damage, so the run is about
-	// motion, not crew -- and damage IS mass (weapon.c:101,144), so a
-	// zero-damage shot is a massless one. The pair still collides because
-	// the ship's own mass satisfies CollisionPossible.
+	// A stationary shot in the ship's path, zero damage: the run is about
+	// motion, not crew. Damage IS mass (weapon.c:101,144), so this shot is
+	// massless, but the pair still collides on the ship's own mass.
 	const EntityId iw = spawnTestShot(b, m, Vec2i{4200, 4000}, 1,
 			/*mass=*/0, /*hitPoints=*/0, /*lifeSpan=*/20);
 
@@ -2034,10 +1968,8 @@ testShipShotMidFlightKeepsItsMotion()
 			"and its velocity untouched -- weapons carry no impulse, got %ld",
 			static_cast<long>(velocityToWorld(v.x)));
 	// The shot is spent AND gone: weapon_collision marks a missile
-	// DISAPPEARING (weapon.c:175-177) and the post walk removes such
-	// elements the same frame (process.c:873-879) -- a dead missile is never
-	// drawn at its impact point. (The flame is the exception: Warhead::
-	// lingersOnHit undoes the mark on the spot, so it lingers one frame.)
+	// DISAPPEARING (weapon.c:175-177), reaped the same frame (process.c:
+	// 873-879). Warhead::lingersOnHit is the flame's one-frame exception.
 	CHECK(!b.alive(iw),
 			"a spent missile is reaped on the frame it hit");
 }
@@ -2045,10 +1977,9 @@ testShipShotMidFlightKeepsItsMotion()
 void
 testToughWeaponPiercesWeakOne()
 {
-	// The pierce rule (weapon.c:161-164): a weapon whose hit points exceed a
-	// surviving finite target's mass ploughs through it and keeps flying.
-	// Nuke and flame, at one hit point each, can never do this -- Chmmr
-	// zapsats live on it.
+	// The pierce rule (weapon.c:161-164): a weapon whose hit points exceed
+	// a surviving target's mass ploughs through and keeps flying. Nuke and
+	// flame (one hit point each) can never do this -- Chmmr zapsats live on it.
 	static const CollisionMask m = solid(3, 3);
 	Battle b(1);
 
@@ -2081,8 +2012,7 @@ testTurningIntoOverlapIsReverted()
 {
 	// The overlap-repair protocol (process.c:453-506): when a silhouette
 	// CHANGE creates a standing overlap -- a ship rotating against a wall --
-	// the C reverts the frame and the facing rather than resolving a
-	// collision. You cannot rotate into a planet.
+	// the C reverts the frame and facing rather than resolving a collision.
 	static std::array<CollisionMask, 2> masks = [] {
 		return std::array<CollisionMask, 2>{solid(4, 4), solid(16, 16)};
 	}();
@@ -2137,8 +2067,7 @@ testSpawnInsideSomethingIsExecuted()
 {
 	// The other half of the protocol (process.c:427-449): an APPEARING solid
 	// found standing inside another solid dies on the spot, death hook and
-	// all -- an asteroid respawned onto the planet becomes rubble at once
-	// instead of drifting through it.
+	// all -- an asteroid respawned onto the planet becomes rubble at once.
 	static const CollisionMask m = solid(8, 8);
 	Battle b(1);
 
@@ -2172,8 +2101,7 @@ testPointDefenceBurnsOwnNuke()
 {
 	// The C's point defence has no ownership filter (human.c:203-204): a
 	// Cruiser holding SPECIAL pays for and shoots down its OWN in-flight
-	// nuke. That is a real tactical constraint, not a bug -- review-001 A15,
-	// decided faithful.
+	// nuke -- a real tactical constraint, not a bug, decided faithful.
 	static CollisionMask shotMask = solid(3, 3);
 	static ShipSpec d = [] {
 		ShipSpec d_ = earthlingCruiser();
@@ -2218,10 +2146,8 @@ void
 testCommittedElementsAreNotIntegratedTwice()
 {
 	// The C's POST_PROCESS flag protects a committed element from the
-	// whole-list catch-up walks (process.c:859). Without that protection, a
-	// ship firing every frame -- whose weapon triggers a catch-up from the
-	// head every post pass -- is preprocessed twice a frame: double motion,
-	// double turning, double energy clocks.
+	// whole-list catch-up walks (process.c:859): without it, a ship firing
+	// every frame gets preprocessed twice -- double motion, turning, energy.
 	Battle b(1);
 	const EntityId id = spawnPlayerShip(b, ilwrathAvenger(), nullptr,
 			Vec2i{4000, 6000}, Facing(0), 0, /*warpIn=*/false);
@@ -2244,9 +2170,8 @@ void
 testDefyPhysicsExpires()
 {
 	// DEFY_PHYSICS lasts from a collision to the next frame without one
-	// (process.c:824-829). Held forever it would permanently disable the
-	// post-collision control stagger and steer later stationary contacts into
-	// the zero-velocity branch meant for genuinely stuck pairs.
+	// (process.c:824-829). Held forever, it would disable the post-collision
+	// stagger and steer later stationary contacts into the stuck-pair branch.
 	Battle b(1);
 	const EntityId id = b.spawn(Layer::Field);
 	b.find<CollisionScratch>(id)->defyPhysics = true;
@@ -2325,13 +2250,9 @@ testDeadShipBurnsAsAPhaseThenGoes()
 void
 testShipWarpsInBeforeItIsSolid()
 {
-	// The arrival, checked without a window.
-	//
-	// This exists because the effect shipped once already and could not be
-	// seen: it was written as a stack of points on a stationary hull, which is
-	// invisible against the hull. Watching for it by screenshot means racing a
-	// 15-frame window against process start, which is why it went unverified.
-	// Stepping the battle asks the question directly.
+	// Checked without a window: the effect shipped once invisible against a
+	// stationary hull, and screenshot verification would race a 15-frame
+	// window against process start. Stepping the battle asks it directly.
 	sim::Battle b{7u};
 
 	// A hull to be shaped like. Headless, so there is no sprite to take a
@@ -2367,10 +2288,9 @@ testShipWarpsInBeforeItIsSolid()
 			"and it keeps its mask while intangible: WarpingIn is what makes it "
 			"untouchable, not the absence of a Collider");
 
-	// Partway through: shadows are being shed, they are hull-sized rather than
-	// points, and -- the part that was wrong twice -- each new one is laid
-	// *closer* to the arrival point than the last, so the trail converges onto
-	// the ship instead of streaming away from it.
+	// Partway through: shadows are hull-sized, not points, and -- the part
+	// that was wrong twice -- each new one lands *closer* to the arrival
+	// point than the last, converging onto the ship, not streaming away.
 	const Vec2i arrival = b.find<sim::Position>(shipId)->current;
 	const auto newestDistance = [&b, &arrival]() -> i64 {
 		i32 best = -1;
@@ -2427,17 +2347,16 @@ testShipWarpsInBeforeItIsSolid()
 	if (sId != kNoEntity)
 	{
 		// The shadow itself carries no Collider -- it was never collidable;
-		// Draw.cpp draws it hull-sized straight from content (Move A), not
-		// from a copied mask here (its old carrier, which died with Move A).
+		// Draw.cpp draws it hull-sized straight from content, not from a
+		// copied mask here.
 		CHECK(!b.has<sim::Collider>(sId),
 				"a shadow never collides, and never did");
 		const sim::Position &sPos = *b.find<sim::Position>(sId);
 		CHECK(sPos.facing == Facing(4), "a shadow keeps the facing it was shed at");
 
-		// And it lies *behind* the ship. The exhaust's own direction is the
-		// reference: spawnIonTrail offsets along facingToAngle + kHalfCircle
-		// and that trail is known to come out of the engines, so the same
-		// vector negated is forward.
+		// And it lies *behind* the ship: spawnIonTrail offsets the exhaust
+		// along facingToAngle + kHalfCircle, and that trail comes out of the
+		// engines, so the same vector negated is forward.
 		const int ahead = sim::facingToAngle(4);
 		const Vec2i fwd{sim::cosine(ahead, 1000), sim::sine(ahead, 1000)};
 		const Vec2i off = sim::wrapDelta(
@@ -2486,10 +2405,9 @@ testCloakHidesFromTracking()
 	b.step();
 	b.find<Input>(avenger)->buttons = ShipInput::None;
 
-	// Activation starts the colour walk at white; the ship is not hidden
-	// yet. OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204), so
-	// the whole five-colour fade is still targetable -- being missile-proof
-	// from the frame SPECIAL lands would be a sizeable unearned buff.
+	// Activation starts the colour walk at white; the ship is not hidden yet.
+	// OBJECT_CLOAKED is STAMPFILL *and* BLACK (element.h:201-204), so the
+	// whole five-colour fade stays targetable -- no unearned missile-proofing.
 	CHECK(!b.has<Cloaked>(avenger),
 			"activation alone must not hide the ship");
 	Facing fadeFacing{8};
@@ -2503,19 +2421,17 @@ testCloakHidesFromTracking()
 			"fully faded should be cloaked");
 	CHECK(b.has<Cloaked>(avenger)
 					== (b.find<Cloak>(avenger)->level == Cloak::kFullLevel),
-			"review-007 W6's invariant: Cloaked present iff the cloak is at "
-			"its full level, got level %d", b.find<Cloak>(avenger)->level);
+			"Cloaked must be present iff the cloak is at its full level, got "
+			"level %d", b.find<Cloak>(avenger)->level);
 
 	Facing cloakedFacing{8};
 	CHECK(trackShip(b, hunter, cloakedFacing) < 0,
 			"a cloaked ship must not be targetable at all -- TrackShip "
 			"returns -1, no target (weapon.c:344-348, 410-412)");
 
-	// It does *not* lift on its own. This test used to assert the opposite,
-	// and the assertion was wrong: the cloak was being driven off
-	// specialCounter, so it expired after the 13 frames of SPECIAL_WAIT.
-	// ilwrath.c:251-253 only unwinds the ramp when SPECIAL is pressed again
-	// or the hull is not yet fully black, so a ship left alone stays hidden.
+	// It does *not* lift on its own: ilwrath.c:251-253 only unwinds the ramp
+	// when SPECIAL is pressed again or the hull isn't yet fully black, so a
+	// ship left alone stays hidden.
 	b.find<Input>(avenger)->buttons = ShipInput::None;
 	for (int i = 0; i < 40; ++i)
 		b.step();
@@ -2533,7 +2449,7 @@ testCloakHidesFromTracking()
 			"a second press should uncloak it (ilwrath.c:251-253)");
 	CHECK(b.has<Cloaked>(avenger)
 					== (b.find<Cloak>(avenger)->level == Cloak::kFullLevel),
-			"review-007 W6's invariant still holds once uncloaked, got "
+			"Cloaked must still track the full-level line once uncloaked, got "
 			"level %d", b.find<Cloak>(avenger)->level);
 
 	// And firing gives you away, permanently -- the ramp runs all the way

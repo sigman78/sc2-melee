@@ -15,11 +15,9 @@ namespace fs = std::filesystem;
 namespace {
 
 // The stand-in for art that did not load: no frames, so the draw side's
-// Rect fallback stays deliberately ugly, but one solid block mask, so a
-// maskless element cannot exist and no caller carries its own fallback.
-// One size for everything -- the block stands in for a silhouette, it does
-// not try to be one; per-kind sizing died with the Game's mask members
-// (review-003 R4).
+// Deliberately ugly, so missing art reads as missing rather than as a
+// choice. One solid block at one size: it stands in for a silhouette, it
+// does not try to be one, and no caller carries its own fallback.
 [[nodiscard]] SpriteSet
 placeholder()
 {

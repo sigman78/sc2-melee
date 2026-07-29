@@ -53,12 +53,9 @@ struct Game
 	bool running = true;
 };
 
-// The app's ctx roster (review-007 §3): world-scoped state that is no
-// entity's -- no id, no lifecycle, reached through Battle::setContext<T>/
-// context<T> instead of a Game member, same as Battle's own rng/frame.
-// Device handles and frame plumbing (window, audio, content, pacer, input
-// accumulators) deliberately stay in Game above -- putting them in ctx would
-// be a service locator with extra steps.
+// World-scoped state that is no entity's, reached via Battle::setContext<T>/
+// context<T> rather than a Game member. Device handles and frame plumbing
+// stay in Game -- ctx for those would be a service locator with extra steps.
 
 // -1 while the fight is on, then the surviving player, or 2 for a draw.
 // Held rather than acted on: the battle keeps stepping so the wreck and its
@@ -82,10 +79,9 @@ struct DebugToggles
 	bool wasDown = false;
 };
 
-// Who is fighting, as catalog entries -- parallel to `shipIds` -- plus their
-// per-battle materialized specs. Art and sounds resolve through the owner's
-// definition (visualFor, Sound.cpp); no other app code names a resource id.
-// Same lifetime as the world whose ShipStates borrow into shipData.
+// Who is fighting: catalog entries parallel to `shipIds`, plus per-battle
+// materialized specs. Art/sounds resolve through the owner's definition
+// (visualFor, Sound.cpp) -- no other app code names a resource id.
 struct BattleConfig
 {
 	std::array<Borrowed<const game::ShipDef>, 2> roster{};

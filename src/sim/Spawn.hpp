@@ -13,9 +13,9 @@
 
 namespace uqm::sim {
 
-// Pure spawn descriptors: engine primitive #5. AI lookahead used to mutate
-// real ship state via a copied ELEMENT (umgah.c:330-341 leaks a write;
-// orz.c:249-253 compensates); a spawn fn takes const ShipView, no write path.
+// Pure spawn descriptors: a spawn fn takes const ShipView, never a
+// mutable ship -- the C's AI lookahead leaks a write via a copied
+// ELEMENT (umgah.c:330-341; orz.c:249-253 compensates).
 
 // What a spawn function may read. Deliberately small: if a weapon needs
 // something not here, that is a conversation about the interface, not a

@@ -13,14 +13,8 @@
 namespace uqm::game {
 
 // A set of cels -- a ship's sixteen facings, a projectile's frames, a rock --
-// uploaded, with collision masks to match.
-//
-// Only `-big` is loaded: the C's three pre-rendered sizes, picked by camera
-// reduction under the old sprite-LOD fork, collapse to one continuous zoom
-// (Camera.hpp, design-notes.md D6); smaller cels stay in the content unused.
-//
-// Collision masks come from `-big` and do not change with zoom
-// (design-notes.md V1).
+// uploaded, with collision masks to match. Only `-big` is loaded
+// (Camera.hpp, design-notes.md D6); masks don't change with zoom (V1).
 struct SpriteSet
 {
 	std::vector<platform::Texture> frames;

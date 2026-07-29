@@ -27,9 +27,8 @@ enum class SpeedState : u8
 };
 
 // velocity.c, reproduced: fixed point, 1/32 world units (VELOCITY_SHIFT=5);
-// sub-unit remainder carries in a Bresenham error term so a slow drift still
-// moves one unit every N frames rather than rounding to zero.
-//
+// sub-unit remainder carries in a Bresenham error term so a slow drift
+// still moves one unit every N frames rather than rounding to zero.
 // Sign lives in a packed byte pair, not in `vector`: positive is (lo=1,
 // hi=0), negative is (lo=0xFF, hi=fract<<1); reconstruction is
 // component = (vector << 5) + (fract - hi(incr)).
@@ -119,9 +118,8 @@ private:
 	int travelAngle_ = kFullCircle;
 };
 
-// Element's velocity, split out (review-007 W4a): every mover has one, and
-// Integrate (Battle.cpp) is the only pass that needs nothing else off
-// Element to advance a Position.
+// Every mover has a Motion; Integrate (Battle.cpp) is the only pass that
+// needs nothing else off Element to advance a Position.
 comp struct Motion
 {
 	Velocity velocity;

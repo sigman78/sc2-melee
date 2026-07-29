@@ -113,9 +113,7 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 	// ilwrath_preprocess (ilwrath.c:232-394): the Cloak component's level
 	// stands in for the prim type/colour, its walk direction derived fresh
 	// each frame. OBJECT_CLOAKED is the Cloaked tag, kept in sync with this
-	// level by this same function at its end (review-007 W6) -- the machine
-	// owns both components, so only ships that run this hook ever carry
-	// either.
+	// level at this function's end -- only ships that run this hook carry either.
 	Cloak *c = b.find<Cloak>(id);
 	if (c == nullptr)
 		c = &b.attach<Cloak>(id);
@@ -172,10 +170,9 @@ ilwrathPreProcess(Battle &b, EntityId id) noexcept
 		s.specialCounter = spec.special.wait;
 	}
 
-	// The Cloaked tag is this machine's own invariant to keep (review-007
-	// W6): it is the sole writer of `level`, so it is the sole place that
-	// needs to re-check "is this full black now" -- every other reader just
-	// asks has<Cloaked> instead of re-deriving OBJECT_CLOAKED itself.
+	// The Cloaked tag is this machine's own invariant to keep: it is the
+	// sole writer of `level`, so every other reader just asks has<Cloaked>
+	// instead of re-deriving OBJECT_CLOAKED itself.
 	if (c->level == Cloak::kFullLevel)
 		b.attachOrReplace<Cloaked>(id);
 	else

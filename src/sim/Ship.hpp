@@ -21,11 +21,7 @@ class Battle;
 
 // Free functions taking the battle and the element's id: no captured state,
 // so they can't outlive it. The C mutates per-instance hooks at runtime
-// (chmmr.c:773 deletes its hook, pkunk.c:282 reinstalls one); this doesn't.
-// Spec-level only (review-007 W5): a ship's own preProcess (the Ilwrath
-// cloak machine) and a special's activation hook are what is left of
-// Element's old ElementHook once every per-element hook dissolved into a
-// component or a dispatch keyed on component presence.
+// (chmmr.c:773, pkunk.c:282); this doesn't.
 using ShipPhase = void (*)(Battle &, EntityId) noexcept;
 
 // What the player is asking for this frame.
@@ -62,14 +58,9 @@ any(ShipInput f) noexcept
 	return static_cast<u8>(f) != 0;
 }
 
-// GuidedShot, the census's first library component (review-002 §4): the
-// guidance parameters copied from the spec at fire time, plus the shot's
-// own tracking clock -- which lived in a repurposed Element::turnWait
-// until review-005 Y1. Attached by the fire block to any weapon whose
-// spec declares guidance; guidedShotPreProcess is its system function.
-// Declared ahead of WeaponSpec (review-007 W9) so a spec can carry one as
-// an attach-ready `std::optional<Guided>` literal instead of the three
-// scalars a fire block used to repack into one of these on every shot.
+// Guidance parameters copied from the spec at fire time, plus the shot's
+// own tracking clock. Attached by the fire block when the spec declares
+// guidance; guidedShotPreProcess is its system function.
 comp struct Guided
 {
 	i32 trackWait = 0;
@@ -87,34 +78,27 @@ struct WeaponSpec
 
 	// Geometry, handed to the spawn function below (Spawn.hpp's ShipView):
 	// needs the ship's own facing to resolve into a Position/Motion, so it
-	// stays scalar rather than an attach-ready literal (review-007 W9).
+	// stays scalar rather than an attach-ready component literal.
 	i32 speed = 0;
 	i32 muzzleOffset = 0;
 
-	// Attach-ready component literals (review-007 W9): the fire block
-	// attaches these verbatim instead of re-translating scattered scalars
-	// into a fresh component on every shot. `lifetime.remaining` and
-	// `vitality.hitPoints` are also read as plain scalars elsewhere
-	// (guidedShotPreProcess's speed ramp, ShipView's per-shot descriptor) --
-	// the spec itself never decrements, only the entity's own copy does.
+	// The fire block attaches these verbatim to a shot. `lifetime.remaining`
+	// and `vitality.hitPoints` are also read as plain scalars elsewhere
+	// (guidedShotPreProcess, ShipView) -- the spec itself never decrements.
 	Lifetime lifetime;
 	Vitality vitality;
 	Warhead warhead;
 
-	// Guided-weapon parameters (human.c:36-44), wound and ready to attach
-	// verbatim; absent for a weapon that just flies straight, which is most
-	// of them. Presence is the query now (review-007 W9), not "any of three
-	// scalars nonzero".
+	// Guided-weapon parameters (human.c:36-44); absent for a weapon that
+	// just flies straight, which is most of them.
 	std::optional<Guided> guided;
 
 	// The primary weapon, as a pure descriptor function (Spawn.hpp).
 	SpawnFn spawn = nullptr;
 
-	// Stamped onto every shot as FrameDriven (review-007 W5): true only for
-	// the flame, whose AnimFrame advances and whose Collider mask follows
-	// every frame it lives (ilwrath.c:126-139) -- the animate pass's own
-	// sub-iteration, not a per-shot hook. A guided shot's frame follows its
-	// facing instead (Human.cpp's guidedShotPreProcess, its own pass).
+	// Stamped onto every shot as FrameDriven: true only for the flame, whose
+	// AnimFrame and Collider mask follow every frame it lives
+	// (ilwrath.c:126-139). A guided shot's frame follows its facing instead.
 	bool frameDriven = false;
 
 	// A shot collides as whichever sprite frame it is drawn from, which is
@@ -187,8 +171,8 @@ struct ShipSpec
 };
 
 // A ship's mutable half. The C keeps this in STARSHIP beside the ELEMENT;
-// here it is a registry component keyed by the same entity (review-002 §1,
-// review-004 X3), destroyed with it.
+// here it is a registry component keyed by the same entity, destroyed
+// with it.
 comp struct ShipState
 {
 	// Hooks hold a ShipState& across spawns and other hooks (shipPostProcess'
@@ -211,12 +195,9 @@ comp struct ShipState
 	// (ship.c:82,106-112); gravity sets it, next thrust clears it (ship.c:263-267).
 	bool inGravityWell = false;
 
-	// Element{turnWait, thrustWait}, split out (review-007 W4b): frames
-	// until the ship may turn or thrust again. A collision adds to both,
-	// which is the stagger you feel after hitting something
-	// (collide.c:113-116, Impulse.cpp). Ship-control clocks, so ShipState is
-	// where they belong -- every other Element tenant already left (the
-	// asteroid's spin, the GUIDED clock) before this split.
+	// Frames until the ship may turn or thrust again. A collision adds to
+	// both, which is the stagger you feel after hitting something
+	// (collide.c:113-116, Impulse.cpp).
 	i32 turnWait = 0;
 	i32 thrustWait = 0;
 };
@@ -228,25 +209,17 @@ comp struct Input
 	ShipInput buttons = ShipInput::None;
 };
 
-// Which WeaponSpec a shot came from (review-002 §1): read for collision
-// masks and cel lookup as much as for steering -- ends the old abuse of
-// ShipState as a spec-pointer carrier on weapons. The pointer is copied
-// out by readers, never held into the pool, so default storage suffices.
+// Which WeaponSpec a shot came from: read for collision masks and cel
+// lookup as much as for steering. The pointer is copied out by readers,
+// never held into the pool, so default storage suffices.
 comp struct FromWeapon
 {
 	Borrowed<const WeaponSpec> spec = nullptr;
 };
 
-// The cloak as its own component (review-004 X5): only a ship that has one
-// carries it -- every ShipState used to hold an Ilwrath field, which is
-// exactly the state pollution the census's component library exists to end.
-// `level` is where the ship is in the colour walk, as an index:
-//     0            STAMP -- solid, visible, machine idle
-//     1..5         STAMPFILL fills: white, cyan-white, dark cyan, blue,
-//                  dark blue (ilwrath.c:349-374 in, 255-273 out)
-//     kFullLevel (6)   BLACK -- fully cloaked
-// Not a fade: walked one step per frame, reversed to uncloak
-// (ships/Ilwrath.cpp).
+// Only a ship with one carries it. `level`: 0 = solid (STAMP), 1..5 =
+// STAMPFILL fade steps, kFullLevel (6) = fully cloaked (black). Walked
+// one step per frame, reversed to uncloak (ilwrath.c:255-273).
 comp struct Cloak
 {
 	// Five visible fill colours (levels 1..5), then black.
@@ -284,11 +257,9 @@ comp struct Exploding
 
 static_assert(std::is_empty_v<WarpingIn> && std::is_empty_v<Exploding>);
 
-// cleanup_dead_ship (tactrans.c:307-337): attached the instant a ship starts
-// exploding (startShipExplosion), replacing the old onDeath =
-// sweepDeadShipOrdnance hook -- the death path (Battle.cpp) checks this tag
-// instead of a per-element function pointer. A ship's crew, not its hull,
-// so nothing else in the census ever carries it (review-007 W5).
+// cleanup_dead_ship (tactrans.c:307-337): attached the instant a ship
+// starts exploding (startShipExplosion). The death path (Battle.cpp)
+// checks this tag instead of a per-element function pointer.
 comp struct SweepsOwnedOnDeath
 {
 };

@@ -19,9 +19,8 @@ namespace uqm::game {
 class Resources;
 
 // The resource ids a ship's presentation loads -- the C's SHIP_DATA
-// (ship.h:69-81), minus the three sizes collapsed to `-big` (SpriteSet.hpp)
-// and the pieces melee does not draw yet (captain window, victory ditty).
-// sim/ never sees these: art binds to a spec in game/, not inside it.
+// (ship.h:69-81), minus the three sizes collapsed to `-big` and the
+// pieces melee does not draw yet. sim/ never sees these: art lives in game/.
 struct ShipArt
 {
 	std::string_view ship;    // GFXRES: one cel per facing
@@ -45,8 +44,7 @@ slot(ShipSound s) noexcept
 
 // A ship type as one entry: the key setup picks it by, the sim descriptor,
 // and the content the descriptor's presentation needs. A code literal today,
-// the shape a ship file parses into later (review-002 §3) -- which is why it
-// is data all the way down and not a class.
+// the shape a ship file parses into later -- data all the way down.
 struct ShipDef
 {
 	std::string_view key;  // "earthling.cruiser" -- ours, not a uqm.rmp id
@@ -62,10 +60,9 @@ struct ShipDef
 // data, so an unknown key is the caller's question to ask.
 [[nodiscard]] Borrowed<const ShipDef> findShip(std::string_view key) noexcept;
 
-// The spec copy a battle flies: def.spec plus the content-derived facing
-// and weapon masks. The spans point into `content`'s caches, which outlive
-// any battle (Resources.hpp, LIFETIME). Defined in Materialize.cpp, which
-// lives in uqm2_platform -- loading sprites means a window.
+// The spec a battle flies: def.spec plus content-derived facing/weapon
+// masks. Spans point into `content`'s caches, which outlive the battle
+// (Resources.hpp, LIFETIME). In Materialize.cpp/uqm2_platform: needs a window.
 [[nodiscard]] sim::ShipSpec materialize(const ShipDef &def,
 		Resources &content, platform::Platform &window);
 

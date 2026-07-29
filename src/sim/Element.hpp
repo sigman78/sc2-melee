@@ -15,11 +15,6 @@
 
 namespace uqm::sim {
 
-// Traits as types: any(flags & X) became registry().all_of<X>(id), and the
-// bitfield stopped filling up (review-002 called it "close to full" at 13).
-// FiniteLife and Disappearing, the last two ELEMENT_FLAGS bits, are gone the
-// same way (review-007 W3): Lifetime and Doomed (Entity.hpp).
-
 // GRAVITY_MASS (element.h:198) is `mass > 100`; gravity.c/collide.c ask
 // `mass + 1 > 100` instead (gravity.c:34,45, collide.c:102,139) -- exempting
 // a fleeing ship (battle.c:92) from gravity/impulse but not damage (misc.c:214).
@@ -40,34 +35,25 @@ isGravitySource(i32 massPoints) noexcept
 	return massPoints + 1 > kGravityMass;
 }
 
-// Element's mass, split out (review-007 W4a): the plan table missed this
-// one, named here after the user's own sketch. Every collidable thing has
-// one -- collisionPossible's both-massless skip, Impulse's denominators and
-// isGravityMass/isGravitySource all read it without needing anything else
-// off Element.
+// A body's mass. Every collidable thing has one -- collisionPossible's
+// both-massless skip, Impulse's denominators, and isGravityMass/
+// isGravitySource all read it.
 comp struct Physique
 {
 	i32 mass = 0;
 };
 
-// Element{hitPoints}, split out (review-007 W4b): attached only where read
-// (the minimal-composition rule) -- weapons (piercing threshold, and the
-// hit-point-to-zero death Damage.cpp deals in), the asteroid field, and the
-// planet. A ship's toughness is its crew (ShipState), never this: a
-// crewed hull never gets a Vitality, and every doDamage/killOverlapSpawn
-// site that touches it already branches on ship-vs-not first.
+// Hit points, attached only where read: weapons (piercing threshold, and the
+// hit-point-to-zero death Damage.cpp deals), the asteroid field, and the
+// planet. A crewed hull's toughness is its crew (ShipState); it never gets one.
 comp struct Vitality
 {
 	i32 hitPoints = 0;
 };
 
-// Element{playerNr, owner}, split out (review-007 W4b) -- the one
-// deliberately uniform attach in this stage: every spawn gets one
-// (Battle::spawn/spawnBeam), never omitted. Too many readers to minimise
-// (events, targeting, the sweep, IgnoreSimilar pairing, the app's colour
-// and sound dispatch), and the defaults -- nobody's playerNr, nobody's
-// owner -- are meaningful values in their own right, not placeholders for
-// an absent component.
+// Every spawn gets one (Battle::spawn/spawnBeam), never omitted -- too many
+// readers (events, targeting, IgnoreSimilar pairing, colour/sound dispatch)
+// to minimise, and the defaults are meaningful values, not placeholders.
 comp struct Allegiance
 {
 	// -1 for things nobody owns, like asteroids.
@@ -79,26 +65,17 @@ comp struct Allegiance
 	EntityId owner = kNoEntity;
 };
 
-// Element{colorCycle}, split out (review-007 W4b): attached only where
-// read, which is weapons alone -- Draw.cpp's ByFrame policy is the cel a
-// shot draws (a directional missile's facing, or the flame's growth
-// frame), and the Ilwrath flame reads/advances the same value for its own
-// mask lookup. Debris/IonTrail/ShipShadow animate by Lifetime::remaining
-// instead (RampPoint/RampSilhouette/DebrisFrames key off age, not this),
-// and a dying ship draws by facing (ByFacing) -- both wrote a colorCycle of
-// 0 on the old Element that nothing ever read back.
+// A cel index: weapons alone carry one -- Draw.cpp's ByFrame policy for a
+// shot's facing/growth frame, and the Ilwrath flame's own mask lookup.
+// Debris/IonTrail/ShipShadow animate by Lifetime::remaining instead.
 comp struct AnimFrame
 {
 	i32 n = 0;
 };
 
-// The Ilwrath flame's own animate-pass concept, generalised (review-007
-// W5): a shot whose AnimFrame advances every frame it lives, its collision
-// silhouette following the growth (ilwrath.c:126-139) -- unlike a
-// directional missile, whose frame follows its facing instead (Human.cpp's
-// guidedShotPreProcess). Stamped from WeaponSpec::frameDriven at fire time;
-// the mask source (FromWeapon) and the frame itself (AnimFrame) already
-// exist, so this is a pure marker.
+// A shot whose AnimFrame advances every frame it lives, its collision
+// silhouette following the growth (ilwrath.c:126-139) -- unlike a directional
+// missile, whose frame follows its facing (Human.cpp's guidedShotPreProcess).
 comp struct FrameDriven
 {
 };

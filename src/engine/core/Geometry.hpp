@@ -13,9 +13,8 @@ namespace uqm {
 // (docs/cpp-conventions.md rule 7). Loose parallel `x, y` fields invite
 // transposed arguments that compile fine and draw in the wrong place.
 //
-// All of these are constexpr, trivially copyable, no virtuals, no
-// allocation -- they pass in registers and are usable in `sim/`, which is why
-// they live here rather than in a graphics header.
+// All are constexpr, trivially copyable, allocation-free -- usable in
+// `sim/`, which is why they live here rather than in a graphics header.
 
 template <class T>
 struct Vec2

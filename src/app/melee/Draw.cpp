@@ -1,20 +1,10 @@
 // Copyright the Ur-Quan Masters contributors. GPL-2.0-or-later.
 //
-// Ships, projectiles, asteroids and the planet draw from content; anything
-// without art yet falls back to a coloured rectangle, deliberately ugly so
-// it reads as missing rather than as a choice.
-//
-// Positioning is by each cel's hotspot, not its centre -- facings are not
-// symmetric and each sits differently in its box, so centring would make
-// the hull wander and drift off the collision mask, which shares the hotspot.
-//
-// The pipeline (review-007 §2): clear -> renderStars -> renderPlanet ->
-// renderAsteroids -> renderShips -> renderProjectiles -> renderEffects ->
-// marks -> hud -> overlay(ctx-gated) -> present. Each pass is keyed by the
-// components/tags that identify its content -- CelPolicy is gone, the pass
-// IS the policy now, and Visual carries only a sprite set and a fallback
-// colour. Z-order is (pass, seq), declared entirely by the order below;
-// Layer (Entity.hpp) stays a purely sim-side ordering concept.
+// Missing art falls back to a coloured rectangle, deliberately ugly so it
+// reads as missing, not as a choice. Positioning is by each cel's hotspot,
+// not its centre -- facings aren't symmetric, so centring would drift the
+// hull off the collision mask, which shares the hotspot. The pipeline below
+// (clear -> stars -> ... -> present) IS the z-order.
 
 #include "app/melee/Draw.hpp"
 #include "app/melee/Game.hpp"
@@ -165,10 +155,9 @@ hotspotOffset(Vec2i hotspot, Extent2u mask, Extent2u dest) noexcept
 	return Vec2i{ox, oy};
 }
 
-// The plain by-facing draw every non-ship sprite (planet, asteroid, blast)
-// shares: cel = facing.raw() % frames, hotspot-anchored, rect fallback when
-// there is no art. renderShips does not use this -- it also has warp gating,
-// hull-vanish and cloak tinting layered on top.
+// The plain by-facing draw shared by planet/asteroid/blast: cel =
+// facing.raw() % frames, hotspot-anchored, rect fallback when there is no
+// art. renderShips doesn't use this -- it layers warp/hull/cloak on top.
 void
 drawFacingSprite(Game &g, const sim::Position &pos, const Visual &v)
 {
@@ -216,9 +205,8 @@ visualFor(Game &g, sim::EntityId id, i32 playerNr)
 		return set.valid() ? Visual{&set, fallback} : Visual{nullptr, fallback};
 	};
 
-	// Composition selects the art now (review-007 W7): what an element draws
-	// as follows from what it is composed of, not a kind field -- the tags
-	// this keys on (Planet/Trail/Shadow/Debris/Blast/Spin, plus Cloaked in
+	// What an element draws as follows from what it is composed of: the tags
+	// keyed on here (Planet/Trail/Shadow/Debris/Blast/Spin, plus Cloaked in
 	// renderShips) are attached at each one's own spawn site.
 
 	if (b.has<sim::ShipState>(id) || b.has<sim::Shadow>(id))
@@ -257,12 +245,9 @@ visualFor(Game &g, sim::EntityId id, i32 playerNr)
 
 namespace {
 
-// The background, before anything in the arena: stars do not zoom, since
-// they are meant to be at infinity. Each plane is a screen-sized torus;
-// the camera's position enters divided by 2^plane, a plain integer pan.
-// Keyed on the Starfield component: one entity, no Position, no Order
-// (review-007 §3) -- an unordered view rather than eachOrdered, matching
-// that.
+// Stars do not zoom -- they're at infinity. Each plane is a screen-sized
+// torus; the camera's position enters divided by 2^plane. Keyed on
+// Starfield: no Position/Order, so an unordered view, not eachOrdered.
 void
 renderStars(Game &g)
 {
@@ -345,8 +330,6 @@ renderPlanet(Game &g)
 			});
 }
 
-// Spin already identifies the asteroid field (attached since review-007 W5,
-// nothing new here) -- the tag review-006 owed anyway.
 void
 renderAsteroids(Game &g)
 {
@@ -356,10 +339,8 @@ renderAsteroids(Game &g)
 			});
 }
 
-// renderShips owns the whole ship look now (review-007 W7): facing sprite,
-// cloak tint, warp gating -- the multi-technique-per-entity edge the old
-// CelPolicy switch used to straddle dissolves into one pass's internal
-// order (hull, then the cloak/shadow tint layered on top).
+// Owns the whole ship look: facing sprite, cloak tint, warp gating -- all
+// layered within one pass (hull, then cloak/shadow tint on top).
 void
 renderShips(Game &g)
 {
@@ -428,11 +409,9 @@ renderShips(Game &g)
 			});
 }
 
-// Warhead identifies a weapon shot in flight; a beam has no Position at all
-// (review-007 W4a) and is drawn as a line between its own two ends instead.
-// Shots draw before beams -- a declared choice; both keep their own seq
-// order, but the two groups are no longer globally interleaved by spawn
-// order the way one combined walk used to leave them.
+// Warhead identifies a weapon shot in flight; a beam has no Position and is
+// drawn as a line between its own two ends instead. Shots draw before
+// beams; each group keeps its own seq order.
 void
 renderProjectiles(Game &g)
 {
@@ -476,9 +455,8 @@ renderProjectiles(Game &g)
 	});
 }
 
-// The Trail/Shadow/Debris/Blast tags, in that declared order -- a stacking
-// choice: the old code interleaved all four by spawn order in one combined
-// walk. Each keeps its own seq order within its pass.
+// The Trail/Shadow/Debris/Blast tags, in that declared order; each keeps
+// its own seq order within its pass.
 void
 renderEffects(Game &g)
 {
@@ -556,11 +534,9 @@ renderEffects(Game &g)
 			});
 }
 
-// Contact points and response vectors, gated by DebugToggles.overlay (F1) --
-// the same single gate the old drawOverlay used for both halves of the
-// debug view; this is the half keyed on Mark entities (review-007 §3), an
-// app-owned bare walk (an unordered view, not eachOrdered: Mark carries no
-// Order).
+// Contact points and response vectors, gated by DebugToggles.overlay (F1).
+// Keyed on Mark entities: an unordered view, not eachOrdered, since Mark
+// carries no Order.
 void
 renderMarks(Game &g)
 {
@@ -591,11 +567,9 @@ renderMarks(Game &g)
 	});
 }
 
-// Crew and energy per player, in the corner each owns, coloured to match
-// the ship. Drawn straight from ShipState, so a destroyed ship shows
-// nothing rather than a stale number -- which is how "dead" reads. The
-// player index doubles as the roster index, so no per-entity lookup (kind
-// or Allegiance) is needed to pick the colour.
+// Crew and energy per player, coloured to match the ship. Drawn straight
+// from ShipState, so a destroyed ship shows nothing rather than a stale
+// number. Player index doubles as roster index, so no per-entity lookup.
 void
 renderHud(Game &g)
 {
@@ -626,8 +600,8 @@ renderHud(Game &g)
 }
 
 // The collision overlay: what touched, where. Reads the Collider, not the
-// entity: an element without one has no collision box to show, which is
-// the truthful picture (review-007 W2). Gated by the same DebugToggles.
+// entity -- an element without one has no collision box to show. Gated by
+// DebugToggles.overlay.
 void
 renderOverlay(Game &g)
 {
