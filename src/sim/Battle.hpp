@@ -69,84 +69,19 @@ struct SpawnEvent
 	i32 playerNr = -1;
 };
 
-// A spawn requested mid-frame enters the world at Battle::step's sync
-// point, not when a pipeline pass asks for it: it doesn't exist for
-// anything else that frame to see, collide with, or steer toward.
-struct SpawnCommand
+// A spawn waiting for the sync point. The entity already exists and carries
+// every component its caller attached -- only its Order is withheld, and
+// that is what keeps it out of every pass until the frame ends. A pass that
+// walks something other than Order joins Order to say so (Battle.cpp).
+struct PendingSpawn
 {
+	EntityId id = kNoEntity;
 	Layer layer = Layer::Field;
-	comp::Position position;
-	comp::Motion motion;
-	comp::Physique physique;
 
-	// Passed through to spawn()/spawnBeam() unchanged, same reason it is
-	// uniform there: every queued spawn gets one, no exceptions.
-	comp::Allegiance allegiance;
-
-	// Set only for a beam: routes the drain through Battle::spawnBeam
-	// instead of Battle::spawn -- a beam carries no Position, so
-	// `position` above is never read for one.
-	std::optional<comp::Beam> beam;
-
-	// Set for a decorative particle (ion trail, warp-in shadow, impact
-	// blast, rubble): routes the drain through Battle::spawnEffect instead
-	// of Battle::spawn, carrying none of the collision scaffold.
-	bool effect = false;
-	// Additionally attaches Motion, for the one decoration that drifts
-	// (explosion debris); other decorations' Position is set once and
-	// never touched again.
-	bool effectMoves = false;
-
-	// Which render tag lands on an effect spawn: at most one is ever true,
-	// set by the effect's own spawn site (spawnIonTrail, warpInStep,
-	// explosionStep, the blast sites in Field.cpp/Damage.cpp).
-	bool trail = false;
-	bool shadow = false;
-	bool debris = false;
-	bool blast = false;
-
-	// Non-null for a weapon: attaches a FromWeapon once the spawn lands.
-	Borrowed<const WeaponSpec> weaponSpec = nullptr;
-
-	// Set for a guided weapon; the clock inside is already wound (see
-	// ShipSystems.cpp's fire block).
-	std::optional<comp::Guided> guided;
-
-	bool ignoreSimilar = false;
-
-	// Set for a transient spawn: Lifetime attaches once the spawn lands,
-	// carrying the countdown for a queued FiniteLife shot, trail, blast,
-	// or spark.
-	std::optional<comp::Lifetime> lifetime;
-
-	// Set only for a weapon shot (the fire block): Vitality attaches once
-	// the spawn lands, not uniformly -- attached only where it's read.
-	std::optional<comp::Vitality> vitality;
-
-	// Set only for a weapon shot: passed to Battle::spawn, which attaches
-	// it before the spawn is recorded -- recordSpawn derives Weapon flavor
-	// from has<Warhead>, so this must already be in place by then.
-	std::optional<comp::Warhead> warhead;
-
-	// Set only for a weapon shot: AnimFrame attaches once the spawn lands.
-	std::optional<comp::AnimFrame> animFrame;
-
-	// True stamps FrameDriven onto the shot (WeaponSpec::frameDriven):
-	// only the flame sets it, selecting animate-pass's sub-iteration.
-	bool frameDriven = false;
-
-	// Non-null attaches a Collider once the spawn lands (the fire block's
-	// shot); every direct spawn site goes through Battle::spawn instead.
-	Borrowed<const CollisionMask> collider = nullptr;
-
-	// Set for the field's rubble (Field.cpp): the phase it lands in and the
-	// mask it carries to the replacement asteroid. Never a Collider, or the
-	// rubble would collide.
-	std::optional<comp::Asteroid> asteroid;
-
-	// Escape hatch for a spawn whose construction (e.g. RNG draws) must
-	// happen at the sync point, not at emission (Field.cpp's rubbleDeath).
-	// When set, every field above is ignored; deferred does its own spawn().
+	// Set instead of `id` for a construction that cannot happen at emission
+	// because it draws RNG, and the draw has to land at the sync point in
+	// queue order (Field.cpp's rubble). The only one; a second appearing is
+	// the signal to revisit this.
 	void (*deferred)(
 			Battle &, Borrowed<const CollisionMask>) noexcept = nullptr;
 	Borrowed<const CollisionMask> deferredMask = nullptr;
@@ -194,18 +129,15 @@ public:
 	// velocity, and mass all zero.
 	// `allegiance` attaches uniformly on every spawn, no exceptions -- a
 	// caller that doesn't care passes nothing and gets the default.
-	// `warhead` attaches iff set, centralised here (not a statement later)
-	// because recordSpawn's flavor derivation needs it already attached.
 	//
-	// Builds through make(): the Spawned it returns can still take further
-	// `.with()` calls (spawnPlayerShip's IgnoreSimilar, per-command extras
-	// in drainSpawnCommands).
+	// Builds through make(), so it lands at the sync point when a step is in
+	// flight; every further component is a `.with()` on the Spawned it
+	// returns.
 	Spawned spawn(Layer layer, comp::Position pos = comp::Position{},
 			comp::Motion motion = comp::Motion{},
 			comp::Physique physique = comp::Physique{},
 			Borrowed<const CollisionMask> collider = nullptr,
-			comp::Allegiance allegiance = comp::Allegiance{},
-			std::optional<comp::Warhead> warhead = std::nullopt);
+			comp::Allegiance allegiance = comp::Allegiance{});
 
 	// A beam's own spawn: no Position, Collider, Motion/Physique/
 	// PriorSilhouette/CollisionScratch, or Appearing -- a beam never moves
@@ -225,9 +157,15 @@ public:
 	Spawned spawnEffect(Layer layer, comp::Position pos, comp::Motion motion,
 			comp::Allegiance allegiance = comp::Allegiance{});
 
-	// The fluent spawn: the entity with its declared Order and nothing
-	// else; every component the caller wants is named by a .with().
-	// See Spawned below.
+	// The fluent spawn: the entity, and every component the caller wants
+	// named by a `.with()`. See Spawned below.
+	//
+	// Inside step() the Order is withheld until the sync point, so nothing
+	// this frame can see, collide with or steer toward it, and the Order
+	// pool stays still (ensureOrdered) -- the entity exists meanwhile, so
+	// the caller attaches components directly instead of describing them.
+	// Outside step() it lands at once, which is what setup wants: placement
+	// has to see what it must not overlap.
 	[[nodiscard]] Spawned make(Layer layer);
 
 	// A bare entity: no Order, no components, outside size()'s element
@@ -240,9 +178,12 @@ public:
 	// responses and keeps the count.
 	void destroy(EntityId id) noexcept;
 
-	// Registers a spawn for the sync point instead of creating it now --
-	// what a pipeline pass calls in place of spawn() (see SpawnCommand).
-	void queueSpawn(SpawnCommand cmd);
+	// Defers a whole construction to the sync point, for the one case that
+	// cannot be built at emission: spawnAsteroid draws RNG, and the draw
+	// must land here in queue order (see PendingSpawn::deferred).
+	void queueDeferred(
+			void (*fn)(Battle &, Borrowed<const CollisionMask>) noexcept,
+			Borrowed<const CollisionMask> mask);
 
 	// One simulation step, 1/24 second of game time.
 	void step();
@@ -339,10 +280,10 @@ private:
 	void collidePass();
 	void applyDamageIncoming() noexcept;
 	void reapPass() noexcept;
-	void flagsEndOfFramePass() noexcept;  // must run before drainSpawnCommands
+	void flagsEndOfFramePass() noexcept;  // must run before landPendingSpawns
 										  // so a fresh spawn's own Appearing
 										  // survives its first frame
-	void drainSpawnCommands();
+	void landPendingSpawns();
 	void commitPass() noexcept;
 
 	// ProcessCollisions (process.c:361-627): walks candidates from `fromIdx`
@@ -354,6 +295,7 @@ private:
 			usize testIdx, TimeValue maxTime);
 	void killOverlapSpawn(EntityId id);
 	void recordSpawn(EntityId id, const comp::Allegiance &allegiance);
+	void recordIfLanded(EntityId id, const comp::Allegiance &allegiance);
 
 	// The death path's two mechanisms: the asteroid field's own cycle and
 	// SweepsOwnedOnDeath's sweep of a dead ship's ordnance -- mutually
@@ -365,7 +307,9 @@ private:
 
 	// Re-sorts the Order pool by (layer, seq) iff a spawn or destroy has
 	// touched it since the last sort -- the observers below raise the flag,
-	// so a steady-state frame sorts nothing.
+	// so a steady-state frame sorts nothing. Also reached from inside an
+	// eachOrdered walk, so nothing may touch the pool between the top of
+	// step() and the sync point.
 	void ensureOrdered();
 
 	// Connected to on_construct/on_destroy<Order> in the constructor: the
@@ -398,9 +342,15 @@ private:
 	// addressable by index instead of by link. Rebuilt every frame.
 	std::vector<EntityId> collideOrder_;
 
-	// The command buffer: filled in pipeline order by queueSpawn, drained
-	// in that same order at the sync point.
-	std::vector<SpawnCommand> spawnCommands_;
+	// Entities built this frame, awaiting the Order that puts them in the
+	// walk. Filled in pipeline order, landed in that same order.
+	std::vector<PendingSpawn> pending_;
+
+	// True from the top of step() until the sync point lands the frame's
+	// spawns: what make() reads to decide whether an Order is attached now
+	// or queued. False again during the landing itself, so a deferred
+	// construction gets its Order in queue order like everything else.
+	bool deferSpawns_ = false;
 
 	friend class Spawned;
 };

@@ -176,16 +176,13 @@ void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept
 					at.y + sine(angle, displayToWorld(warhead.blastOffset))});
 	blastPos.next = blastPos.current;
 
-	// Queued, not spawned: it enters the world at the sync point and acts
-	// next frame, one frame later than the C's same-step catch-up gave it.
-	b.queueSpawn(SpawnCommand{
-			.layer = Layer::Ordnance,
-			.position = blastPos,
-			.allegiance = comp::Allegiance{shooterPlayerNr, kNoEntity},
-			.effect = true,  // stationary: no Motion needed
-			.blast = true,
-			.lifetime = comp::Lifetime{comp::Blast::kLife},
-	});
+	// Built now, in the walk at the sync point: it acts next frame, one
+	// frame later than the C's same-step catch-up gave it. Stationary, so
+	// no Motion.
+	b.spawnEffect(Layer::Ordnance, blastPos,
+			 comp::Allegiance{shooterPlayerNr, kNoEntity})
+			.with(comp::Blast{})
+			.with(comp::Lifetime{comp::Blast::kLife});
 }
 
 void solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept

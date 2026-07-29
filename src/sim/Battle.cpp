@@ -139,6 +139,10 @@ void Battle::removeElement(EntityId id) noexcept
 	reg.destroy(id);
 }
 
+// Reached from inside an eachOrdered walk as well as before one, so the sort
+// must never fire mid-frame -- it would permute the array the outer walk
+// holds an iterator into. Order is emplaced only in landPendingSpawns and
+// erased only in reapPass, both sync points.
 void Battle::ensureOrdered()
 {
 	if (!orderDirty_)
@@ -162,9 +166,11 @@ void Battle::recordSpawn(EntityId id, const comp::Allegiance &allegiance)
 	spawns_.push_back(SpawnEvent{id, flavor, allegiance.playerNr});
 }
 
-void Battle::queueSpawn(SpawnCommand cmd)
+void Battle::queueDeferred(
+		void (*fn)(Battle &, Borrowed<const CollisionMask>) noexcept,
+		Borrowed<const CollisionMask> mask)
 {
-	spawnCommands_.push_back(cmd);
+	pending_.push_back(PendingSpawn{kNoEntity, Layer::Field, fn, mask});
 }
 
 comp::Order Battle::nextOrder(Layer layer) noexcept
@@ -175,8 +181,20 @@ comp::Order Battle::nextOrder(Layer layer) noexcept
 Spawned Battle::make(Layer layer)
 {
 	const EntityId id = reg.create();
-	reg.emplace<comp::Order>(id, nextOrder(layer));
+	if (deferSpawns_)
+		pending_.push_back(PendingSpawn{id, layer});
+	else
+		reg.emplace<comp::Order>(id, nextOrder(layer));
 	return Spawned{*this, id};
+}
+
+// Recorded when the entity joins the walk, which is also when every
+// component it will spawn with is attached -- so the flavor below reads a
+// finished thing. A pending spawn is recorded at the landing instead.
+void Battle::recordIfLanded(EntityId id, const comp::Allegiance &allegiance)
+{
+	if (reg.all_of<comp::Order>(id))
+		recordSpawn(id, allegiance);
 }
 
 EntityId Battle::create()
@@ -221,7 +239,7 @@ Borrowed<const WeaponSpec> Battle::weaponSpec(EntityId id) const noexcept
 
 Spawned Battle::spawn(Layer layer, comp::Position pos, comp::Motion motion,
 		comp::Physique physique, Borrowed<const CollisionMask> collider,
-		comp::Allegiance allegiance, std::optional<comp::Warhead> warhead)
+		comp::Allegiance allegiance)
 {
 	// Seeded with the spawning mask, not left null -- a mid-pipeline spawn has
 	// no CapturePrior pass to fill this in, and a null mask misreads as
@@ -238,12 +256,8 @@ Spawned Battle::spawn(Layer layer, comp::Position pos, comp::Motion motion,
 			.with(comp::Appearing{});
 	if (collider != nullptr)
 		s.with(comp::Collider{collider});
-	if (warhead)
-		s.with(*warhead);
 
-	// Recorded last: recordSpawn's flavor reads has<Warhead>, so this must
-	// run after Warhead (if any) attaches.
-	recordSpawn(s.id(), allegiance);
+	recordIfLanded(s.id(), allegiance);
 	return s;
 }
 
@@ -255,10 +269,7 @@ Spawned Battle::spawnBeam(
 	// resolveAgainst gates on collidable(testId) before touching any of them.
 	Spawned s = make(layer);
 	s.with(beam).with(allegiance);
-
-	// Recorded last: recordSpawn's flavor reads has<Beam>, unconditionally
-	// Laser here.
-	recordSpawn(s.id(), allegiance);
+	recordIfLanded(s.id(), allegiance);
 	return s;
 }
 
@@ -271,9 +282,9 @@ Spawned Battle::spawnEffect(
 	Spawned s = make(layer);
 	s.with(pos).with(allegiance);
 
-	// Never a Beam, never a Warhead: recordSpawn's flavor is always Unknown
-	// for an effect, which is correct -- nothing reads it for one.
-	recordSpawn(s.id(), allegiance);
+	// Never a Beam, never a Warhead: the flavor is always Unknown for an
+	// effect, which is correct -- nothing reads it for one.
+	recordIfLanded(s.id(), allegiance);
 	return s;
 }
 
@@ -339,9 +350,11 @@ bool Battle::resolveAgainst(EntityId elemId, usize elemIdx, EntityId testId,
 	if (!collidable(testId))
 		return false;
 
-	// Held for the rest of this call: nothing spawns or is destroyed
-	// mid-Collide (see processCollisions), so neither pool moves under these
-	// references.
+	// Held for the rest of this call. A response can build an entity now
+	// (the blast, the overlap-kill's rubble), but entt pages component
+	// storage for pointer stability on insertion; only a destroy moves an
+	// element, and nothing is destroyed mid-Collide -- removeElement's one
+	// caller is the reap, a later sync point.
 	comp::CollisionScratch &eScratch = reg.get<comp::CollisionScratch>(elemId);
 	comp::CollisionScratch &tScratch = reg.get<comp::CollisionScratch>(testId);
 	auto [ePos, eMotion, ePhys] =
@@ -611,8 +624,8 @@ bool Battle::processCollisions(
 // must read false before Collide sets it fresh this frame.
 void Battle::capturePriorPass() noexcept
 {
-	for (auto [id, pos, prior, scratch] :
-			reg.view<comp::Position, comp::PriorSilhouette,
+	for (auto [id, order, pos, prior, scratch] :
+			reg.view<comp::Order, comp::Position, comp::PriorSilhouette,
 					   comp::CollisionScratch>()
 					.each())
 	{
@@ -662,8 +675,9 @@ void Battle::animatePass()
 	// lives, and the collision silhouette follows -- why the flame GROWS as it
 	// flies (process.c:159-160). Collider via try_get: the linger frame may
 	// have none.
-	reg.view<comp::AnimFrame, comp::FrameDriven>(entt::exclude<comp::Appearing>)
-			.each([this](EntityId id, comp::AnimFrame &frame) {
+	reg.view<comp::Order, comp::AnimFrame, comp::FrameDriven>(
+			   entt::exclude<comp::Appearing>)
+			.each([this](EntityId id, comp::Order &, comp::AnimFrame &frame) {
 				++frame.n;
 				Borrowed<const WeaponSpec> ws = weaponSpec(id);
 				if (ws != nullptr && !ws->masks.empty())
@@ -682,7 +696,8 @@ void Battle::animatePass()
 void Battle::integratePass() noexcept
 {
 	// A beam has no Position, so this view never sees one.
-	for (auto [id, pos, mot] : reg.view<comp::Position, comp::Motion>().each())
+	for (auto [id, order, pos, mot] :
+			reg.view<comp::Order, comp::Position, comp::Motion>().each())
 	{
 		if (reg.all_of<comp::Appearing>(id))
 			pos.next = pos.current;
@@ -733,8 +748,10 @@ void Battle::applyDamageIncoming() noexcept
 // land on exactly 0, or the death is never detected next frame.
 void Battle::ageDecrementPass() noexcept
 {
-	reg.view<comp::Lifetime>(entt::exclude<comp::Doomed>)
-			.each([](comp::Lifetime &life) { --life.remaining; });
+	reg.view<comp::Order, comp::Lifetime>(entt::exclude<comp::Doomed>)
+			.each([](comp::Order &, comp::Lifetime &life) {
+				--life.remaining;
+			});
 }
 
 // Sync point, 11c: destroy every element already Doomed -- marked in slot 2
@@ -750,87 +767,59 @@ void Battle::reapPass() noexcept
 		removeElement(id);
 }
 
-// Sync point, 11e: runs BEFORE drainSpawnCommands creates this frame's
-// spawns -- a newborn keeps Appearing through its own first live frame,
-// so clearing it before spawns exist is what keeps that frame from being
-// stripped one frame early. Plain view: CollisionScratch's presence is the
-// filter (a beam has none).
+// Sync point, 11e: runs BEFORE landPendingSpawns puts this frame's spawns
+// into the walk -- a newborn keeps Appearing through its own first live
+// frame, and joining Order is what keeps that frame from being stripped
+// one early. CollisionScratch's presence is the other filter (a beam has
+// none).
 void Battle::flagsEndOfFramePass() noexcept
 {
 	// A frame without a collision ends DefyPhysics (process.c:824-827): it
 	// has to expire, or the first stationary contact disables the collision
 	// stagger for good.
-	reg.view<comp::CollisionScratch>().each(
-			[](comp::CollisionScratch &scratch) {
+	reg.view<comp::Order, comp::CollisionScratch>().each(
+			[](comp::Order &, comp::CollisionScratch &scratch) {
 				if (!scratch.collided)
 					scratch.defyPhysics = false;
 			});
-	reg.clear<comp::Appearing>();
+
+	// Only what is already in the walk: this frame's spawns have not landed
+	// yet, and clearing theirs here would strip the first live frame they
+	// are entitled to.
+	for (const EntityId id : reg.view<comp::Order, comp::Appearing>())
+		reg.erase<comp::Appearing>(id);
 }
 
-// Sync point, 11d: create every entity the frame's pipeline asked for, in
-// emission order (deterministic, since the pipeline that fills the buffer
-// is). Runs after flagsEndOfFramePass so a fresh spawn's Appearing survives
-// to its first real frame.
-void Battle::drainSpawnCommands()
+// Sync point, 11d: put this frame's spawns into the walk, in emission
+// order. The entities already exist and are fully built -- only the Order
+// was withheld, which is what kept them out of every pass this frame.
+// Runs after flagsEndOfFramePass so a fresh spawn's Appearing survives to
+// its first real frame.
+//
+// Nothing may touch the Order pool between the top of step() and here: see
+// ensureOrdered, and docs/worknotes.md for why a tag on the entity is not
+// an alternative.
+void Battle::landPendingSpawns()
 {
-	for (SpawnCommand &cmd : spawnCommands_)
+	// Cleared first: a deferred construction runs with spawns landing, not
+	// deferring, so it takes its Order here in queue order like the rest.
+	deferSpawns_ = false;
+
+	for (const PendingSpawn &p : pending_)
 	{
-		if (cmd.deferred != nullptr)
+		if (p.deferred != nullptr)
 		{
-			// Its own RNG draws happen here, in queue order -- not at
-			// emission, which would put them out of step with this same
-			// sync point's other draws.
-			cmd.deferred(*this, cmd.deferredMask);
+			// Its RNG draws happen here, in queue order -- not at emission,
+			// which would put them out of step with this sync point's other
+			// draws.
+			p.deferred(*this, p.deferredMask);
 			continue;
 		}
 
-		// A beam takes its own spawn entry point (cmd.position/motion/physique
-		// are never read for one); an effect takes spawnEffect, skipping
-		// spawn()'s collision scaffold. The extras below are more `.with()`
-		// calls either way.
-		Spawned s = [&]() -> Spawned {
-			if (cmd.beam)
-				return spawnBeam(cmd.layer, *cmd.beam, cmd.allegiance);
-			if (cmd.effect)
-				return cmd.effectMoves
-						? spawnEffect(cmd.layer, cmd.position, cmd.motion,
-								  cmd.allegiance)
-						: spawnEffect(cmd.layer, cmd.position, cmd.allegiance);
-			// warhead passed straight into spawn(), not attached after: it has
-			// to be there before spawn() records the SpawnEvent, whose flavor
-			// reads has<Warhead>. Never set alongside cmd.beam or cmd.effect.
-			return spawn(cmd.layer, cmd.position, cmd.motion, cmd.physique,
-					cmd.collider, cmd.allegiance, cmd.warhead);
-		}();
-		if (cmd.weaponSpec != nullptr)
-			s.with(comp::FromWeapon{cmd.weaponSpec});
-		if (cmd.guided)
-			s.with(*cmd.guided);
-		if (cmd.lifetime)
-			s.with(*cmd.lifetime);
-		if (cmd.vitality)
-			s.with(*cmd.vitality);
-		if (cmd.animFrame)
-			s.with(*cmd.animFrame);
-		if (cmd.frameDriven)
-			s.with(comp::FrameDriven{});
-		if (cmd.ignoreSimilar)
-			s.with(comp::IgnoreSimilar{});
-		if (cmd.asteroid)
-			s.with(*cmd.asteroid);
-		// The render tags: at most one is ever set, by the effect's own spawn
-		// site.
-		if (cmd.trail)
-			s.with(comp::Trail{});
-		if (cmd.shadow)
-			s.with(comp::Shadow{});
-		if (cmd.debris)
-			s.with(comp::Debris{});
-		if (cmd.blast)
-			s.with(comp::Blast{});
+		reg.emplace<comp::Order>(p.id, nextOrder(p.layer));
+		recordSpawn(p.id, reg.get<comp::Allegiance>(p.id));
 	}
-	spawnCommands_.clear();
+	pending_.clear();
 }
 
 // Commit (pipeline slot 12): the wrap and the publish, unchanged from
@@ -838,7 +827,7 @@ void Battle::drainSpawnCommands()
 // so this view never sees one.
 void Battle::commitPass() noexcept
 {
-	for (auto [id, pos] : reg.view<comp::Position>().each())
+	for (auto [id, order, pos] : reg.view<comp::Order, comp::Position>().each())
 	{
 		pos.next = wrap(pos.next);
 		pos.current = pos.next;
@@ -849,6 +838,10 @@ void Battle::step()
 {
 	collisions_.clear();
 	spawns_.clear();
+
+	// From here to the sync point every spawn is built but held out of the
+	// walk; landPendingSpawns clears this and puts them in.
+	deferSpawns_ = true;
 
 	capturePriorPass();
 	ageAndReapMarkPass();
@@ -867,7 +860,7 @@ void Battle::step()
 	applyDamageIncoming();
 	reapPass();
 	flagsEndOfFramePass();
-	drainSpawnCommands();
+	landPendingSpawns();
 
 	commitPass();
 

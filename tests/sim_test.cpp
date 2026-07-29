@@ -809,47 +809,57 @@ void testStepVisitsInListOrder()
 			"an earlier-layer element visits first");
 }
 
-void testSpawnLandsAtSyncAndActsNextFrame()
+void testMidFrameSpawnStaysOutOfItsOwnFrame()
 {
-	// A queued spawn does not exist for anything to see the frame it is
-	// emitted: it lands at the sync point, is reported as a SpawnEvent, and
-	// takes its first real motion the following frame.
+	// A spawn built mid-frame is a real entity from the moment its pass
+	// asks -- but it holds no Order until the sync point, so no pass that
+	// frame reaches it. It is reported as a SpawnEvent for the step it
+	// landed in, and takes its first live frame the one after.
+	//
+	// The vehicle is the asteroid field's own cycle, which emits from
+	// ageAndReapMarkPass -- slot 2. AgeDecrement runs at slot 11 of the
+	// same step, so the rubble's own countdown is the probe: untouched
+	// means it was not in the walk, and there is nowhere for it to hide.
+	static const CollisionMask m = solid(8, 8);
 	Battle b(1);
 
-	const EntityId triggerId = b.spawn(Layer::Field);
+	comp::Position rockPos;
+	rockPos.current = rockPos.next = Vec2i{100, 100};
+	const EntityId rock = b.spawn(
+			Layer::Field, rockPos, comp::Motion{}, comp::Physique{3}, &m);
+	b.reg.emplace<comp::Lifetime>(rock, comp::Lifetime{1});
+	b.reg.emplace<comp::Asteroid>(
+			rock, comp::Asteroid{&m, comp::Asteroid::Phase::Solid});
 
+	b.step();  // the rock's own appearing frame: its life ages to 0
+	CHECK(b.size() == 1, "setup: only the rock exists so far");
+
+	// This step detects the death, builds the rubble, and lands it.
 	b.step();
-	CHECK(b.size() == 1, "setup: only the trigger exists so far");
+	CHECK(!b.alive(rock), "the rock dies at the start of this step");
+	CHECK(b.spawns().size() == 1, "the rubble is a SpawnEvent this step");
 
-	// Queued, not spawned: the drain is what creates it, at this step's sync
-	// point. Emitted from outside a pass rather than inside one -- the
-	// buffer is drained at the same point either way, and what this test is
-	// about is the drain, not who filled it.
-	comp::Motion motion;
-	motion.velocity.setComponents(worldToVelocity(10), 0);
-	comp::Position pos;
-	pos.current = Vec2i{100, 100};
-	pos.next = pos.current;
-	b.queueSpawn(SpawnCommand{
-			.layer = Layer::Field,
-			.position = pos,
-			.motion = motion,
-	});
-	(void)triggerId;
+	const EntityId rubble = b.spawns()[0].id;
+	CHECK(b.alive(rubble), "and exists by the end of it");
+	CHECK(b.size() == 1, "and is in the walk, and counted, once landed");
 
-	b.step();  // the command is drained
-	CHECK(b.spawns().size() == 1, "the child should be a SpawnEvent this step");
-	const EntityId child = b.spawns()[0].id;
-	CHECK(b.alive(child), "the child should exist by the end of this step");
-	const Vec2i wantStart{100, 100};
-	CHECK(b.reg.try_get<comp::Position>(child)->current == wantStart,
-			"and not have moved the frame it was emitted");
+	// Five frames is what Field.cpp spawns it with. Four would mean
+	// AgeDecrement reached it on the frame it was built.
+	CHECK(framesLeft(b, rubble) == 5,
+			"the rubble should not have aged on its own frame, got %ld",
+			static_cast<long>(framesLeft(b, rubble)));
 
+	// It stands where the rock died, and Commit did not publish over it.
+	const comp::Position &at = b.reg.get<comp::Position>(rubble);
+	const Vec2i wantAt{100, 100};
+	CHECK(at.current == wantAt && at.next == at.current,
+			"and where the rock died");
+
+	// In the walk now, so the passes reach it.
 	b.step();
-	CHECK(b.alive(child), "the child should still be alive");
-	CHECK(b.reg.try_get<comp::Position>(child)->current.x == 110,
-			"it should move exactly once the following frame, got %ld",
-			static_cast<long>(b.reg.try_get<comp::Position>(child)->current.x));
+	CHECK(framesLeft(b, rubble) == 4,
+			"and age exactly once the following frame, got %ld",
+			static_cast<long>(framesLeft(b, rubble)));
 }
 
 // How many rocks stand in each phase of the field's cycle.
@@ -2487,7 +2497,7 @@ int main()
 	testStuckPairIsWorkedApart();
 	testDeriveSpeedStateFromVelocity();
 	testStepVisitsInListOrder();
-	testSpawnLandsAtSyncAndActsNextFrame();
+	testMidFrameSpawnStaysOutOfItsOwnFrame();
 	testFiniteLifeExpiresAndRunsItsDeathResponse();
 	testMotionIntegratesAndWraps();
 	testCollisionPairsAreVisitedOnce();

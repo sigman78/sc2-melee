@@ -108,16 +108,12 @@ void cruiserSpecial(Battle &b, EntityId id) noexcept
 				// no Position.
 				const Vec2i beamTo = tNext;
 
-				// Queued, not spawned: it enters the world at the sync point
-				// and draws its one frame of life the step after this one --
-				// one frame later than the C's same-step catch-up gave it.
-				b.queueSpawn(SpawnCommand{
-						.layer = Layer::Ordnance,
-						.allegiance =
-								comp::Allegiance{shipAllegiance->playerNr, id},
-						.beam = comp::Beam{from, beamTo},
-						.lifetime = comp::Lifetime{1},
-				});
+				// In the walk at the sync point: it draws its one frame of
+				// life the step after this one, one frame later than the C's
+				// same-step catch-up gave it.
+				b.spawnBeam(Layer::Ordnance, comp::Beam{from, beamTo},
+						 comp::Allegiance{shipAllegiance->playerNr, id})
+						.with(comp::Lifetime{1});
 
 				shipAllegiance = b.reg.try_get<comp::Allegiance>(id);
 			});
