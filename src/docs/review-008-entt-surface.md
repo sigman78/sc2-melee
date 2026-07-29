@@ -82,8 +82,39 @@ from sorting the pool once instead of rebuilding the order 39 times.
 | --- | --- | --- |
 | V1 | Views escape: `Battle::view<Ts...>()` (and the exclude form) returns entt's view; the `each<Ts...>` sites migrate to `view<...>().each(...)`; the `each` wrappers delete. The registry stays private | **done, bit-green** — 9 live callers, not the 14 estimated here (that count was occurrences of the pattern, including `Battle.cpp`'s own already-direct `reg_.view` calls) |
 | V2 | The order sorts itself: `sort<Order>` behind a dirty flag set by spawn and destroy, so it runs about once per frame instead of once per walk; ordered walks become `view<...>().use<Order>()`. `buildOrderedIds` and `fetchOrdered` delete, and with them the per-call allocation. `collidePass` keeps its snapshot — see risks | **done, bit-green** — no call site changed, so the gate tested the mechanism alone. See the measurement below |
-| V3 | The bare-id walks end: the four production sites take real joins. `calculateGravity` is the valuable one — the nested sort and its allocation leave the O(n²) path with it | bit-green |
-| V4 | `find<>` in `src/sim` pruned where it is a same-entity read that belongs in the join's signature; the survivors are conditional cross-entity reads, as the join rule already says | bit-green; the survivor list is the record |
+| V3 | The bare-id walks end: the four production sites take real joins. `calculateGravity` is the valuable one — the nested sort and its allocation leave the O(n²) path with it | **done, bit-green** — three of four; the fourth has a reason, below |
+| V4 | `find<>` in `src/sim` pruned where it is a same-entity read that belongs in the join's signature; the survivors are conditional cross-entity reads, as the join rule already says | **done, bit-green** — 63 audited, 21 survive |
+
+### What V3 and V4 found
+
+**One bare-id walk stays, and it is right to.** `ageAndReapMarkPass` looked
+like the easiest conversion of the four and is the one that cannot be made.
+Its body calls `runDeathResponses`, whose `SweepsOwnedOnDeath` branch
+reaches `sweepDeadShipOrdnance`, which does `attachOrReplace<Lifetime>` on
+*other* entities — and entt puts adding to a pool the active view reads in
+the undefined column. It is a live path, not a hypothetical: every ship
+death attaches `Lifetime` and `SweepsOwnedOnDeath` together in
+`startShipExplosion`. So the pass keeps `find<Lifetime>` over a bare walk.
+
+The comment above it had argued the same conclusion from the wrong premise
+— that a join would become "a pool view over Lifetime" and lose the
+declared order. That part was untrue (`eachOrdered<Lifetime>` is the
+ordered walk filtered, not a Lifetime-pool walk); the real reason is the
+mid-walk mutation.
+
+**The `find<>` audit found a different problem than the one it went
+looking for.** The join rule targets same-entity reads inside a walk that
+belong in the signature — there was exactly one of those. What the audit
+actually turned up is that **43 of 63 sites were not in a walk at all** and
+dereferenced their result with no null check: assertions written as
+lookups. Those became `get<T>`, which asserts. The population had also
+shrunk from the 82 quoted in §1, since V3's conversions took some with them.
+
+21 survive, and each is what the rule permits: one genuinely optional
+same-entity read (the flame's post-detonation linger frame has no
+`Collider` but must keep advancing its `AnimFrame`), one conditional
+cross-entity read, and single-entity reads that branch on absence rather
+than skipping.
 
 ### What V2 cost and returned
 
