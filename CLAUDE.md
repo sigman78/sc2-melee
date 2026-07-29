@@ -19,7 +19,7 @@ checkout of the original tree, which is also where the C sources cited
 throughout this code live (`docs/reference.md`). Without it the five
 content tests skip and everything else still runs.
 
-## The gates — run these, believe these
+## Useful to remember
 
 	export PATH="/c/utils/scoop/apps/msys2/current/mingw64/bin:$PATH"   # bash on Windows, or gcc exits 1 silently
 	cmake --build build 2>&1 | grep -E "error|FAILED"
@@ -33,46 +33,19 @@ that makes large refactors safe here, so:
 - **Never re-record the baseline unless asked.** `replay_test --trace` *writes to its file
   argument* — only `--compare` and `--compare-first` may ever be pointed at
   `tests/baselines/replay.base`.
-- **Never change a test expectation to make something pass.** Rewriting *how*
-  a test reaches a value is fine; changing what it asserts is not.
 - A divergence is information. Localise it with `--compare-first 4` and fix
   the cause, or stop and report it.
 
 Builds are Debug, so `assert` is live: the suite exercises every assertion.
 
-## What the code is
-
-Composition is the whole description of a thing — there is no `Element`, no
-base struct, no kind enum. An entity *is* which components it carries. Before
-touching `src/sim/`, read `docs/component-map.md`; it lists every component,
-what question it answers, and the worked composition of each thing in a
-battle.
-
-Two invariants that are easy to break and expensive to debug:
-
 - `Lifetime` and `Doomed` are **not** redundant. `Doomed` means "the death
   response already ran"; `Lifetime{0}` without it is a live state the
   piercing pair and the flame's linger both depend on. The state table is in
-  `docs/component-map.md`.
+  `docs/component-map.md`. (remark: for now!)
 - Walk order is `(layer, seq)`, kept by a sorted `Order` pool. Layer order is
   gameplay; within-layer order is *determinism* — measured, not assumed
-  (`src/docs/review-008` §6).
+  (`src/docs/review-008` §6). (remark: for now!)
 
-## Format and lint
-
-	tools/format.sh          format the tree (clang-format)
-	tools/lint.sh            clang-tidy over everything
-	tools/lint.sh --fix      and apply what it can
-
-`.githooks/pre-commit` checks formatting only — clang-tidy costs a second
-or two per translation unit here, which is too slow to sit in front of a
-commit, so it runs in CI instead. The tree lints clean; keep it that way.
-
-Data tables (`kSineTab`, the colour ramps) are fenced with
-`// clang-format off` so they keep their hand-built shape. `clang-tidy
---fix` is not to be trusted blindly: on the first sweep it made a method
-`static` because nothing touched `this`, and stripped a `const`. Rebuild
-after any `--fix`, and read the diff.
 
 ## Style
 
@@ -109,3 +82,20 @@ read (`UQM2_CONTENT_DIR` defaults to `../sc2-uqm/sc2/content`).
 - CRLF warnings on commit are repo policy noise.
 - Commit subjects are lowercase and scoped: `sim:`, `app:`, `docs:`,
   `build:`. Bodies name what moved and what died.
+
+## Open, and deliberately so
+
+Decisions already taken with reasons recorded — do not silently reverse them:
+
+- **Walk order is a free parameter.** Reversing `seq` within a layer changed
+  no outcome across all 32 battles (`src/docs/review-008` §6). `seq` stays
+  for determinism, not gameplay. Changing the order costs one baseline
+  re-record and nothing else.
+- **`Stagger{turn,thrust}` and `Cooldowns{weapon,special}` were rejected**
+  (`src/docs/review-009` §1): nothing operates on either pair, so grouping
+  them would name a thing that does not exist.
+- **PCH was measured and dropped.** ~2.4% on the file that should benefit
+  most; the cost is template instantiation, which a PCH cannot touch.
+- **`-gsplit-dwarf` is poison here** — it takes a debug melee from 55 MB to
+  39 MB and produces executables this MinGW toolchain cannot run. `-g1`
+  works and is a further 40%, at the cost of variable inspection.
