@@ -153,7 +153,7 @@ the *simulation*, and says nothing about the app above it.
 | W3 | `lifeSpanOf` says what it means: both dead clauses deleted, `framesLeft` asserts, `isFiniteLife` becomes `isTransient` | **done, bit-green** — both claims proved by assert over the whole suite before deletion |
 | W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | **done, bit-green** — three tests moved off the generic payload onto the real mechanic |
 | W5 | Spawns are built, not described: eager creation with `Order` withheld; `SpawnCommand` deleted | **done, bit-green** — six passes joined `Order`, one escape hatch left |
-| W6 | Specials: `SpecialSpec` is the gate only; `PointDefence` and `Cloak` are components; `preProcess` and `hook` deleted | pending |
+| W6 | Specials: `SpecialSpec` is the gate only; `PointDefence` and `Cloak` are components; `preProcess` and `hook` deleted | **done, bit-green** — the spike said the batch shape is free; taking it needs a re-record, so it is a follow-up |
 | W7 | `Lifetime` stops being a counter: `{born, span}`, `ageDecrementPass` deleted | pending |
 
 W1 and W2 sweep the same files and land together, as two commits.
@@ -396,6 +396,67 @@ If they move, that is a real finding about collision density with point
 defence in play, and W6 keeps dispatch inside the existing ordered walks.
 
 Either way the decision comes from the harness rather than from an argument.
+
+### Measured, 2026-07-29 — free, and deliberately not taken yet
+
+The spike was the cheapest form of the reorder: `fireAndSpecialGatePass`
+split into fire-for-every-ship then special-for-every-ship, which is exactly
+the interleaving per-mechanic passes produce, with nothing else changed.
+
+| Measure | Baseline | Split passes |
+| --- | --- | --- |
+| winner | — | **32/32 agree** |
+| crew lost, summed \|diff\| | 734 total | **0** |
+| shots | 24910 | **24910** |
+| collisions | 399 | **399** |
+| end frame, median \|diff\| | median 2129.5 | **0.0** |
+
+Identical, not similar — the same result review-008 §6 got for walk order,
+and for the same reason: 399 contacts across 32 battles of ~2130 frames is
+about twelve per battle, so within-frame ordering almost never has two
+interactions to sequence.
+
+The digest moved in 25 of 32 battles, and only from frame 705 in the sample
+— unlike the walk reversal, which diverged before frame 64 in all 32. The
+reorder only bites once a special actually fires.
+
+**So the batch shape costs one re-record and nothing observable. W6 did not
+take it.** The standing instruction is not to re-record without being asked,
+and the measurement does not repeal it: it establishes the price, not the
+permission. W6 therefore keeps the dispatch inside the existing ordered
+walks, which is bit-exact, and the per-mechanic passes are a small
+follow-up whenever that is authorised — the mechanics are already components
+with their own step functions, so it is a change to where they are called
+from and nothing else.
+
+### What W6 landed
+
+`SpecialSpec` keeps the uniform half and nothing else: a cost and a
+debounce, which is all the engine ticks (`ship.c:342-346`).
+`pointDefenceRange` is `comp::PointDefence{range}`, and `SpecialSpec::hook`
+and `ShipSpec::preProcess` are gone.
+
+The effects moved out of the ships entirely. `ilwrathPreProcess` became
+`cloakStep`, a mechanic over `comp::Cloak` that never names the Ilwrath;
+`cruiserSpecial` became `pointDefenceStep` over `comp::PointDefence`. A ship
+now *composes* mechanics rather than owning them:
+
+```cpp
+.equip = [](Battle &b, EntityId id) noexcept {
+    b.reg.emplace<comp::Cloak>(id);
+},
+```
+
+`equip` is still a function pointer, but a one-shot builder run at spawn
+rather than a hook run every frame — everything after it is a step over
+components. A ship reusing a mechanic costs nothing outside its own file; a
+*new* mechanic costs a component, a step, and one line in the dispatcher
+that `sim/Specials.cpp` owns. Adding a ship never edits the core.
+
+One behavioural detail: `Cloak` is attached at spawn now rather than lazily
+on first use, because presence is what dispatch keys on. `Cloak{0}` is the
+solid state and every reader already treats it as such, including Draw's
+tint ramp, which starts at level 1.
 
 ## 6. Carried, not addressed
 

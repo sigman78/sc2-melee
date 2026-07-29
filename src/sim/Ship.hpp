@@ -103,20 +103,14 @@ struct WeaponSpec
 	std::span<const CollisionMask> masks;
 };
 
-// A ship's SPECIAL: cost, cooldown and what it does.
+// A ship's SPECIAL, uniform half only: what it costs and how long the
+// debounce is. The engine ticks that counter and nothing else
+// (ship.c:342-346) -- what the special *does* is a component the ship is
+// equipped with, and a step over it (Specials.hpp).
 struct SpecialSpec
 {
 	i32 wait = 0;
 	i32 energyCost = 0;
-
-	// What SPECIAL does in the post phase; the engine only ticks the
-	// counter, everything a special does is per-ship (ship.c:342-346). Null
-	// when the special lives in the ship's preProcess hook instead (Avenger).
-	ShipPhase hook = nullptr;
-
-	// LASER_RANGE (human.c:55), in display pixels. Zero for a ship without
-	// point defence.
-	i32 pointDefenceRange = 0;
 };
 
 // A ship's energy plant: what it holds and how it refills.
@@ -144,10 +138,11 @@ struct ShipSpec
 	WeaponSpec weapon;
 	SpecialSpec special;
 
-	// The ship's own per-frame hook, run inside shipPreProcess after energy
-	// regen and before turning -- RACE_DESC.preprocess_func (ship.c:232-236).
-	// The Ilwrath cloak engages here, winning the energy race against the shot.
-	ShipPhase preProcess = nullptr;
+	// Run once, at spawn, to attach the components this ship's mechanics
+	// need -- its cloak, its point defence. A one-shot builder, not a
+	// per-frame hook: everything after it is a pass over components, so a
+	// mechanic is never named by the ship that carries it.
+	ShipPhase equip = nullptr;
 
 	Borrowed<const CollisionMask> hullMask = nullptr;
 
@@ -222,6 +217,13 @@ struct FromWeapon
 }  // namespace comp::inline shot
 
 namespace comp::inline ship {
+
+// LASER_RANGE (human.c:55), in display pixels: how far point defence
+// reaches. Only a ship equipped with it carries one.
+struct PointDefence
+{
+	i32 range = 0;
+};
 
 // Only a ship with one carries it. `level`: 0 = solid (STAMP), 1..5 =
 // STAMPFILL fade steps, kFullLevel (6) = fully cloaked (black). Walked

@@ -21,10 +21,8 @@ class Battle;
 // (ilwrath.c:141-148) is Warhead::lingersOnHit, a data bit weaponCollision
 // reads itself.
 
-// The Avenger's ship hook: the whole cloak state machine, activation
-// included (ilwrath_preprocess, ilwrath.c:232-394). Runs in the pre phase
-// because the C's does -- see ShipSpec::preProcess.
-void ilwrathPreProcess(Battle &b, EntityId id) noexcept;
+// The Avenger equips a Cloak; the machine that walks it is a mechanic, not
+// this ship's hook (Specials.hpp).
 
 [[nodiscard]] const ShipSpec &ilwrathAvenger() noexcept;
 
