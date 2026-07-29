@@ -38,10 +38,11 @@ usize spawnCruiserPrimary(const ShipView &ship, std::span<Spawn> out) noexcept
 
 void cruiserSpecial(Battle &b, EntityId id) noexcept
 {
-	const Allegiance *shipAllegiance = b.find<Allegiance>(id);
+	const comp::Allegiance *shipAllegiance =
+			b.reg.try_get<comp::Allegiance>(id);
 	if (shipAllegiance == nullptr)
 		return;
-	ShipState *sp = b.ship(id);
+	comp::ShipState *sp = b.ship(id);
 	if (sp == nullptr)
 		return;
 
@@ -50,7 +51,7 @@ void cruiserSpecial(Battle &b, EntityId id) noexcept
 	if (range <= 0)
 		return;
 
-	const Vec2i from = b.get<Position>(id).next;
+	const Vec2i from = b.reg.get<comp::Position>(id).next;
 	bool paid = false;
 	bool cannotAfford = false;
 
@@ -58,62 +59,68 @@ void cruiserSpecial(Battle &b, EntityId id) noexcept
 	// and fires at each, paying once for the volley (human.c:225-236) -- a
 	// Cruiser surrounded by fire clears all of it, or none if it can't afford
 	// it.
-	b.eachOrdered<Physique, Position>([&](EntityId other, Physique &otherPhys,
-											  Position &otherPos) {
-		if (cannotAfford || shipAllegiance == nullptr || other == id)
-			return;
+	b.eachOrdered<comp::Physique, comp::Position>(
+			[&](EntityId other, comp::Physique &otherPhys,
+					comp::Position &otherPos) {
+				if (cannotAfford || shipAllegiance == nullptr || other == id)
+					return;
 
-		if (!b.collidable(other))
-			return;
-		if (b.has<Cloaked>(other))
-			return;  // human.c:203-204
+				if (!b.collidable(other))
+					return;
+				if (b.reg.all_of<comp::Cloaked>(other))
+					return;  // human.c:203-204
 
-		// No ownership test -- the C has none (human.c:203-204): the Cruiser
-		// pays for and shoots down its OWN in-flight nukes in range, a real
-		// tactical constraint.
+				// No ownership test -- the C has none (human.c:203-204): the
+				// Cruiser pays for and shoots down its OWN in-flight nukes in
+				// range, a real tactical constraint.
 
-		// A deliberate divergence from the C, which will fire on a planet that
-		// just absorbs it (do_damage exempts gravity masses).
-		if (isGravityMass(otherPhys.mass))
-			return;
+				// A deliberate divergence from the C, which will fire on a
+				// planet that just absorbs it (do_damage exempts gravity
+				// masses).
+				if (isGravityMass(otherPhys.mass))
+					return;
 
-		const Vec2i tNext = otherPos.next;
-		const Vec2i dv = wrapDelta(tNext - from);
-		const i32 dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
-		const i32 dy = worldToDisplay(dv.y < 0 ? -dv.y : dv.y);
-		if (dx > range || dy > range || dx * dx + dy * dy > range * range)
-			return;
+				const Vec2i tNext = otherPos.next;
+				const Vec2i dv = wrapDelta(tNext - from);
+				const i32 dx = worldToDisplay(dv.x < 0 ? -dv.x : dv.x);
+				const i32 dy = worldToDisplay(dv.y < 0 ? -dv.y : dv.y);
+				if (dx > range || dy > range
+						|| dx * dx + dy * dy > range * range)
+					return;
 
-		if (!paid)
-		{
-			if (!deltaEnergy(*sp, -spec.special.energyCost))
-			{
-				cannotAfford = true;  // cannot afford it, so nothing burns
-				return;
-			}
-			sp->specialCounter = spec.special.wait;
-			paid = true;
-		}
+				if (!paid)
+				{
+					if (!deltaEnergy(*sp, -spec.special.energyCost))
+					{
+						cannotAfford =
+								true;  // cannot afford it, so nothing burns
+						return;
+					}
+					sp->specialCounter = spec.special.wait;
+					paid = true;
+				}
 
-		doDamage(b, other, 1, id);
+				doDamage(b, other, 1, id);
 
-		// The beam is decorative -- only the damage above is real,
-		// deterministic geometry. LASER_LIFE is 1 (weapon.c:52); Beam{from,to}
-		// carries the ends, not motion -- this entity has no Position.
-		const Vec2i beamTo = tNext;
+				// The beam is decorative -- only the damage above is real,
+				// deterministic geometry. LASER_LIFE is 1 (weapon.c:52);
+				// Beam{from,to} carries the ends, not motion -- this entity has
+				// no Position.
+				const Vec2i beamTo = tNext;
 
-		// Queued, not spawned: it enters the world at the sync point and
-		// draws its one frame of life the step after this one -- one frame
-		// later than the C's same-step catch-up gave it.
-		b.queueSpawn(SpawnCommand{
-				.layer = Layer::Ordnance,
-				.allegiance = Allegiance{shipAllegiance->playerNr, id},
-				.beam = Beam{from, beamTo},
-				.lifetime = Lifetime{1},
-		});
+				// Queued, not spawned: it enters the world at the sync point
+				// and draws its one frame of life the step after this one --
+				// one frame later than the C's same-step catch-up gave it.
+				b.queueSpawn(SpawnCommand{
+						.layer = Layer::Ordnance,
+						.allegiance =
+								comp::Allegiance{shipAllegiance->playerNr, id},
+						.beam = comp::Beam{from, beamTo},
+						.lifetime = comp::Lifetime{1},
+				});
 
-		shipAllegiance = b.find<Allegiance>(id);
-	});
+				shipAllegiance = b.reg.try_get<comp::Allegiance>(id);
+			});
 }
 
 const ShipSpec &earthlingCruiser() noexcept
@@ -140,7 +147,7 @@ const ShipSpec &earthlingCruiser() noexcept
 					// DISPLAY_TO_WORLD(20) == 80, DISPLAY_TO_WORLD(1) == 4. The
 					// clock starts already wound to trackWait
 					// (human.c:297-299).
-					.guided = Guided{.trackWait = 3,
+					.guided = comp::Guided{.trackWait = 3,
 							.maxSpeed = 80,
 							.thrustScale = 4,
 							.clock = 3},

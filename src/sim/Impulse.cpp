@@ -52,10 +52,11 @@ SpeedState deriveSpeedState(
 	return SpeedState::Normal;
 }
 
-void applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
-		ShipState *aShip, CollisionScratch &aScratch, const Position &bPos,
-		Motion &bMotion, const Physique &bPhys, ShipState *bShip,
-		CollisionScratch &bScratch) noexcept
+void applyImpulse(const comp::Position &aPos, comp::Motion &aMotion,
+		const comp::Physique &aPhys, comp::ShipState *aShip,
+		comp::CollisionScratch &aScratch, const comp::Position &bPos,
+		comp::Motion &bMotion, const comp::Physique &bPhys,
+		comp::ShipState *bShip, comp::CollisionScratch &bScratch) noexcept
 {
 	// Impact axis: the line between the two at the moment they met.
 	const Vec2i rel{aPos.next.x - bPos.next.x, aPos.next.y - bPos.next.y};
@@ -105,9 +106,9 @@ void applyImpulse(const Position &aPos, Motion &aMotion, const Physique &aPhys,
 	const i32 massB = bPhys.mass;
 	const i64 scalar = i64{sine(directness, speed << 1)} * (i64{massA} * massB);
 
-	const auto push = [&](Motion &selfMotion, ShipState *self,
-							  CollisionScratch &selfScratch, int impactAngle,
-							  i32 selfMass, i32 otherMass) {
+	const auto push = [&](comp::Motion &selfMotion, comp::ShipState *self,
+							  comp::CollisionScratch &selfScratch,
+							  int impactAngle, i32 selfMass, i32 otherMass) {
 		if (isGravityMass(selfMass + 1))
 			return;  // a planet is not pushed
 

@@ -6,8 +6,6 @@
 #include "engine/core/Types.hpp"
 #include "sim/Entity.hpp"
 
-#define comp
-
 namespace uqm::sim {
 
 class Battle;
@@ -22,21 +20,29 @@ class CollisionMask;
 // init.c:228.
 inline constexpr int kNumAsteroids = 5;
 
+namespace comp::inline space {
+
 // The asteroid's tumble (misc.c:107-128).
-comp struct Spin
+struct Spin
 {
 	bool backwards = false;
 	i32 period = 0;
 	i32 countdown = 0;
 };
 
+}  // namespace comp::inline space
+
+namespace comp::inline life {
+
 // A thin payload carrying asteroidDeath/rubbleDeath, attached only where
 // one exists -- the asteroid field and its rubble, nothing else. The
 // death path (Battle.cpp) calls `emit` for any DeathSpawn entity.
-comp struct DeathSpawn
+struct DeathSpawn
 {
 	void (*emit)(Battle &, EntityId) noexcept;
 };
+
+}  // namespace comp::inline life
 
 // Places the planet (misc.c:40-76): rejected/redrawn while in a gravity
 // well or overlapping (two RNG draws/attempt). init.c:228-233 spawns
@@ -65,7 +71,5 @@ void asteroidDeath(Battle &b, EntityId id) noexcept;
 [[nodiscard]] bool timeSpaceMatterConflict(Battle &b, EntityId id);
 
 }  // namespace uqm::sim
-
-#undef comp
 
 #endif  // UQM2_SIM_FIELD_HPP

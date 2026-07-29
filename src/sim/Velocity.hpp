@@ -7,8 +7,6 @@
 #include "engine/core/Types.hpp"
 #include "sim/Trig.hpp"
 
-#define comp
-
 namespace uqm::sim {
 
 // How a ship's speed stands against its own maximum. Lives here, not in
@@ -114,15 +112,17 @@ private:
 	int travelAngle_ = kFullCircle;
 };
 
+namespace comp::inline space {
+
 // Every mover has a Motion; Integrate (Battle.cpp) is the only pass that
 // needs nothing else off Element to advance a Position.
-comp struct Motion
+struct Motion
 {
 	Velocity velocity;
 };
 
-}  // namespace uqm::sim
+}  // namespace comp::inline space
 
-#undef comp
+}  // namespace uqm::sim
 
 #endif  // UQM2_SIM_VELOCITY_HPP

@@ -59,7 +59,7 @@ void guidedShotPreProcess(Battle &b, EntityId id) noexcept;
 // Shared with the per-ship translation units (ships/Human.cpp,
 // ships/Ilwrath.cpp), which spend energy and re-derive the facing mask
 // from their own hooks.
-bool deltaEnergy(ShipState &s, i32 delta) noexcept;
+bool deltaEnergy(comp::ShipState &s, i32 delta) noexcept;
 void applyFacingMask(
 		Battle &b, EntityId id, Facing facing, const ShipSpec &spec) noexcept;
 

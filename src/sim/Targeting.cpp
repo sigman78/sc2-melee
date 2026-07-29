@@ -12,13 +12,13 @@ namespace uqm::sim {
 int trackShip(Battle &b, EntityId tracker, Facing &facing,
 		EntityId *outTarget) noexcept
 {
-	auto *const self = b.find<Allegiance>(tracker);
+	auto *const self = b.reg.try_get<comp::Allegiance>(tracker);
 	if (self == nullptr)
 		return -1;
 
 	// GuidedSteer runs before Integrate, so `current` is the frame's one
 	// consistent snapshot for every tracker and every target alike.
-	const Vec2i from = b.get<Position>(tracker).current;
+	const Vec2i from = b.reg.get<comp::Position>(tracker).current;
 
 	int bestDelta = 0;
 	i32 bestDistance = 0;
@@ -28,8 +28,9 @@ int trackShip(Battle &b, EntityId tracker, Facing &facing,
 	// Allegiance, ShipState and Position as a required join: every ship has
 	// all three, and only a ship ever carries a ShipState. Dead-ship and
 	// cloak are value tests, so they stay in the body.
-	b.eachOrdered<Allegiance, ShipState, Position>(
-			[&](EntityId id, Allegiance &t, ShipState &ts, Position &pos) {
+	b.eachOrdered<comp::Allegiance, comp::ShipState, comp::Position>(
+			[&](EntityId id, comp::Allegiance &t, comp::ShipState &ts,
+					comp::Position &pos) {
 				if (t.playerNr == self->playerNr)
 					return;
 				// Dead ships are not targets (weapon.c:352-353).
@@ -38,7 +39,7 @@ int trackShip(Battle &b, EntityId tracker, Facing &facing,
 				// Nor cloaked ones (weapon.c:344-348). This is the whole
 				// tactical point of the Ilwrath cloak: not that it is hard to
 				// see, but that a guided weapon has nothing to steer toward.
-				if (b.has<Cloaked>(id))
+				if (b.reg.all_of<comp::Cloaked>(id))
 					return;
 
 				const Vec2i to = pos.current;

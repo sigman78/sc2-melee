@@ -11,8 +11,6 @@
 #include "sim/Trig.hpp"
 #include "sim/Velocity.hpp"
 
-#define comp
-
 namespace uqm::sim {
 
 // GRAVITY_MASS (element.h:198) is `mass > 100`; gravity.c/collide.c ask
@@ -34,26 +32,36 @@ inline constexpr i32 kGravityMass = kMaxShipMass * 10;  // 100
 	return massPoints + 1 > kGravityMass;
 }
 
+namespace comp::inline matter {
+
 // A body's mass. Every collidable thing has one -- collisionPossible's
 // both-massless skip, Impulse's denominators, and isGravityMass/
 // isGravitySource all read it.
-comp struct Physique
+struct Physique
 {
 	i32 mass = 0;
 };
 
+}  // namespace comp::inline matter
+
+namespace comp::inline harm {
+
 // Hit points, attached only where read: weapons (piercing threshold, and the
 // hit-point-to-zero death Damage.cpp deals), the asteroid field, and the
 // planet. A crewed hull's toughness is its crew (ShipState); it never gets one.
-comp struct Vitality
+struct Vitality
 {
 	i32 hitPoints = 0;
 };
 
+}  // namespace comp::inline harm
+
+namespace comp::inline owner {
+
 // Every spawn gets one (Battle::spawn/spawnBeam), never omitted -- too many
 // readers (events, targeting, IgnoreSimilar pairing, colour/sound dispatch)
 // to minimise, and the defaults are meaningful values, not placeholders.
-comp struct Allegiance
+struct Allegiance
 {
 	// -1 for things nobody owns, like asteroids.
 	i32 playerNr = -1;
@@ -65,10 +73,14 @@ comp struct Allegiance
 	EntityId owner = kNoEntity;
 };
 
+}  // namespace comp::inline owner
+
+namespace comp::inline shot {
+
 // A cel index: weapons alone carry one -- Draw.cpp's ByFrame policy for a
 // shot's facing/growth frame, and the Ilwrath flame's own mask lookup.
 // Debris/IonTrail/ShipShadow animate by Lifetime::remaining instead.
-comp struct AnimFrame
+struct AnimFrame
 {
 	i32 n = 0;
 };
@@ -76,11 +88,11 @@ comp struct AnimFrame
 // A shot whose AnimFrame advances every frame it lives, its collision
 // silhouette following the growth (ilwrath.c:126-139) -- unlike a directional
 // missile, whose frame follows its facing (Human.cpp's guidedShotPreProcess).
-comp struct FrameDriven
+struct FrameDriven
 {};
 
-}  // namespace uqm::sim
+}  // namespace comp::inline shot
 
-#undef comp
+}  // namespace uqm::sim
 
 #endif  // UQM2_SIM_ELEMENT_HPP

@@ -74,18 +74,18 @@ struct SpawnEvent
 struct SpawnCommand
 {
 	Layer layer = Layer::Field;
-	Position position;
-	Motion motion;
-	Physique physique;
+	comp::Position position;
+	comp::Motion motion;
+	comp::Physique physique;
 
 	// Passed through to spawn()/spawnBeam() unchanged, same reason it is
 	// uniform there: every queued spawn gets one, no exceptions.
-	Allegiance allegiance;
+	comp::Allegiance allegiance;
 
 	// Set only for a beam: routes the drain through Battle::spawnBeam
 	// instead of Battle::spawn -- a beam carries no Position, so
 	// `position` above is never read for one.
-	std::optional<Beam> beam;
+	std::optional<comp::Beam> beam;
 
 	// Set for a decorative particle (ion trail, warp-in shadow, impact
 	// blast, rubble): routes the drain through Battle::spawnEffect instead
@@ -109,26 +109,26 @@ struct SpawnCommand
 
 	// Set for a guided weapon; the clock inside is already wound (see
 	// ShipSystems.cpp's fire block).
-	std::optional<Guided> guided;
+	std::optional<comp::Guided> guided;
 
 	bool ignoreSimilar = false;
 
 	// Set for a transient spawn: Lifetime attaches once the spawn lands,
 	// carrying the countdown for a queued FiniteLife shot, trail, blast,
 	// or spark.
-	std::optional<Lifetime> lifetime;
+	std::optional<comp::Lifetime> lifetime;
 
 	// Set only for a weapon shot (the fire block): Vitality attaches once
 	// the spawn lands, not uniformly -- attached only where it's read.
-	std::optional<Vitality> vitality;
+	std::optional<comp::Vitality> vitality;
 
 	// Set only for a weapon shot: passed to Battle::spawn, which attaches
 	// it before the spawn is recorded -- recordSpawn derives Weapon flavor
 	// from has<Warhead>, so this must already be in place by then.
-	std::optional<Warhead> warhead;
+	std::optional<comp::Warhead> warhead;
 
 	// Set only for a weapon shot: AnimFrame attaches once the spawn lands.
-	std::optional<AnimFrame> animFrame;
+	std::optional<comp::AnimFrame> animFrame;
 
 	// True stamps FrameDriven onto the shot (WeaponSpec::frameDriven):
 	// only the flame sets it, selecting animate-pass's sub-iteration.
@@ -163,15 +163,25 @@ class Battle
 public:
 	explicit Battle(u32 seed);
 
+	// The Order observers below hold `this`, so a Battle stays where it was
+	// built.
+	Battle(const Battle &) = delete;
+	Battle &operator=(const Battle &) = delete;
+
 	[[nodiscard]] Rng &rng() noexcept { return rng_; }
 
 	// The generation check a stale handle fails. Declared order lives in
 	// Order (Entity.hpp), read through eachOrdered below.
 	[[nodiscard]] bool alive(EntityId id) const noexcept
 	{
-		return reg_.valid(id);
+		return reg.valid(id);
 	}
-	[[nodiscard]] usize size() const noexcept { return count_; }
+	// The Order pool is the element count: make() is the only thing that
+	// attaches one, so nothing has to keep a parallel counter honest.
+	[[nodiscard]] usize size() const noexcept
+	{
+		return reg.view<comp::Order>().size();
+	}
 
 	// CollidingElement (collide.h:31-33): a Collider, not Doomed, and not
 	// WarpingIn -- a ship warping in keeps its Collider (ShipSystems.cpp)
@@ -194,29 +204,30 @@ public:
 	// Builds through make(): the Spawned it returns can still take further
 	// `.with()` calls (spawnPlayerShip's IgnoreSimilar, per-command extras
 	// in drainSpawnCommands).
-	Spawned spawn(Layer layer, Position pos = Position{},
-			Motion motion = Motion{}, Physique physique = Physique{},
+	Spawned spawn(Layer layer, comp::Position pos = comp::Position{},
+			comp::Motion motion = comp::Motion{},
+			comp::Physique physique = comp::Physique{},
 			Borrowed<const CollisionMask> collider = nullptr,
-			Allegiance allegiance = Allegiance{},
-			std::optional<Warhead> warhead = std::nullopt);
+			comp::Allegiance allegiance = comp::Allegiance{},
+			std::optional<comp::Warhead> warhead = std::nullopt);
 
 	// A beam's own spawn: no Position, Collider, Motion/Physique/
 	// PriorSilhouette/CollisionScratch, or Appearing -- a beam never moves
 	// or collides. Still gets Order and Allegiance, same as spawn().
-	Spawned spawnBeam(
-			Layer layer, Beam beam, Allegiance allegiance = Allegiance{});
+	Spawned spawnBeam(Layer layer, comp::Beam beam,
+			comp::Allegiance allegiance = comp::Allegiance{});
 
 	// A decorative particle (ion trail, warp-in shadow, impact blast,
 	// rubble): Position is set once and never touched again, so it carries
 	// none of spawn()'s collision scaffold. Still gets Order and Allegiance.
-	Spawned spawnEffect(
-			Layer layer, Position pos, Allegiance allegiance = Allegiance{});
+	Spawned spawnEffect(Layer layer, comp::Position pos,
+			comp::Allegiance allegiance = comp::Allegiance{});
 
 	// The one decoration that actually drifts (the explosion's debris):
 	// spawnEffect's shape plus Motion, so Integrate still advances it --
 	// everything spawnEffect omits stays omitted.
-	Spawned spawnEffect(Layer layer, Position pos, Motion motion,
-			Allegiance allegiance = Allegiance{});
+	Spawned spawnEffect(Layer layer, comp::Position pos, comp::Motion motion,
+			comp::Allegiance allegiance = comp::Allegiance{});
 
 	// The fluent spawn: the entity with its declared Order and nothing
 	// else; every component the caller wants is named by a .with().
@@ -256,105 +267,22 @@ public:
 		return spawns_;
 	}
 
-	// Components are registry pools keyed by the entity: attach is emplace,
-	// lookup is try_get, destroy reaps every component with its entity.
+	// The world. Public, and reached directly: emplace/try_get/get/all_of/
+	// remove/view/ctx are entt's vocabulary, and wrapping it one API at a
+	// time is what this replaced (review-010 §3). What stays on Battle is
+	// what has semantics of its own -- the ordered walk, the spawn family,
+	// and the two named component accessors below.
+	entt::registry reg;
 
 	// The ship component. Null for anything that is not a ship.
-	[[nodiscard]] ShipState *ship(EntityId id) noexcept;
-	[[nodiscard]] const ShipState *ship(EntityId id) const noexcept;
-	ShipState &attachShip(EntityId id, Borrowed<const ShipSpec> spec);
+	[[nodiscard]] comp::ShipState *ship(EntityId id) noexcept;
+	[[nodiscard]] const comp::ShipState *ship(EntityId id) const noexcept;
+	comp::ShipState &attachShip(EntityId id, Borrowed<const ShipSpec> spec);
 
 	// The spec a shot flies by, by value -- see FromWeapon. Use
 	// `.with(FromWeapon{spec})` on the Spawned to attach one directly.
 	[[nodiscard]] Borrowed<const WeaponSpec> weaponSpec(
 			EntityId id) const noexcept;
-
-	// The typed component surface: every component type goes through
-	// these instead of naming entt::registry directly.
-	// decltype(auto), not T&: entt's emplace returns void for an empty
-	// (tag) component -- WarpingIn, Exploding -- since there is nothing to
-	// reference.
-	template <class T, class... Args>
-	decltype(auto) attach(EntityId id, Args &&...args)
-	{
-		return reg_.emplace<T>(id, std::forward<Args>(args)...);
-	}
-	// For a site that cannot promise the component is absent -- e.g. a
-	// weapon mid-flight already has a Lifetime, and doDamage's non-ship
-	// branch must overwrite it rather than assert.
-	template <class T, class... Args>
-	decltype(auto) attachOrReplace(EntityId id, Args &&...args)
-	{
-		return reg_.emplace_or_replace<T>(id, std::forward<Args>(args)...);
-	}
-	template <class T> [[nodiscard]] T *find(EntityId id) noexcept
-	{
-		return reg_.valid(id) ? reg_.try_get<T>(id) : nullptr;
-	}
-	template <class T> [[nodiscard]] const T *find(EntityId id) const noexcept
-	{
-		return reg_.valid(id) ? reg_.try_get<T>(id) : nullptr;
-	}
-	// Asserts every Ts is attached and returns references (a tuple for
-	// several) -- for a site where presence is already guaranteed. find<T>
-	// stays the null-returning form for a site that must still ask.
-	template <class... Ts> [[nodiscard]] decltype(auto) get(EntityId id)
-	{
-		return reg_.get<Ts...>(id);
-	}
-	template <class T> [[nodiscard]] bool has(EntityId id) const noexcept
-	{
-		return reg_.valid(id) && reg_.all_of<T>(id);
-	}
-	template <class T> void detach(EntityId id) { reg_.remove<T>(id); }
-
-	// The singleton surface: one value per type, belonging to the world
-	// rather than to any entity (camera, match state, config). Same rule
-	// as the component surface: entt::registry never escapes Battle.
-	template <class T> T &setContext(T v)
-	{
-		return reg_.ctx().insert_or_assign(std::move(v));
-	}
-	template <class T> [[nodiscard]] T &context()
-	{
-		return reg_.ctx().get<T>();
-	}
-	template <class T> [[nodiscard]] const T &context() const
-	{
-		return reg_.ctx().get<T>();
-	}
-	// For a reader that runs before the value is installed, or when its
-	// absence is itself the answer.
-	template <class T> [[nodiscard]] T *findContext() noexcept
-	{
-		return reg_.ctx().find<T>();
-	}
-	template <class T> [[nodiscard]] const T *findContext() const noexcept
-	{
-		return reg_.ctx().find<T>();
-	}
-
-	// entt's own view vocabulary, not a hand-rolled fraction of it: the
-	// caller gets iterators, use<>, size_hint and storage through the view.
-	// entt::registry itself never escapes Battle -- only the view does.
-	template <class... Ts> [[nodiscard]] auto view()
-	{
-		return reg_.view<Ts...>();
-	}
-	template <class... Ts> [[nodiscard]] auto view() const
-	{
-		return reg_.view<const Ts...>();
-	}
-	template <class... Ts, class... Xs>
-	[[nodiscard]] auto view(entt::exclude_t<Xs...> excl)
-	{
-		return reg_.view<Ts...>(excl);
-	}
-	template <class... Ts, class... Xs>
-	[[nodiscard]] auto view(entt::exclude_t<Xs...> excl) const
-	{
-		return reg_.view<const Ts...>(excl);
-	}
 
 	// The declared-order walk: the Order pool stays sorted ascending by
 	// (Order.layer, Order.seq); ensureOrdered() re-sorts only when
@@ -368,14 +296,14 @@ public:
 		ensureOrdered();
 		if constexpr (sizeof...(Ts) == 0)
 		{
-			for (EntityId const id : reg_.view<Order>())
+			for (EntityId const id : reg.view<comp::Order>())
 				fn(id);
 		}
 		else
 		{
-			auto v = reg_.view<Order, Ts...>();
-			v.template use<Order>();
-			v.each([&fn](EntityId id, Order &, auto &...rest) {
+			auto v = reg.view<comp::Order, Ts...>();
+			v.template use<comp::Order>();
+			v.each([&fn](EntityId id, comp::Order &, auto &...rest) {
 				fn(id, rest...);
 			});
 		}
@@ -388,40 +316,20 @@ public:
 		ensureOrdered();
 		if constexpr (sizeof...(Ts) == 0)
 		{
-			for (EntityId id : reg_.view<Order>(excl))
+			for (EntityId id : reg.view<comp::Order>(excl))
 				fn(id);
 		}
 		else
 		{
-			auto v = reg_.view<Order, Ts...>(excl);
-			v.template use<Order>();
-			v.each([&fn](EntityId id, Order &, auto &...rest) {
+			auto v = reg.view<comp::Order, Ts...>(excl);
+			v.template use<comp::Order>();
+			v.each([&fn](EntityId id, comp::Order &, auto &...rest) {
 				fn(id, rest...);
 			});
 		}
 	}
 
-	// The same sorted-and-driven view eachOrdered iterates internally,
-	// handed back instead of walked -- for a caller that wants entt's own
-	// iterator/size_hint surface over the declared order.
-	template <class... Ts> [[nodiscard]] auto ordered()
-	{
-		ensureOrdered();
-		auto v = reg_.view<Order, Ts...>();
-		v.template use<Order>();
-		return v;
-	}
-
 private:
-	// The world itself, for component types the typed surface above does
-	// not cover. Private: everything outside Battle goes through
-	// attach/find/has/detach instead.
-	[[nodiscard]] entt::registry &registry() noexcept { return reg_; }
-	[[nodiscard]] const entt::registry &registry() const noexcept
-	{
-		return reg_;
-	}
-
 	// The batch pipeline: one function per slot, run in this fixed order
 	// from step(). Later passes see earlier writes -- the sequence itself
 	// is the ordering contract.
@@ -449,32 +357,38 @@ private:
 	bool resolveAgainst(EntityId elem, usize elemIdx, EntityId test,
 			usize testIdx, TimeValue maxTime);
 	void killOverlapSpawn(EntityId id);
-	void recordSpawn(EntityId id, const Allegiance &allegiance);
+	void recordSpawn(EntityId id, const comp::Allegiance &allegiance);
 
 	// The death path's two mechanisms: DeathSpawn's payload (asteroid/
 	// rubble) and SweepsOwnedOnDeath's generic sweep (ordnance) --
 	// mutually exclusive per entity, run from both death call sites.
 	void runDeathResponses(EntityId id) noexcept;
 
-	// Destroys the entity and updates count_.
+	// Destroys the entity; the Order observer invalidates the sort.
 	void removeElement(EntityId id) noexcept;
 
 	// Re-sorts the Order pool by (layer, seq) iff a spawn or destroy has
-	// touched it since the last sort -- make() and removeElement set
-	// orderDirty_, so a steady-state frame sorts nothing.
+	// touched it since the last sort -- the observers below raise the flag,
+	// so a steady-state frame sorts nothing.
 	void ensureOrdered();
+
+	// Connected to on_construct/on_destroy<Order> in the constructor: the
+	// sort key's own pool says when the walk is stale, so no spawn or
+	// destroy path has to remember to.
+	void markOrderDirty(entt::registry &, EntityId) noexcept
+	{
+		orderDirty_ = true;
+	}
 
 	// The declared position every spawn gets: the caller's layer, FIFO
 	// within it. One counter, one place it advances, so make() and the
 	// spawn() family cannot drift apart on what seq means.
-	[[nodiscard]] Order nextOrder(Layer layer) noexcept;
+	[[nodiscard]] comp::Order nextOrder(Layer layer) noexcept;
 
-	entt::registry reg_;
-	// Set true by anything that adds or removes an Order -- see
-	// ensureOrdered(). Starts true: an empty pool has nothing to sort, but
-	// false would risk skipping the first real one.
+	// Set true by markOrderDirty -- see ensureOrdered(). Starts true: an
+	// empty pool has nothing to sort, but false would risk skipping the
+	// first real one.
 	bool orderDirty_ = true;
-	usize count_ = 0;
 	Rng rng_;
 	u64 frame_ = 0;
 	u64 nextSeq_ = 0;
@@ -510,9 +424,9 @@ public:
 	{
 		using U = std::decay_t<T>;
 		if constexpr (std::is_empty_v<U>)
-			b_.attach<U>(id_);
+			b_.reg.emplace<U>(id_);
 		else
-			b_.attach<U>(id_, std::forward<T>(value));
+			b_.reg.emplace<U>(id_, std::forward<T>(value));
 		return *this;
 	}
 

@@ -13,8 +13,6 @@
 #include <optional>
 #include <type_traits>
 
-#define comp
-
 namespace uqm::sim {
 
 class Battle;
@@ -52,16 +50,20 @@ constexpr ShipInput &operator|=(ShipInput &a, ShipInput b) noexcept
 	return static_cast<u8>(f) != 0;
 }
 
+namespace comp::inline shot {
+
 // Guidance parameters copied from the spec at fire time, plus the shot's
 // own tracking clock. Attached by the fire block when the spec declares
 // guidance; guidedShotPreProcess is its system function.
-comp struct Guided
+struct Guided
 {
 	i32 trackWait = 0;
 	i32 maxSpeed = 0;
 	i32 thrustScale = 0;
 	i32 clock = 0;
 };
+
+}  // namespace comp::inline shot
 
 // A ship's weapon: the primary-fire descriptor plus the shot's own flight
 // parameters, guidance, and per-frame/collision hooks.
@@ -79,13 +81,13 @@ struct WeaponSpec
 	// The fire block attaches these verbatim to a shot. `lifetime.remaining`
 	// and `vitality.hitPoints` are also read as plain scalars elsewhere
 	// (guidedShotPreProcess, ShipView) -- the spec itself never decrements.
-	Lifetime lifetime;
-	Vitality vitality;
-	Warhead warhead;
+	comp::Lifetime lifetime;
+	comp::Vitality vitality;
+	comp::Warhead warhead;
 
 	// Guided-weapon parameters (human.c:36-44); absent for a weapon that
 	// just flies straight, which is most of them.
-	std::optional<Guided> guided;
+	std::optional<comp::Guided> guided;
 
 	// The primary weapon, as a pure descriptor function (Spawn.hpp).
 	SpawnFn spawn = nullptr;
@@ -163,10 +165,12 @@ struct ShipSpec
 	}
 };
 
+namespace comp::inline ship {
+
 // A ship's mutable half. The C keeps this in STARSHIP beside the ELEMENT;
 // here it is a registry component keyed by the same entity, destroyed
 // with it.
-comp struct ShipState
+struct ShipState
 {
 	// Hooks hold a ShipState& across spawns and other hooks (shipPostProcess'
 	// weapon loop); stable addresses are load-bearing, exactly as for Element.
@@ -198,23 +202,31 @@ comp struct ShipState
 
 // What the player is asking for, as its own component: every ship has one
 // (Battle::attachShip), so the app writes it without a ShipState field.
-comp struct Input
+struct Input
 {
 	ShipInput buttons = ShipInput::None;
 };
 
+}  // namespace comp::inline ship
+
+namespace comp::inline shot {
+
 // Which WeaponSpec a shot came from: read for collision masks and cel
 // lookup as much as for steering. The pointer is copied out by readers,
 // never held into the pool, so default storage suffices.
-comp struct FromWeapon
+struct FromWeapon
 {
 	Borrowed<const WeaponSpec> spec = nullptr;
 };
 
+}  // namespace comp::inline shot
+
+namespace comp::inline ship {
+
 // Only a ship with one carries it. `level`: 0 = solid (STAMP), 1..5 =
 // STAMPFILL fade steps, kFullLevel (6) = fully cloaked (black). Walked
 // one step per frame, reversed to uncloak (ilwrath.c:255-273).
-comp struct Cloak
+struct Cloak
 {
 	// Five visible fill colours (levels 1..5), then black.
 	static constexpr i32 kVisibleColours = 5;
@@ -225,7 +237,7 @@ comp struct Cloak
 
 // Presence is the phase; removal replaces the C's per-instance hook swap
 // (tactrans.c:868-886, 703-728). shipPreProcess dispatches on these.
-comp struct WarpingIn
+struct WarpingIn
 {
 	// HYPERJUMP_LIFE (element.h:69): how long a ship spends warping in,
 	// invisible and untouchable, before it becomes real.
@@ -236,7 +248,7 @@ comp struct WarpingIn
 	static constexpr i32 kImageSpacing = displayToWorld(40);
 };
 
-comp struct Exploding
+struct Exploding
 {
 	// NUM_EXPLOSION_FRAMES (element.h:71).
 	static constexpr i32 kFrames = 12;
@@ -249,16 +261,21 @@ comp struct Exploding
 	static constexpr i32 kHullVanishAge = 15;
 };
 
-static_assert(std::is_empty_v<WarpingIn> && std::is_empty_v<Exploding>);
+}  // namespace comp::inline ship
+
+static_assert(
+		std::is_empty_v<comp::WarpingIn> && std::is_empty_v<comp::Exploding>);
+
+namespace comp::inline life {
 
 // cleanup_dead_ship (tactrans.c:307-337): attached the instant a ship
 // starts exploding (startShipExplosion). The death path (Battle.cpp)
 // checks this tag instead of a per-element function pointer.
-comp struct SweepsOwnedOnDeath
+struct SweepsOwnedOnDeath
 {};
 
-}  // namespace uqm::sim
+}  // namespace comp::inline life
 
-#undef comp
+}  // namespace uqm::sim
 
 #endif  // UQM2_SIM_SHIP_HPP

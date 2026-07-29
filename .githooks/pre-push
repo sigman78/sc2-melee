@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# clang-tidy before anything leaves the machine. CI builds, tests and checks
+# formatting on three platforms; it does not lint, because clang-tidy over
+# this tree costs minutes of hosted runner per push for an answer that never
+# depends on the platform. Formatting stays on pre-commit and CI.
+#
+# Lint is scoped to the translation units this push actually changes --
+# linting all 40 would be ~12 core-minutes for a one-file fix.
+#
+# Skip with SC2M_SKIP_HOOKS=1 (a mechanical sweep, then lint once by hand;
+# not habit).
+set -uo pipefail
+[ "${SC2M_SKIP_HOOKS:-0}" = "1" ] && exit 0
+
+cd "$(git rev-parse --show-toplevel)"
+
+if ! command -v clang-tidy > /dev/null; then
+	echo "pre-push: clang-tidy not found; skipping lint" >&2
+	exit 0
+fi
+
+# What this push adds, per ref git is actually pushing -- read from stdin,
+# not from HEAD, because `git push origin main:main` from a feature branch
+# checkout would otherwise lint the branch instead of what is being sent.
+#
+# A ref the remote does not have yet reports an all-zero remote sha; the
+# range is then taken against origin/main, and a ref with no merge base at
+# all (a fresh clone, a detached head) lints nothing rather than guessing at
+# the whole tree.
+kZero=0000000000000000000000000000000000000000
+changed=""
+while read -r _localRef localSha _remoteRef remoteSha; do
+	[ "$localSha" = "$kZero" ] && continue  # a deletion
+	if [ "$remoteSha" = "$kZero" ]; then
+		base=$(git merge-base "$localSha" origin/main 2> /dev/null || true)
+	else
+		base=$remoteSha
+	fi
+	[ -z "$base" ] && continue
+	changed="$changed$(git diff --name-only --diff-filter=ACMR \
+		"$base" "$localSha" -- 'src/*.cpp' 'tests/*.cpp')
+"
+done
+
+changed=$(printf '%s' "$changed" | grep -v '^$' | sort -u || true)
+[ -z "$changed" ] && exit 0
+
+if [ ! -f "${SC2M_BUILD_DIR:-build}/compile_commands.json" ]; then
+	echo "pre-push: no compile_commands.json; skipping lint" >&2
+	exit 0
+fi
+
+echo "pre-push: linting $(echo "$changed" | wc -l) changed translation units" >&2
+SC2M_LINT_FILES="$changed" tools/lint.sh || {
+	echo "pre-push: clang-tidy failed -- fix, or push with SC2M_SKIP_HOOKS=1" >&2
+	exit 1
+}
+exit 0

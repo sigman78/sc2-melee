@@ -10,8 +10,6 @@
 #include <span>
 #include <vector>
 
-#define comp
-
 namespace uqm::sim {
 
 // Swept per-pixel time-of-impact collision: intersec.c, rewritten (per-pixel
@@ -96,10 +94,12 @@ struct Impact
 [[nodiscard]] Impact sweptIntersect(
 		const Body &b0, const Body &b1, TimeValue maxTime = kMaxTimeValue);
 
+namespace comp::inline matter {
+
 // Per-entity collision bookkeeping for one frame: already collided (skip
 // re-testing) and defying physics (met with no relative motion to exchange).
 // Impulse.cpp and Damage.cpp write these directly.
-comp struct CollisionScratch
+struct CollisionScratch
 {
 	bool collided = false;
 	bool defyPhysics = false;
@@ -107,7 +107,7 @@ comp struct CollisionScratch
 
 // Solidity is having one: checked alongside Doomed (Battle::collidable).
 // Attach/detach is the runtime toggle.
-comp struct Collider
+struct Collider
 {
 	Borrowed<const CollisionMask> mask = nullptr;
 };
@@ -115,13 +115,13 @@ comp struct Collider
 // A durable copy of a birth mask, carried independently of Collider and
 // outliving it -- the asteroid field's recycle (Field.cpp). A kill detaches
 // Collider immediately; the mask survives here for the rubble/replacement.
-comp struct StashedMask
+struct StashedMask
 {
 	Borrowed<const CollisionMask> mask = nullptr;
 };
 
-}  // namespace uqm::sim
+}  // namespace comp::inline matter
 
-#undef comp
+}  // namespace uqm::sim
 
 #endif  // UQM2_SIM_COLLISION_HPP

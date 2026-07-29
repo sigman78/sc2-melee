@@ -6,21 +6,24 @@
 #include "engine/core/Types.hpp"
 #include "sim/Element.hpp"
 
-#define comp
-
 namespace uqm::sim {
 
 class Battle;
+
+namespace comp::inline ship {
 struct ShipState;
+}  // namespace comp::inline ship
 
 // Who loses what when things touch. do_damage (misc.c:204-225), DeltaCrew
 // (status.c:333-370), weapon_collision (weapon.c:135-190) and collision
 // (ship.c:352-377).
 
+namespace comp::inline harm {
+
 // Ship crew damage accumulated this frame, from every source, before one
 // summed application and death check at the sync point. `lastFrom` is not
 // yet consumed by anything.
-comp struct DamageIncoming
+struct DamageIncoming
 {
 	i32 amount = 0;
 	EntityId lastFrom = kNoEntity;
@@ -29,17 +32,19 @@ comp struct DamageIncoming
 // A weapon's damage. `blastOffset` positions the impact blast; `lingersOnHit`
 // (ilwrath.c:141-148) undoes the death mark on impact so the flame still
 // draws for the frame it died on -- every other weapon leaves it false.
-comp struct Warhead
+struct Warhead
 {
 	i32 damage = 0;
 	i32 blastOffset = 0;
 	bool lingersOnHit = false;
 };
 
+}  // namespace comp::inline harm
+
 // Applies a crew change and reports whether the ship survived it. False means
 // this reduced the crew to zero -- which is the *only* thing the caller acts
 // on, so it is the return value rather than a count.
-bool deltaCrew(ShipState &s, i32 delta) noexcept;
+bool deltaCrew(comp::ShipState &s, i32 delta) noexcept;
 
 // Hurts whatever this is. A gravity mass takes no damage (misc.c:214, asked
 // without gravity.c's `+1`). A crewed hull's damage stacks in DamageIncoming
@@ -58,7 +63,5 @@ void weaponCollision(Battle &b, EntityId id, EntityId targetId) noexcept;
 void solidCollision(Battle &b, EntityId id, EntityId otherId) noexcept;
 
 }  // namespace uqm::sim
-
-#undef comp
 
 #endif  // UQM2_SIM_DAMAGE_HPP

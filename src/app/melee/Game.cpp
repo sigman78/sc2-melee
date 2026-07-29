@@ -60,8 +60,8 @@ namespace {
 
 void setUpBattle(Game &g)
 {
-	auto &cfg = g.battle.context<BattleConfig>();
-	auto &match = g.battle.context<MatchState>();
+	auto &cfg = g.battle.reg.ctx().get<ctx::BattleConfig>();
+	auto &match = g.battle.reg.ctx().get<ctx::MatchState>();
 
 	// Random facings and random positions, as the C does (ship.c:456, 473).
 	// The facing has to be chosen before the ship is spawned, because the
@@ -102,11 +102,11 @@ void setUpBattle(Game &g)
 
 	// The starfield: one entity, positions spread over the arena in display
 	// pixels (see kStarField), populated once here.
-	Starfield sf;
+	comp::Starfield sf;
 	for (Vec2i &s : sf.stars)
 		s = Vec2i{static_cast<i32>(g.battle.rng().next() % kStarField.w),
 				static_cast<i32>(g.battle.rng().next() % kStarField.h)};
-	g.battle.attach<Starfield>(g.battle.create(), sf);
+	g.battle.reg.emplace<comp::Starfield>(g.battle.create(), sf);
 
 	// Asteroids first, then the planet -- init.c:228-233's order. The planet's
 	// placement loop rejects anything it would overlap, so it has to be able
@@ -120,9 +120,9 @@ void setUpBattle(Game &g)
 
 void setUp(Game &g, const std::filesystem::path &content)
 {
-	g.battle.setContext<MatchState>(MatchState{});
-	g.battle.setContext<DebugToggles>(DebugToggles{});
-	g.battle.setContext<game::Camera>(game::Camera{});
+	g.battle.reg.ctx().insert_or_assign(ctx::MatchState{});
+	g.battle.reg.ctx().insert_or_assign(ctx::DebugToggles{});
+	g.battle.reg.ctx().insert_or_assign(game::Camera{});
 
 	loadAssets(g, content);
 	setUpBattle(g);
@@ -130,9 +130,10 @@ void setUp(Game &g, const std::filesystem::path &content)
 	// The initial furniture -- both ships, the asteroids, the planet -- gets
 	// its Visual now; everything spawned later is caught in iterate(). Keyed
 	// on Allegiance, which every spawned element carries.
-	g.battle.eachOrdered<sim::Allegiance>(
-			[&g](sim::EntityId id, sim::Allegiance &a) {
-				g.battle.attach<Visual>(id, visualFor(g, id, a.playerNr));
+	g.battle.eachOrdered<sim::comp::Allegiance>(
+			[&g](sim::EntityId id, sim::comp::Allegiance &a) {
+				g.battle.reg.emplace<comp::Visual>(
+						id, visualFor(g, id, a.playerNr));
 			});
 }
 
@@ -144,8 +145,8 @@ void iterate(Game &g)
 		return;
 	}
 
-	auto &debug = g.battle.context<DebugToggles>();
-	auto &match = g.battle.context<MatchState>();
+	auto &debug = g.battle.reg.ctx().get<ctx::DebugToggles>();
+	auto &match = g.battle.reg.ctx().get<ctx::MatchState>();
 
 	const int steps = g.pacer.stepsDue(g.window.now());
 	for (int i = 0; i < steps; ++i)
@@ -164,8 +165,14 @@ void iterate(Game &g)
 					debug.overlay = !debug.overlay;
 				debug.wasDown = debugDown;
 			}
-			if (sim::Input *in = g.battle.find<sim::Input>(match.shipIds[p]))
-				in->buttons = toShipInput(b);
+			// shipIds outlives its ship: the wreck is reaped 36 frames into
+			// the explosion and the handle goes stale, so liveness is asked
+			// before the pool is.
+			const sim::EntityId shipId = match.shipIds[p];
+			if (g.battle.alive(shipId))
+				if (sim::comp::Input *in =
+								g.battle.reg.try_get<sim::comp::Input>(shipId))
+					in->buttons = toShipInput(b);
 		}
 		g.battle.step();
 
@@ -173,7 +180,8 @@ void iterate(Game &g)
 		// (design-notes.md D5); only drawing them is optional. Each becomes a
 		// bare Mark entity, reaped by age below, not the sim's Doomed/reap.
 		for (const sim::CollisionEvent &c : g.battle.collisions())
-			g.battle.attach<Mark>(g.battle.create(), Mark{c, g.battle.frame()});
+			g.battle.reg.emplace<comp::Mark>(
+					g.battle.create(), comp::Mark{c, g.battle.frame()});
 
 		playStepSounds(g);
 
@@ -183,7 +191,7 @@ void iterate(Game &g)
 		for (const sim::SpawnEvent &sp : g.battle.spawns())
 		{
 			if (g.battle.alive(sp.id))
-				g.battle.attach<Visual>(
+				g.battle.reg.emplace<comp::Visual>(
 						sp.id, visualFor(g, sp.id, sp.playerNr));
 		}
 	}
@@ -193,8 +201,8 @@ void iterate(Game &g)
 	// sim's Doomed/reap protocol. Collected first: destroying mid-view isn't
 	// safe.
 	std::vector<sim::EntityId> agedOut;
-	g.battle.view<Mark>().each([&](sim::EntityId id, Mark &m) {
-		if (g.battle.frame() - m.bornFrame > Mark::kLife)
+	g.battle.reg.view<comp::Mark>().each([&](sim::EntityId id, comp::Mark &m) {
+		if (g.battle.frame() - m.bornFrame > comp::Mark::kLife)
 			agedOut.push_back(id);
 	});
 	for (sim::EntityId const id : agedOut)
@@ -232,9 +240,10 @@ void iterate(Game &g)
 	usize living = 0;
 	for (const sim::EntityId id : match.shipIds)
 		if (g.battle.alive(id))
-			eyes[living++] = g.battle.find<sim::Position>(id)->current;
+			eyes[living++] =
+					g.battle.reg.try_get<sim::comp::Position>(id)->current;
 	if (living > 0)
-		g.battle.context<game::Camera>().follow(
+		g.battle.reg.ctx().get<game::Camera>().follow(
 				std::span<const Vec2i>{eyes.data(), living});
 
 	draw(g);

@@ -8,3 +8,6 @@ CMakeUserPresets.json
 
 # Agent worktrees, created by tooling and never committed
 .claude/worktrees/
+
+# clangd's index, written beside the sources it indexes
+/.cache/
