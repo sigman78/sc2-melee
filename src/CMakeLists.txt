@@ -46,10 +46,9 @@ add_library(uqm2_content STATIC
 
 target_include_directories(uqm2_content PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# The same vendored spng sc2/ uses, so both trees decode content identically.
 # PRIVATE: spng.h is an implementation detail of PngImage.cpp and does not
 # leak into the library's own headers.
-target_link_libraries(uqm2_content PRIVATE uqm_spng)
+target_link_libraries(uqm2_content PRIVATE uqm2_spng)
 
 # PUBLIC, unlike spng: EntityId IS entt::entity and the registry sits in
 # sim/ headers -- the storage experiment, src/docs/review-004-entt.md.
@@ -145,7 +144,7 @@ if(EMSCRIPTEN)
 	# and planet art. About 3 MB against the 39 MB of a full base pack --
 	# streaming the rest is a real feature and belongs with the ship roster in
 	# M2, not here.
-	set(_melee_content "${CMAKE_CURRENT_SOURCE_DIR}/../sc2/content")
+	set(_melee_content "${UQM2_CONTENT_DIR}")
 	target_link_options(uqm2-melee PRIVATE
 		-sALLOW_MEMORY_GROWTH=1
 		-sINITIAL_MEMORY=134217728    # 128 MB

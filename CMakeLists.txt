@@ -52,6 +52,13 @@ option(UQM_TESTS "Build the unit tests in tests/" ON)
 # of that, and there is no reason for it to inherit the constraint just
 # because the two share a repository.
 option(UQM_LEGACY "Build the original C game in sc2/src" ON)
+
+# The content tree the rewrite's tools and tests read. The only thing src/ and
+# tests/ need from outside their own trees, and it is optional: the content,
+# game and browse_* tests are registered only when it exists, while sim,
+# replay and engine never touch it.
+set(UQM2_CONTENT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sc2/content" CACHE PATH
+	"UQM content tree for the rewrite's content-dependent tests and tools")
 	# Its own option rather than BUILD_TESTING, which Dependencies.cmake turns
 	# off in this scope to keep the fetched dependencies from building theirs.
 set(UQM_CONTENTDIR "" CACHE STRING
@@ -78,15 +85,15 @@ include(ConfigHeader)
 if(UQM_LEGACY)
 	add_executable(uqm)
 endif()
-# spng and miniz are shared: the rewrite decodes PNG through the same spng the
-# C game does, so both trees decode content identically. The rest belong to the
-# C game alone, and a target declared without sources is a configure error --
-# which is why these are conditional rather than merely unused.
-add_library(uqm_miniz STATIC)
-add_library(uqm_spng STATIC)
-set(UQM_VENDORED_TARGETS uqm_miniz uqm_spng)
+# A target declared without sources is a configure error, so every vendored
+# library here is conditional rather than merely unused. The rewrite does not
+# appear in this list: it builds its own spng and miniz from third_party/.
+set(UQM_VENDORED_TARGETS)
 
 if(UQM_LEGACY)
+	add_library(uqm_miniz STATIC)
+	add_library(uqm_spng STATIC)
+	list(APPEND UQM_VENDORED_TARGETS uqm_miniz uqm_spng)
 	add_library(uqm_uio STATIC)
 	add_library(uqm_mikmod STATIC)
 	add_library(uqm_stb STATIC)
@@ -220,14 +227,11 @@ endif()
 
 if(UQM_LEGACY)
 	add_subdirectory(sc2/src)
-else()
-	# The rewrite decodes PNG with the same vendored spng the C game uses, so
-	# both trees decode content identically -- deliberate, and worth keeping
-	# even when the rest of sc2/src is not built. spng inflates through miniz,
-	# hence both.
-	add_subdirectory(sc2/src/libs/vendor/miniz)
-	add_subdirectory(sc2/src/libs/vendor/spng)
 endif()
+
+# The rewrite's own PNG decode, independent of sc2/ (third_party/README.md).
+add_subdirectory(third_party/miniz)
+add_subdirectory(third_party/spng)
 add_subdirectory(src)
 
 # --- Tests -------------------------------------------------------------------
