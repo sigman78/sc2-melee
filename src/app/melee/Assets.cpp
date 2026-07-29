@@ -43,6 +43,13 @@ std::filesystem::path findContent(const std::filesystem::path &override_)
 			start = start.parent_path();
 		}
 	}
+
+#ifdef SC2M_CONTENT_DIR
+	// Configured at build time (UQM2_CONTENT_DIR). Last, so an executable
+	// moved next to its own content still wins the search above.
+	if (looksRight(SC2M_CONTENT_DIR))
+		return fs::path(SC2M_CONTENT_DIR);
+#endif
 	return {};
 }
 

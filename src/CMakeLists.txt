@@ -111,6 +111,12 @@ add_executable(sc2m-melee
 	app/melee/main.cpp
 )
 target_link_libraries(sc2m-melee PRIVATE sc2m_platform)
+
+# Where the content lives at configure time, as a last-resort fallback for
+# findContent: this tree does not sit above sc2/content the way the original
+# does, so the upward search alone finds nothing in a normal dev build.
+target_compile_definitions(sc2m-melee PRIVATE
+	SC2M_CONTENT_DIR="${UQM2_CONTENT_DIR}")
 if(MSVC)
 	target_compile_options(sc2m-melee PRIVATE /W4 /utf-8)
 else()
@@ -125,6 +131,8 @@ endif()
 # WAVs load" without a window, which a game with its own console cannot.
 add_executable(sc2m-audioprobe app/melee/audioprobe.cpp)
 target_link_libraries(sc2m-audioprobe PRIVATE sc2m_platform)
+target_compile_definitions(sc2m-audioprobe PRIVATE
+	SC2M_CONTENT_DIR="${UQM2_CONTENT_DIR}")
 
 if(EMSCRIPTEN)
 	# The browser build of the slice.
