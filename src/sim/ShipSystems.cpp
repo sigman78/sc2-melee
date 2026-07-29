@@ -207,31 +207,26 @@ void fireWeapon(Battle &b, EntityId id, comp::ShipState &s,
 				wPos.next = wPos.current;
 			}
 
-			// Queued, not spawned: it enters the world at the sync point and
-			// takes its first live frame the step after this one, one frame
-			// later than the C's same-step catch-up gave it.
-			b.queueSpawn(SpawnCommand{
-					.layer = Layer::Ordnance,
-					.position = wPos,
-					.motion = wMotion,
-					.physique = wPhys,
-					.allegiance = wAllegiance,
-					.weaponSpec = &spec.weapon,
+			// Built now, in the walk at the sync point: it takes its first
+			// live frame the step after this one, one frame later than the
+			// C's same-step catch-up gave it.
+			Spawned shot = b.spawn(Layer::Ordnance, wPos, wMotion, wPhys,
+					shotMask, wAllegiance);
+			shot.with(comp::FromWeapon{&spec.weapon})
+					.with(comp::Lifetime{sp.life})
+					.with(comp::Vitality{sp.hitPoints})
+					.with(comp::Warhead{sp.damage, sp.blastOffset,
+							spec.weapon.warhead.lingersOnHit})
+					.with(comp::AnimFrame{sp.frameIndex});
 
-					// Attached verbatim: the spec's own literal already carries
-					// the wound clock (initialize_nuke seeds TRACK_WAIT,
-					// human.c:297-299).
-					.guided = spec.weapon.guided,
-
-					.ignoreSimilar = sp.ignoreSimilar,
-					.lifetime = comp::Lifetime{sp.life},
-					.vitality = comp::Vitality{sp.hitPoints},
-					.warhead = comp::Warhead{sp.damage, sp.blastOffset,
-							spec.weapon.warhead.lingersOnHit},
-					.animFrame = comp::AnimFrame{sp.frameIndex},
-					.frameDriven = spec.weapon.frameDriven,
-					.collider = shotMask,
-			});
+			// Verbatim: the spec's own literal already carries the wound
+			// clock (initialize_nuke seeds TRACK_WAIT, human.c:297-299).
+			if (spec.weapon.guided)
+				shot.with(*spec.weapon.guided);
+			if (sp.ignoreSimilar)
+				shot.with(comp::IgnoreSimilar{});
+			if (spec.weapon.frameDriven)
+				shot.with(comp::FrameDriven{});
 		}
 
 		s.weaponCounter = spec.weapon.wait;
@@ -437,15 +432,11 @@ void spawnIonTrail(Battle &b, EntityId ship) noexcept
 			shipPos.current.y + sine(angle, back)});
 	pos.next = pos.current;
 
-	// Queued, not spawned: Background layer so it draws behind everything
-	// that matters, once it exists next frame.
-	b.queueSpawn(SpawnCommand{
-			.layer = Layer::Background,
-			.position = pos,
-			.effect = true,  // stationary: no Motion needed
-			.trail = true,
-			.lifetime = comp::Lifetime{comp::Trail::kLife},
-	});
+	// Background layer so it draws behind everything that matters, once it
+	// is in the walk next frame. Stationary: no Motion.
+	b.spawnEffect(Layer::Background, pos)
+			.with(comp::Trail{})
+			.with(comp::Lifetime{comp::Trail::kLife});
 }
 
 namespace {
@@ -489,18 +480,13 @@ void warpInStep(Battle &b, EntityId id) noexcept
 				shipPos.current.y - sine(angle, back)});
 		shadowPos.next = shadowPos.current;
 
-		b.queueSpawn(SpawnCommand{
-				.layer = Layer::Background,
-				.position = shadowPos,
-				// Picks which ship's sprites to draw; no owner of its own.
-				.allegiance =
-						comp::Allegiance{
-								b.reg.get<comp::Allegiance>(id).playerNr,
-								kNoEntity},
-				.effect = true,  // stationary: no Motion needed
-				.shadow = true,
-				.lifetime = comp::Lifetime{comp::Trail::kLife},
-		});
+		// The allegiance picks which ship's sprites to draw; no owner of its
+		// own. Stationary, so no Motion.
+		b.spawnEffect(Layer::Background, shadowPos,
+				 comp::Allegiance{
+						 b.reg.get<comp::Allegiance>(id).playerNr, kNoEntity})
+				.with(comp::Shadow{})
+				.with(comp::Lifetime{comp::Trail::kLife});
 	}
 
 	if (!b.alive(id))
@@ -616,17 +602,11 @@ void explosionStep(Battle &b, EntityId id) noexcept
 		dMotion.velocity.setComponents(cosine(drift, worldToVelocity(speed)),
 				sine(drift, worldToVelocity(speed)));
 
-		b.queueSpawn(SpawnCommand{
-				.layer = Layer::Background,
-				.position = dPos,
-				.motion = dMotion,
-				// Never collidable, but the one decoration that drifts, so it
-				// needs Motion where the others don't.
-				.effect = true,
-				.effectMoves = true,
-				.debris = true,
-				.lifetime = comp::Lifetime{comp::Debris::kLife},
-		});
+		// Never collidable, but the one decoration that drifts -- so it takes
+		// the Motion overload where the others don't.
+		b.spawnEffect(Layer::Background, dPos, dMotion)
+				.with(comp::Debris{})
+				.with(comp::Lifetime{comp::Debris::kLife});
 	}
 }
 

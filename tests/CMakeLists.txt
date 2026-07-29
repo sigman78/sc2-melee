@@ -31,8 +31,8 @@ target_link_libraries(sim_test PRIVATE sc2m_content)
 if(MSVC)
 	target_compile_options(sim_test PRIVATE /W4 /utf-8)
 else()
-	# Same rationale as sc2m_content (src/CMakeLists.txt): this file builds a
-	# SpawnCommand as a partial designated-initializer literal over its
+	# Same rationale as sc2m_content (src/CMakeLists.txt): this file builds
+	# components as partial designated-initializer literals over their
 	# meaningful defaults, not a missing-field bug.
 	target_compile_options(sim_test PRIVATE -W -Wall -Wextra
 		-Wno-missing-field-initializers)

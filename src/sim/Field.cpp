@@ -208,14 +208,11 @@ void advanceAsteroidCycle(Battle &b, EntityId id) noexcept
 		// sequence, and that draw must happen at the sync point in queue
 		// order -- drawing early would desynchronise the field's stream from
 		// whatever else the sync point still draws this frame.
-		b.queueSpawn(SpawnCommand{
-				.deferred =
-						[](Battle &bb,
-								Borrowed<const CollisionMask> m) noexcept {
-							(void)spawnAsteroid(bb, m);
-						},
-				.deferredMask = rock.mask,
-		});
+		b.queueDeferred(
+				[](Battle &bb, Borrowed<const CollisionMask> m) noexcept {
+					(void)spawnAsteroid(bb, m);
+				},
+				rock.mask);
 		return;
 	}
 
@@ -226,19 +223,14 @@ void advanceAsteroidCycle(Battle &b, EntityId id) noexcept
 	rPos.current = deadPos.current;
 	rPos.next = rPos.current;
 
-	// Queued, not spawned: it enters the world at the sync point and acts
-	// next frame. The rubble never collides; it is a five-frame timer that
-	// carries the mask to the replacement asteroid.
-	b.queueSpawn(SpawnCommand{
-			.layer = Layer::Ordnance,
-			.position = rPos,
-			.allegiance = comp::Allegiance{deadAllegiance.playerNr, kNoEntity},
-			.effect = true,  // stationary: no Motion needed
-			.blast = true,
-			.lifetime = comp::Lifetime{5},
-			.asteroid =
-					comp::Asteroid{rock.mask, comp::Asteroid::Phase::Rubble},
-	});
+	// In the walk at the sync point, acting next frame. The rubble never
+	// collides; it is a five-frame timer that carries the mask to the
+	// replacement asteroid. Stationary, so no Motion.
+	b.spawnEffect(Layer::Ordnance, rPos,
+			 comp::Allegiance{deadAllegiance.playerNr, kNoEntity})
+			.with(comp::Blast{})
+			.with(comp::Lifetime{5})
+			.with(comp::Asteroid{rock.mask, comp::Asteroid::Phase::Rubble});
 }
 
 }  // namespace uqm::sim

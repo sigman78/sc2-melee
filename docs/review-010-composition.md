@@ -100,7 +100,7 @@ deleted rather than kept for symmetry.
 
 So: `entt::registry reg` becomes a public member, every pass-through is
 deleted, and what stays is what has semantics — `eachOrdered`, the `spawn`
-family, `alive`, `collidable`, `queueSpawn`, `step`, `rng`.
+family, `alive`, `collidable`, the spawn queue, `step`, `rng`.
 
 `ship()` and `weaponSpec()` stay, which is a line worth stating rather than
 leaving as an omission. They are named accessors for one component each,
@@ -152,7 +152,7 @@ the *simulation*, and says nothing about the app above it.
 | W2 | The entt surface goes: public `reg`, pass-throughs deleted, `count_` and `orderDirty_` derived | **done, bit-green** — 17 member templates deleted, ~430 call sites, two real defects found (below) |
 | W3 | `lifeSpanOf` says what it means: both dead clauses deleted, `framesLeft` asserts, `isFiniteLife` becomes `isTransient` | **done, bit-green** — both claims proved by assert over the whole suite before deletion |
 | W4 | `comp::Asteroid{mask, phase}` replaces `DeathSpawn` and `StashedMask` | **done, bit-green** — three tests moved off the generic payload onto the real mechanic |
-| W5 | Spawns are built, not described: eager creation with `Order` withheld; `SpawnCommand` deleted | pending |
+| W5 | Spawns are built, not described: eager creation with `Order` withheld; `SpawnCommand` deleted | **done, bit-green** — six passes joined `Order`, one escape hatch left |
 | W6 | Specials: `SpecialSpec` is the gate only; `PointDefence` and `Cloak` are components; `preProcess` and `hook` deleted | pending |
 | W7 | `Lifetime` stops being a counter: `{born, span}`, `ageDecrementPass` deleted | pending |
 
@@ -230,6 +230,38 @@ is the signal to revisit.
 
 The failure mode is loud: miss a pass and a newborn steps a frame early,
 which the baseline flags on the first battle.
+
+### What W5 found
+
+**The deferral is a property of the moment, not of the call site.** `make()`
+reads one flag: inside `step()` the Order is withheld, outside it lands at
+once. Every existing spawn site was then correct without saying which it
+wanted -- setup spawns land immediately because placement has to see what it
+must not overlap, mid-frame spawns wait. The flag is cleared *before* the
+landing runs, so the one deferred construction takes its Order in queue
+order like everything else.
+
+**`resolveAgainst`'s invariant needed restating, not fixing.** Its comment
+said "nothing spawns or is destroyed mid-Collide, so neither pool moves
+under these references" -- and after W5 things do spawn there (the blast,
+the overlap-kill's rubble). The references survive anyway, for a reason the
+comment did not give: entt pages component storage for pointer stability on
+insertion, so only a *destroy* moves an element, and nothing is destroyed
+mid-Collide. The comment says that now.
+
+**`recordSpawn` moved to the landing**, which is also the moment every
+component is attached -- so the flavor it derives reads a finished entity
+rather than one mid-construction. That deleted `spawn()`'s `warhead`
+parameter, which existed only to get a `Warhead` attached before the record.
+
+**One test had to be rebuilt rather than ported.**
+`testSpawnLandsAtSyncAndActsNextFrame` emitted from outside a step, which
+now lands immediately by design, so the property it named could not be
+observed that way. The replacement drives the asteroid cycle -- which emits
+from slot 2 -- and probes with the rubble's own countdown: AgeDecrement runs
+at slot 11 of the same step, so an untouched counter is proof the entity was
+not in the walk. That is a stricter test than the position check it
+replaced, which a stationary child would have passed vacuously.
 
 **Prototypes and clone were considered and deferred.** entt has no
 first-class clone; it is a type-erased loop over `reg.storage()` doing
