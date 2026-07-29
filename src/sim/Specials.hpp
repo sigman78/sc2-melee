@@ -17,8 +17,9 @@ class Battle;
 // (ShipSpec::equip) plus a step over it. Nothing here names a ship, and a
 // ship that reuses a mechanic costs nothing outside its own file.
 //
-// The two entry points below are the roster: adding a mechanic is a
-// component, a step, and one line in the matching dispatcher.
+// The two slots below are this header's whole surface. The mechanics
+// themselves are internal to Specials.cpp: adding one is a component, a step
+// there, and one line in the matching dispatcher.
 
 // The pre-turn slot, run from ShipMachines: what the C puts in
 // RACE_DESC.preprocess_func (ship.c:232-236). The cloak lives here because
@@ -28,15 +29,6 @@ void runPreTurnSpecials(Battle &b, EntityId id) noexcept;
 // The post-fire slot, run from the gate that spent the debounce
 // (ship.c:342-346).
 void runGatedSpecials(Battle &b, EntityId id) noexcept;
-
-// The cloak machine (ilwrath.c:232-394): walks Cloak::level, keeps the
-// Cloaked tag in sync with it, and snaps the ambush shot. Sole writer of
-// both, which is why every other reader just asks has<Cloaked>.
-void cloakStep(Battle &b, EntityId id) noexcept;
-
-// Point defence (human.c:203-236): burns every shot in range, paying once
-// for the volley. Reads PointDefence::range.
-void pointDefenceStep(Battle &b, EntityId id) noexcept;
 
 }  // namespace uqm::sim
 

@@ -62,8 +62,9 @@ void cloakedAutoAim(Battle &b, EntityId id) noexcept
 	applyFacingMask(b, id, pos->facing, *s->spec);
 }
 
-}  // namespace
-
+// The cloak machine (ilwrath.c:232-394): walks Cloak::level, keeps the
+// Cloaked tag in sync with it, and snaps the ambush shot. Sole writer of
+// both, which is why every other reader just asks has<Cloaked>.
 void cloakStep(Battle &b, EntityId id) noexcept
 {
 	if (!b.alive(id))
@@ -144,6 +145,8 @@ void cloakStep(Battle &b, EntityId id) noexcept
 		b.reg.remove<comp::Cloaked>(id);
 }
 
+// Point defence (human.c:203-236): burns every shot in range, paying once
+// for the volley. Reads PointDefence::range.
 void pointDefenceStep(Battle &b, EntityId id) noexcept
 {
 	const comp::Allegiance *shipAllegiance =
@@ -226,8 +229,11 @@ void pointDefenceStep(Battle &b, EntityId id) noexcept
 			});
 }
 
-// The two dispatchers. Component presence is the selector, so no ship is
-// named here and the walk position stays exactly where the C put it.
+}  // namespace
+
+// The two dispatchers, and the whole of this file's surface: component
+// presence is the selector, so no ship is named here and the walk position
+// stays exactly where the C put it.
 void runPreTurnSpecials(Battle &b, EntityId id) noexcept
 {
 	if (b.reg.all_of<comp::Cloak>(id))
